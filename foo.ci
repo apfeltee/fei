@@ -1,0 +1,33 @@
+class ParentClass
+{
+    init(name)
+    {
+        this.name = name;
+    }
+
+    printName()
+    {
+        println(this.name, "\n");
+    }
+}
+
+var parent = ParentClass("My name");
+parent.printName();
+
+class ChildClass from ParentClass
+{
+    init(name, age)
+    {
+        super.init(name);
+        this.age = age;
+    }
+
+    printAge()
+    {
+        println(this.age, "\n");
+    }
+}
+
+var child = ChildClass("Your name", 17);
+child.printName();
+child.printAge();
