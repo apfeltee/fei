@@ -17,7 +17,7 @@
 #define GC_HEAP_GROW_FACTOR 2
 
 // macro to avoid redundantly cast void* back to desired type
-#define ALLOCATE_OBJ(type, objectType) (type*)mem_allocobject(vm, sizeof(type), objectType)
+#define ALLOCATE_OBJ(type, objecttype) (type*)mem_allocobject(vm, sizeof(type), objecttype)
 
 // local variables array in compiler, max of 1 byte is 255
 #define UINT8_COUNT (UINT8_MAX + 1)
@@ -39,17 +39,17 @@
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
 // type comparisons
-#define IS_BOOL(value) ((value).type == VAL_BOOL)
-#define IS_NULL(value) ((value).type == VAL_NULL)
-#define IS_NUMBER(value) ((value).type == VAL_NUMBER)
-#define IS_OBJ(value) ((value).type == VAL_OBJ)
+#define obj_isbool(value) ((value).type == VAL_BOOL)
+#define obj_isnull(value) ((value).type == VAL_NULL)
+#define obj_isnumber(value) ((value).type == VAL_NUMBER)
+#define obj_isobject(value) ((value).type == VAL_OBJ)
 
 
 // from VALUE STRUCT to RAW  C nicely used in printing
 // also for comparisons -> use values ALREADY CONVERTED to Value struct union to raw C
-#define AS_BOOL(value) ((value).as.boolean)
-#define AS_NUMBER(value) ((value).as.number)
-#define AS_OBJ(value) ((value).as.obj)
+#define obj_asbool(value) ((value).as.boolean)
+#define obj_asnumber(value) ((value).as.number)
+#define obj_asobject(value) ((value).as.obj)
 
 
 // macros for conversions from code type to struct Value union type
@@ -60,59 +60,61 @@
 -> . means as
 IMPORTANT = these macros give a 'tag' to each respective values
 */
-#define BOOL_VAL(value) ((Value){ VAL_BOOL, { .boolean = value } })
-#define NULL_VAL ((Value){ VAL_NULL, { .number = 0 } })
-#define NUMBER_VAL(value) ((Value){ VAL_NUMBER, { .number = value } })
-#define OBJ_VAL(object) ((Value){ VAL_OBJ, { .obj = (Obj*)object } })// pass in as a pointer to the object, receives the actual object
+#define obj_mkbool(value) ((Value){ VAL_BOOL, { .boolean = value } })
+#define obj_nullval ((Value){ VAL_NULL, { .number = 0 } })
+#define obj_mknumber(value) ((Value){ VAL_NUMBER, { .number = value } })
+// pass in as a pointer to the object, receives the actual object
+#define obj_mkobject(object) ((Value){ VAL_OBJ, { .obj = (Obj*)object } })
 
 
-#define OBJ_TYPE(value) (AS_OBJ(value)->type)// extracts the tag
+#define obj_type(value) (obj_asobject(value)->type)
 
 // macros for checking(bool) whether an object is a certain type
-#define IS_BOUND_METHOD(value) obj_istype(value, OBJ_BOUND_METHOD)
-#define IS_CLASS(value) obj_istype(value, OBJ_CLASS)
-#define IS_FUNCTION(value) obj_istype(value, OBJ_FUNCTION)
-#define IS_INSTANCE(value) obj_istype(value, OBJ_INSTANCE)
-#define IS_NATIVE(value) obj_istype(value, OBJ_NATIVE)
-#define IS_STRING(value) obj_istype(value, OBJ_STRING)// takes in raw Value, not raw Obj*
-#define IS_CLOSURE(value) obj_istype(value, OBJ_CLOSURE)
+#define obj_isboundmethod(value) obj_istype(value, OBJ_BOUND_METHOD)
+#define obj_isclass(value) obj_istype(value, OBJ_CLASS)
+#define obj_isfunction(value) obj_istype(value, OBJ_FUNCTION)
+#define obj_isinstance(value) obj_istype(value, OBJ_INSTANCE)
+#define obj_isnative(value) obj_istype(value, OBJ_NATIVE)
+// takes in raw Value, not raw Obj*
+#define obj_isstring(value) obj_istype(value, OBJ_STRING)
+#define obj_isclosure(value) obj_istype(value, OBJ_CLOSURE)
 
 // macros to tell that it is safe when creating a tag, by returning the requested type
 // take a Value that is expected to conatin a pointer to the heap, first returns pointer second the charray itself
 // used to cast as an ObjType pointer, from a Value type
-#define AS_BOUND_METHOD(value) ((ObjBoundMethod*)AS_OBJ(value))
-#define AS_CLASS(value) ((ObjClass*)AS_OBJ(value))
-#define AS_INSTANCE(value) ((ObjInstance*)AS_OBJ(value))
-#define AS_CLOSURE(value) ((ObjClosure*)AS_OBJ(value))
-#define AS_STRING(value) ((ObjString*)AS_OBJ(value))
-#define AS_CSTRING(value) (((ObjString*)AS_OBJ(value))->chars)// get chars(char*) from ObjString pointer
-#define AS_FUNCTION(value) ((ObjFunction*)AS_OBJ(value))
-#define AS_NATIVE(value) (((ObjNative*)AS_OBJ(value))->function)
+#define obj_asboundmethod(value) ((ObjBoundMethod*)obj_asobject(value))
+#define obj_asclass(value) ((ObjClass*)obj_asobject(value))
+#define obj_asinstance(value) ((ObjInstance*)obj_asobject(value))
+#define obj_asclosure(value) ((ObjClosure*)obj_asobject(value))
+#define obj_asstring(value) ((ObjString*)obj_asobject(value))
+#define obj_asfunction(value) ((ObjFunction*)obj_asobject(value))
+#define obj_asnative(value) (((ObjNative*)obj_asobject(value))->function)
 
 
 // macro to allocate memory, usedin obj/heap
 // use mem_realloc as malloc here; start from null pointer, old size is 0, and new size is count
-#define ALLOCATE(vm, type, count) (type*)mem_realloc(vm, NULL, 0, sizeof(type) * (count))
+#define memwrap_allocate(vm, type, count) (type*)mem_realloc(vm, NULL, 0, sizeof(type) * (count))
 
 
 // free memory, pass in new size as 0 to free
-#define FREE(vm, type, pointer) mem_realloc(vm, pointer, sizeof(type), 0)
+#define memwrap_free(vm, type, pointer) mem_realloc(vm, pointer, sizeof(type), 0)
 
 
 // C macros
 // calculates a new capacity based on a given current capacity, it should SCALE based on the old one
 // this one grows by * 2
-#define GROW_CAPACITY(vm, capacity) ((capacity) < 8 ? 8 : (capacity)*2)// capacity becomes 8 for the first time(starts from 0), later it multiplies by 2
+// capacity becomes 8 for the first time(starts from 0), later it multiplies by 2
+#define memwrap_growcap(vm, capacity) ((capacity) < 8 ? 8 : (capacity)*2)
 
 // macro to grow array
 // make own mem_realloc function
 // basically declare our return type here with (type*)
-#define GROW_ARRAY(vm, type, pointer, oldCount, newCount) (type*)mem_realloc(vm, pointer, sizeof(type) * (oldCount), sizeof(type) * (newCount))
+#define memwrap_growarray(vm, type, pointer, oldcount, newcount) (type*)mem_realloc(vm, pointer, sizeof(type) * (oldcount), sizeof(type) * (newcount))
 
 // no (type*) because function does not return a type
 // 0 is the new capacity
 // used to free eg. char arrays
-#define FREE_ARRAY(vm, type, pointer, oldCount) mem_realloc(vm, pointer, sizeof(type) * (oldCount), 0)
+#define memwrap_freearray(vm, type, pointer, oldcount) mem_realloc(vm, pointer, sizeof(type) * (oldcount), 0)
 
     /* info on the macros below
 Below macros are FUNCTIONSt that take ZERO arguments, and what is inside () is their return value
@@ -132,7 +134,7 @@ READ STRING:
     (frame->closure->function->chunk.constants.values[vmc_readbyte()])
 
 #define vmc_readstring() \
-    AS_STRING(vmc_readconst())
+    obj_asstring(vmc_readconst())
 
 // for patch jumps
 // yanks next two bytes from the chunk(used to calculate the offset earlier) and return a 16-bit integer out of it
@@ -144,19 +146,19 @@ READ STRING:
 // take two last constants, and vm_push ONE final value doing the operations on both of them
 // this macro needs to expand to a series of statements, read a-virtual-machine for more info, this is a macro trick or a SCOPE BLOCK
 // pass in an OPERAOTR as a MACRO
-// valueType is a Value struct
+// valuetype is a Value struct
 // first check that both operands are numbers
-#define vmc_binaryop(valueType, op, downcastType)           \
+#define vmc_binaryop(valuetype, op, downcasttype)           \
     do                                                   \
     {                                                    \
-        if(!IS_NUMBER(vm_peek(vm, 0)) || !IS_NUMBER(vm_peek(vm, 1)))   \
+        if(!obj_isnumber(vm_peek(vm, 0)) || !obj_isnumber(vm_peek(vm, 1)))   \
         {                                                \
             vm_rterror(vm, "Operands must be numbers.");   \
-            return INTERPRET_RUNTIME_ERROR;              \
+            return STATUS_RUNTIMEFAIL;              \
         }                                                \
-        downcastType b = (downcastType)AS_NUMBER(vm_pop(vm)); \
-        downcastType a = (downcastType)AS_NUMBER(vm_pop(vm)); \
-        vm_push(vm, valueType(a op b));                         \
+        downcasttype b = (downcasttype)obj_asnumber(vm_pop(vm)); \
+        downcasttype a = (downcasttype)obj_asnumber(vm_pop(vm)); \
+        vm_push(vm, valuetype(a op b));                         \
     } while(false)
 
 
@@ -180,9 +182,12 @@ enum Precedence
 enum FunctionType
 {
     TYPE_FUNCTION,
-    TYPE_SCRIPT,// top level main()
-    TYPE_INITIALIZER,// class constructors
-    TYPE_METHOD,// class methods
+    // top level main()
+    TYPE_SCRIPT,
+    // class constructors
+    TYPE_INITIALIZER,
+    // class methods
+    TYPE_METHOD,
 };
 
 // storing constants/literals
@@ -204,7 +209,8 @@ enum ValueType
     VAL_BOOL,
     VAL_NULL,
     VAL_NUMBER,
-    VAL_OBJ,// for bigger instances such as strings, functions, heap-allocated; the payload is a heap pointer
+    // for bigger instances such as strings, functions, heap-allocated; the payload is a heap pointer
+    VAL_OBJ,
 };
 // in bytecode format, each instruction has a one-byte operation code(opcode)
 // the number controls what kind of instruction we're dealing with- add, subtract, etc
@@ -213,9 +219,10 @@ enum ValueType
 
 enum OpCode
 {
-    OP_CONSTANT,// chunk needs to know when to produce constants and print them in the right order
+    // chunk needs to know when to produce constants and print them in the right order
     // they have operands, to eg. identify which variable to load
     // OP_CONSTANT take up 2 bytes, one is the opcode itself and the other the constant index
+    OP_CONSTANT,
 
     OP_NULL,
     OP_TRUE,
@@ -226,15 +233,15 @@ enum OpCode
 
     // literals/declarations
     OP_POP,// basically pops a value off the stack and forgets it, used for expression statements
-    OP_GET_LOCAL,
-    OP_SET_LOCAL,
-    OP_DEFINE_GLOBAL,
-    OP_GET_GLOBAL,
-    OP_SET_GLOBAL,
+    OP_GETLOCAL,
+    OP_SETLOCAL,
+    OP_DEFINEGLOBAL,
+    OP_GETGLOBAL,
+    OP_SETGLOBAL,
     OP_GET_UPVALUE,
-    OP_SET_UPVALUE,
-    OP_GET_PROPERTY,
-    OP_SET_PROPERTY,
+    OP_SETUPVALUE,
+    OP_GETPROPERTY,
+    OP_SETPROPERTY,
 
     // binary operators
     OP_ADD,
@@ -249,16 +256,16 @@ enum OpCode
     OP_GREATER,
     OP_LESS,
 
-    OP_SWITCH_EQUAL,
-    OP_CLOSE_UPVALUE,
+    OP_SWITCHEQUAL,
+    OP_CLOSEUPVALUE,
 
     OP_JUMP,
-    OP_JUMP_IF_FALSE,// takes a 16-bit operand
+    OP_JUMPIFFALSE,// takes a 16-bit operand
     OP_CALL,
 
     OP_LOOP,
-    OP_LOOP_IF_FALSE,// repeat until
-    OP_LOOP_IF_TRUE,// do while
+    OP_LOOPIFFALSE,// repeat until
+    OP_LOOPIFTRUE,// do while
 
     OP_CLOSURE,
     OP_CLASS,
@@ -266,13 +273,11 @@ enum OpCode
     OP_INVOKE,
 
     OP_INHERIT,// class inheritance
-    OP_GET_SUPER,// for superclasses
-    OP_SUPER_INVOKE,
+    OP_GETSUPER,// for superclasses
+    OP_SUPERINVOKE,
 
     OP_RETURN,// means return from current function
-};// basically a typdef vm_call to an enum
-// in C, you cannot have enums called simply by their rvalue 'string' names, use typdef to define them
-
+};
 
 enum ObjType
 {
@@ -289,18 +294,18 @@ enum ObjType
 // rseult that responds from the running VM
 enum InterpretResult
 {
-    INTERPRET_OK,
-    INTERPRET_COMPILE_ERROR,
-    INTERPRET_RUNTIME_ERROR
+    STATUS_OK,
+    STATUS_COMPILEFAIL,
+    STATUS_RUNTIMEFAIL
 };
 
 enum TokenType
 {
     // single character
-    TOKEN_LEFT_PAREN,
-    TOKEN_RIGHT_PAREN,// ( )
-    TOKEN_LEFT_BRACE,
-    TOKEN_RIGHT_BRACE,// { }
+    TOKEN_LEFTPAREN,
+    TOKEN_RIGHTPAREN,// ( )
+    TOKEN_LEFTBRACE,
+    TOKEN_RIGHTBRACE,// { }
     TOKEN_COMMA,
     TOKEN_DOT,
     TOKEN_MINUS,
@@ -313,13 +318,13 @@ enum TokenType
 
     // one or two compare operators
     TOKEN_BANG,
-    TOKEN_BANG_EQUAL,// !, !=
+    TOKEN_BANGEQUAL,// !, !=
     TOKEN_EQUAL,
-    TOKEN_EQUAL_EQUAL,
-    TOKEN_GREATER,
-    TOKEN_GREATER_EQUAL,
-    TOKEN_LESS,
-    TOKEN_LESS_EQUAL,
+    TOKEN_EQUALEQUAL,
+    TOKEN_GREATERTHAN,
+    TOKEN_GREATEREQUAL,
+    TOKEN_LESSTHAN,
+    TOKEN_LESSEQUAL,
 
     // literals
     TOKEN_IDENTIFIER,
@@ -357,7 +362,6 @@ enum TokenType
 
     // class inheritance
     TOKEN_FROM,
-
     TOKEN_ERROR,
     TOKEN_EOF
 };
@@ -377,7 +381,7 @@ typedef struct ClassCompiler ClassCompiler;
 typedef struct Compiler Compiler;
 typedef struct Parser Parser;
 typedef struct Scanner Scanner;
-typedef struct Obj Obj;// basically giving struct Obj the name Struct
+typedef struct Obj Obj;
 typedef struct ObjString ObjString;
 typedef struct Token Token;
 typedef struct CallFrame CallFrame;
@@ -386,7 +390,7 @@ typedef struct ObjInstance ObjInstance;
 typedef struct ObjClass ObjClass;
 typedef struct ObjNative ObjNative;
 typedef struct ObjClosure ObjClosure;
-typedef struct ObjUpvalue ObjUpvalue;// define ObjUpvalue here to use them inside the struct
+typedef struct ObjUpvalue ObjUpvalue;
 typedef struct ObjFunction ObjFunction;
 typedef struct Table Table;
 typedef struct Entry Entry;
@@ -397,9 +401,8 @@ typedef struct VM VM;
 
 typedef Value (*NativeFn)(VM*, int, Value*);
 
-// simple typdef function type with no arguments and returns nothing
 // acts like a "virtual" function , a void function that cam be overidden; actually a void but override it with ParseFn
-typedef void (*ParseFn)(VM* vm, bool canAssign);
+typedef void (*ParseFn)(VM* vm, bool canassign);
 
 /* IMPORTANT 
 -> use C unions to OVERLAP in memory for the STRUCT
@@ -409,12 +412,13 @@ typedef void (*ParseFn)(VM* vm, bool canAssign);
 struct Value
 {
     ValueType type;
-    union// the union itself, implemented here
+    union
     {
         bool boolean;
         double number;
-        Obj* obj;// pointer to the heap, the payload for bigger types of data
-    } as;// can use . to represent this union
+        // pointer to the heap, the payload for bigger types of data
+        Obj* obj;
+    } as;
 };
 
 // the constant pool is array of values
@@ -433,18 +437,25 @@ struct ValueArray
 
 struct Chunk
 {
-    int count;// current size
-    int capacity;// max array size
-    uint8_t* code;// 1 byte unsigned int, to store the CODESTREAM
-    int* lines;// array of integers that parallels the bytecode/codestream, to get where each location of the bytecode is
-    ValueArray constants;// store double value literals
+    // current size
+    int count;
+    // max array size
+    int capacity;
+    // 1 byte unsigned int, to store the CODESTREAM
+    uint8_t* code;
+    // array of integers that parallels the bytecode/codestream, to get where each location of the bytecode is
+    int* lines;
+    // store double value literals
+    ValueArray constants;
 };
 
 
 struct Entry
 {
-    ObjString* key;// use ObjString pointer as key
-    Value value;// the value/data type
+    // use ObjString pointer as key
+    ObjString* key;
+    // the value/data type
+    Value value;
 };
 
 // the table, an array of entries
@@ -457,14 +468,15 @@ struct Table
 };
 
 
-struct Obj// as no typedef is used, 'struct' itself will always havae to be typed
+struct Obj
 {
     ObjType type;
-    struct Obj* next;// linked list or intrusive list, to avoid memory leaks, obj itself as a node
+    // linked list or intrusive list, to avoid memory leaks, obj itself as a node
+    
     // traverse the list to find every object that has been allocated on the heap
-
+    struct Obj* next;
     // for mark-sweep garbage collection
-    bool isMarked;
+    bool ismarked;
 };
 
 // for functions and calls
@@ -472,9 +484,12 @@ struct Obj// as no typedef is used, 'struct' itself will always havae to be type
 struct ObjFunction
 {
     Obj obj;
-    int arity;// store number of parameters
-    int upvalueCount;// to track upValues
-    Chunk chunk;// to store the function information
+    // store number of parameters
+    int arity;
+    // to track upvalues
+    int upvaluecount;
+    // to store the function information
+    Chunk chunk;
     ObjString* name;
 };
 
@@ -482,9 +497,11 @@ struct ObjFunction
 struct ObjUpvalue
 {
     Obj obj;
-    Value* location;// pointer to value in the enclosing ObjClosure
+    // pointer to value in the enclosing ObjClosure
+    Value* location;
 
-    Value closed;// to store closed upvalue
+    // to store closed upvalue
+    Value closed;
 
     // intrusive/linked list to track sorted openvalues
     // ordered by the stack slot they point to
@@ -496,12 +513,14 @@ struct ObjUpvalue
 struct ObjClosure
 {
     // points to an ObjFunction and Obj header
-    Obj obj;// Obj header
+    // Obj header
+    Obj obj;
     ObjFunction* function;
 
     // for upvalues
-    ObjUpvalue** upvalues;// array of upvalue pointers
-    int upvalueCount;
+    // array of upvalue pointers
+    ObjUpvalue** upvalues;
+    int upvaluecount;
 };
 
 
@@ -515,12 +534,13 @@ struct ObjNative
 };
 
 
-struct ObjString// using struct inheritance
+struct ObjString
 {
     Obj obj;
     int length;
     char* chars;
-    uint32_t hash;// for hash table, for cache(temporary storage area); each ObjString has a hash code for itself
+    // for hash table, for cache(temporary storage area); each ObjString has a hash code for itself
+    uint32_t hash;
 };
 
 
@@ -529,16 +549,21 @@ struct ObjString// using struct inheritance
 struct ObjClass
 {
     Obj obj;
-    ObjString* name;// not needed for uer's program, but helps the dev in debugging
-    Table methods;// hash table for storing methods
+    // not needed for uer's program, but helps the dev in debugging
+    ObjString* name;
+    // hash table for storing methods
+    Table methods;
 };
 
 
 struct ObjInstance
 {
-    Obj obj;// inherits from object, the "object" tag
-    ObjClass* kelas;// pointer to class types
-    Table fields;// use a hash table to store fields
+    // inherits from object, the "object" tag
+    Obj obj;
+    // pointer to class types
+    ObjClass* classobject;
+    // use a hash table to store fields
+    Table fields;
 };
 
 
@@ -546,7 +571,8 @@ struct ObjInstance
 struct ObjBoundMethod
 {
     Obj obj;
-    Value receiver;// wraps receiver and function/method/closure together, receiver is the ObjInstance / lcass type
+    // wraps receiver and function/method/closure together, receiver is the ObjInstance / lcass type
+    Value receiver;
     ObjClosure* method;
 };
 
@@ -558,62 +584,78 @@ struct ObjBoundMethod
 struct CallFrame
 {
     ObjClosure* closure;
-    uint8_t* ip;// store ip on where in the VM the function is
-    Value* slots;// this points into the VM's value stack at the first slot the function can use
+    // store ip on where in the VM the function is
+    uint8_t* ip;
+    // this points into the VM's value stack at the first slot the function can use
+    Value* slots;
 };
 struct VM
 {
     // since the whole program is one big 'main()' use callstacks
     CallFrame frames[FRAMES_MAX];
-    int frameCount;// stores current height of the stack
+    // stores current height of the stack
+    int framecount;
 
-    Value stack[STACK_MAX];// stack array is 'indirectly' declared inline here
-    Value* stackTop;// pointer to the element just PAST the element containing the top value of the stack
+    // stack array is 'indirectly' declared inline here
+    Value stack[STACK_MAX];
+    // pointer to the element just PAST the element containing the top value of the stack
+    Value* stacktop;
 
-    Table globals;// for storing global variables
-    Table strings;// for string interning, to make sure every equal string takes one memory
+    // for storing global variables
+    Table globals;
+    // for string interning, to make sure every equal string takes one memory
+    Table strings;
 
-    ObjString* initString;// init string for class constructors
+    // init string for class constructors
+    ObjString* initstring;
 
-    ObjUpvalue* openUpvalues;// track all upvalues; points to the first node of the linked list
+    // track all upvalues; points to the first node of the linked list
+    ObjUpvalue* openupvalues;
 
-    Obj* objects;// pointer to the header of the Obj itself/node, start of the list
+    // pointer to the header of the Obj itself/node, start of the list
     // nicely used in GARBAGE COLLECTION, where objects are nicely erased in the middle
+    Obj* objects;
 
     // stack to store gray marked Objects for garbage collection
-    int grayCapacity;
-    int grayCount;
-    Obj** grayStack;// array of pointers pointing to a particular subgraph
+    int graycap;
+    int graycount;
+    // array of pointers pointing to a particular subgraph
+    Obj** graystack;
 
-    // self-adjusting-g-heap, to control frequency of GC, bytesAllocated is the running total
-    size_t bytesAllocated;// size_t is a 32 bit(integer/4bytes), represents size of an object in bytes
-    size_t nextGC;// threhsold that triggers the GC
+    // self-adjusting-g-heap, to control frequency of GC, totalalloc is the running total
+    size_t totalalloc;
+    // threhsold that triggers the GC
+    size_t nextgc;
 };
 
 
 struct Token
 {
-    TokenType type;// identifier to type of token, eg. number, + operator, identifier
+    // identifier to type of token, eg. number, + operator, identifier
+    TokenType type;
     const char* start;
     int length;
     int line;
 };
 
-// scanner to run through the source code
 struct Scanner
 {
-    const char* start;// marks the beginning of the current lexeme('word', you can say_
-    const char* current;// points to the character being looked at
-    int line;// int to tell the current line being looked at
+    // marks the beginning of the current lexeme('word', you can say_
+    const char* start;
+    // points to the character being looked at
+    const char* current;
+    // int to tell the current line being looked at
+    int line;
 };
 
-// to store current and previous tokens
 struct Parser
 {
     Token current;
     Token previous;
-    bool hadError;// flag to tell whether the code has a syntax error or no
-    bool panicMode;// flag for error cascades/multiple errors so the parser does not get confused, only returns the first
+    // flag to tell whether the code has a syntax error or no
+    bool haderror;
+    // flag for error cascades/multiple errors so the parser does not get confused, only returns the first
+    bool panicmode;
 };
 
 /*	parse rule, what is needed:
@@ -631,39 +673,47 @@ struct ParseRule
 struct Local
 {
     Token name;
-    int depth;// depth of the variable, corresponding to scoreDepth in the struct below
-    bool isCaptured;// track whether the local is captured by a closure or no
+    // depth of the variable, corresponding to scoredepth in the struct below
+    int depth;
+    // track whether the local is captured by a closure or no
+    bool iscaptured;
 };
 
 
 struct Upvalue
 {
-    bool isLocal;
-    int index;// matches the index of the local variable in ObjClosure
+    bool islocal;
+    // matches the index of the local variable in ObjClosure
+    int index;
 };
 
 // stack for local variables
 struct Compiler
 {
-    Compiler* enclosing;// pointer to the 'outer'/enclosing compiler, to return to after function
+    // pointer to the 'outer'/enclosing compiler, to return to after function
+    Compiler* enclosing;
 
     // wrapping the whole program into one big main() function
     ObjFunction* function;
     FunctionType type;
 
-    Local locals[UINT8_COUNT];// array to store locals, ordered in the order of declarations
-    int localCount;// tracks amount of locals in a scope
+    // array to store locals, ordered in the order of declarations
+    Local locals[UINT8_COUNT];
+    // tracks amount of locals in a scope
+    int localcount;
     Upvalue upvalues[UINT8_COUNT];
-    int scopeDepth;// number of scopes/blocks surrounding the code
+    // number of scopes/blocks surrounding the code
+    int scopedepth;
 
     // for loop breaks and continues, loop enclosing
-    int loopCountTop;
-    int* continueJumps;
-    int continueJumpCapacity;// only for continue jumpbs
+    int loopcounttop;
+    int* continuejumps;
+    // only for continue jumpbs
+    int continuejumpcap;
 
     // for patching all break statements
-    int breakPatchJumps[UINT8_COUNT][UINT8_COUNT];
-    int breakJumpCounts[UINT8_COUNT];
+    int breakpatchjumps[UINT8_COUNT][UINT8_COUNT];
+    int breakjumpcounts[UINT8_COUNT];
 
 };
 
@@ -672,26 +722,27 @@ struct ClassCompiler
 {
     ClassCompiler* enclosing;
     Token name;
-    bool hasSuperclass;// to end scope in superclass declaration
+    // to end scope in superclass declaration
+    bool hassuper;
 };
 
-Scanner g_scanner;
-Parser parser;
-ClassCompiler* currentClass = NULL;
-Compiler* current = NULL;
+Scanner g_currentscanner;
+Parser g_currentparser;
+ClassCompiler* g_currentclass = NULL;
+Compiler* g_currentcompiler = NULL;
 
 /* main.c */
 
 /* main.c */
 void repl(VM *vm);
-char *readFile(VM *vm, const char *path);
+char *readfile(VM *vm, const char *path);
 void htable_init(VM *vm, Table *table);
 void htable_free(VM *vm, Table *table);
 Entry *htable_findentry(Entry *entries, int capacity, ObjString *key);
-_Bool htable_get(VM *vm, Table *table, ObjString *key, Value *value);
+bool htable_get(VM *vm, Table *table, ObjString *key, Value *value);
 void htable_adjustcap(VM *vm, Table *table, int capacity);
-_Bool htable_set(VM *vm, Table *table, ObjString *key, Value value);
-_Bool htable_delete(VM *vm, Table *table, ObjString *key);
+bool htable_set(VM *vm, Table *table, ObjString *key, Value value);
+bool htable_delete(VM *vm, Table *table, ObjString *key);
 void htable_addall(VM *vm, Table *from, Table *to);
 ObjString *htable_findstring(VM *vm, Table *table, const char *chars, int length, uint32_t hash);
 void htable_removewhite(VM *vm, Table *table);
@@ -701,28 +752,28 @@ void chunk_write(VM *vm, Chunk *chunk, uint8_t byte, int line);
 void chunk_free(VM *vm, Chunk *chunk);
 int chunk_addconstant(VM *vm, Chunk *chunk, Value value);
 void scanner_init(const char *source);
-_Bool scanner_isalpha(char c);
-_Bool scanner_isdigit(char c);
-_Bool scanner_isatend(void);
-char scanner_advance(void);
-_Bool scanner_match(char expected);
+bool scanner_isalpha(char c);
+bool scanner_isdigit(char c);
+bool scanner_isatend();
+char scanner_advance();
+bool scanner_match(char expected);
 Token scanner_maketoken(TokenType type);
 Token scanner_errortoken(const char *message);
-char scanner_peek(void);
-char scanner_peeknext(void);
-void scanner_skipspace(void);
+char scanner_peek();
+char scanner_peeknext();
+void scanner_skipspace();
 TokenType scanner_checkkeyword(int start, int length, const char *rest, TokenType type);
-TokenType scanner_parseidenttype(void);
-Token scanner_parseident(void);
-Token scanner_parsenumber(void);
-Token scanner_parsestring(void);
-Token scanner_scantoken(void);
+TokenType scanner_parseidenttype();
+Token scanner_parseident();
+Token scanner_parsenumber();
+Token scanner_parsestring();
+Token scanner_scantoken();
 void prs_parseprecedence(VM *vm, Precedence precedence);
 ParseRule *prs_getrule(VM *vm, TokenType type);
 void prs_expression(VM *vm);
 void prs_block(VM *vm);
 void prs_function(VM *vm, FunctionType type);
-void prs_method(VM *vm);
+void prs_parsemethod(VM *vm);
 void prs_classdecl(VM *vm);
 void prs_funcdecl(VM *vm);
 void prs_vardecl(VM *vm);
@@ -748,12 +799,12 @@ void prs_erroratcurrent(VM *vm, const char *message);
 void prs_advance(VM *vm);
 void prs_advancewhileskipping(VM *vm, TokenType type);
 void prs_consume(VM *vm, TokenType type, const char *message);
-_Bool prs_check(VM *vm, TokenType type);
-_Bool prs_matchtoken(VM *vm, TokenType type);
+bool prs_check(VM *vm, TokenType type);
+bool prs_matchtoken(VM *vm, TokenType type);
 void prs_emitbyte(VM *vm, uint8_t byte);
 void prs_emitbytes(VM *vm, uint8_t byte1, uint8_t byte2);
-void prs_emitloop(VM *vm, int loopStart);
-void prs_emitcondloop(VM *vm, int loopStart, _Bool state);
+void prs_emitloop(VM *vm, int loopstart);
+void prs_emitcondloop(VM *vm, int loopstart, bool state);
 int prs_emitjump(VM *vm, uint8_t instruction);
 void prs_emitreturn(VM *vm);
 uint8_t prs_makeconst(VM *vm, Value value);
@@ -768,32 +819,32 @@ void prs_endloopscope(VM *vm);
 void prs_markcontjump(VM *vm);
 void prs_patchbreakjumps(VM *vm);
 uint8_t prs_makeconstident(VM *vm, Token *name);
-_Bool prs_identequal(VM *vm, Token *a, Token *b);
+bool prs_identequal(VM *vm, Token *a, Token *b);
 int prs_resolvelocal(VM *vm, Compiler *compiler, Token *name);
-int prs_addupvalue(VM *vm, Compiler *compiler, uint8_t index, _Bool isLocal);
+int prs_addupvalue(VM *vm, Compiler *compiler, uint8_t index, bool isl);
 int prs_resolveupvalue(VM *vm, Compiler *compiler, Token *name);
 void prs_addlocal(VM *vm, Token name);
 void prs_declarevariable(VM *vm);
-uint8_t prs_parsevariable(VM *vm, const char *errorMessage);
+uint8_t prs_parsevariable(VM *vm, const char *errormessage);
 void prs_markinitialized(VM *vm);
 void prs_definevariable(VM *vm, uint8_t global);
 uint8_t prs_parsearglist(VM *vm);
-void rule_and(VM *vm, _Bool canAssign);
-void rule_binary(VM *vm, _Bool canAssign);
-void rule_parsecall(VM *vm, _Bool canAssign);
-void rule_dot(VM *vm, _Bool canAssign);
-void rule_literal(VM *vm, _Bool canAssign);
-void rule_grouping(VM *vm, _Bool canAssign);
-void rule_number(VM *vm, _Bool canAssign);
-void rule_or(VM *vm, _Bool canAssign);
-void rule_string(VM *vm, _Bool canAssign);
-void rule_namedvar(VM *vm, Token name, _Bool canAssign);
-void rule_variable(VM *vm, _Bool canAssign);
+void rule_and(VM *vm, bool canassign);
+void rule_binary(VM *vm, bool canassign);
+void rule_parsecall(VM *vm, bool canassign);
+void rule_dot(VM *vm, bool canassign);
+void rule_literal(VM *vm, bool canassign);
+void rule_grouping(VM *vm, bool canassign);
+void rule_number(VM *vm, bool canassign);
+void rule_or(VM *vm, bool canassign);
+void rule_string(VM *vm, bool canassign);
+void rule_namedvar(VM *vm, Token name, bool canassign);
+void rule_variable(VM *vm, bool canassign);
 Token prs_makesyntoken(VM *vm, const char *text);
-void rule_super(VM *vm, _Bool canAssign);
-void rule_this(VM *vm, _Bool canAssign);
-void rule_unary(VM *vm, _Bool canAssign);
-void runFile(VM *vm, const char *path);
+void rule_super(VM *vm, bool canassign);
+void rule_this(VM *vm, bool canassign);
+void rule_unary(VM *vm, bool canassign);
+void runfile(VM *vm, const char *path);
 int main(int argc, const char *argv[]);
 int dbg_print_simpleinst(VM *vm, const char *name, int offset);
 int dbg_print_byteinst(VM *vm, const char *name, Chunk *chunk, int offset);
@@ -802,7 +853,7 @@ int dbg_print_invokeinst(VM *vm, const char *name, Chunk *chunk, int offset);
 int dbg_print_jumpinst(VM *vm, const char *name, int sign, Chunk *chunk, int offset);
 void dbg_disasmchunk(VM *vm, Chunk *chunk, const char *name);
 int dbg_disasminst(VM *vm, Chunk *chunk, int offset);
-void *mem_realloc(VM *vm, void *pointer, size_t oldSize, size_t newSize);
+void *mem_realloc(VM *vm, void *pointer, size_t oldsize, size_t newsize);
 void mem_freeobject(VM *vm, Obj *object);
 void mem_markobject(VM *vm, Obj *object);
 void mem_markvalue(VM *vm, Value value);
@@ -814,12 +865,12 @@ void mem_sweep(VM *vm);
 void mem_collectgarbage(VM *vm);
 void mem_freeobjlist(VM *vm);
 Obj *mem_allocobject(VM *vm, size_t size, ObjType type);
-_Bool obj_istype(Value value, ObjType type);
+bool obj_istype(Value value, ObjType type);
 ObjBoundMethod *obj_mkboundmethod(VM *vm, Value receiver, ObjClosure *method);
 ObjClosure *obj_mkclosure(VM *vm, ObjFunction *function);
 ObjString *obj_mkstring(VM *vm, char *chars, int length, uint32_t hash);
 ObjClass *obj_mkclass(VM *vm, ObjString *name);
-ObjInstance *obj_mkinstance(VM *vm, ObjClass *kelas);
+ObjInstance *obj_mkinstance(VM *vm, ObjClass *klass);
 ObjFunction *obj_mkfunction(VM *vm);
 ObjNative *obj_mknative(VM *vm, NativeFn function);
 uint32_t obj_hashstring(VM *vm, const char *key, int length);
@@ -832,12 +883,12 @@ void obj_initvalarray(VM *vm, ValueArray *array);
 void obj_writevalarray(VM *vm, ValueArray *array, Value value);
 void obj_freevalarray(VM *vm, ValueArray *array);
 void obj_printvalue(VM *vm, Value value);
-_Bool obj_valequal(VM *vm, Value a, Value b);
+bool obj_valequal(VM *vm, Value a, Value b);
 void vm_resetstack(VM *vm);
 void vm_rterror(VM *vm, const char *format, ...);
 void vm_defnative(VM *vm, const char *name, NativeFn function);
-Value cfn_clock(VM *vm, int argCount, Value *args);
-Value cfn_print(VM *vm, int argCount, Value *args);
+Value cfn_clock(VM *vm, int argc, Value *args);
+Value cfn_print(VM *vm, int argc, Value *args);
 Value cfn_println(VM *vm, int argc, Value *args);
 Value cfn_chr(VM *vm, int argc, Value *args);
 void vm_init(VM *vm);
@@ -845,15 +896,15 @@ void vm_free(VM *vm);
 void vm_push(VM *vm, Value value);
 Value vm_pop(VM *vm);
 Value vm_peek(VM *vm, int distance);
-_Bool vm_call(VM *vm, ObjClosure *closure, int argCount);
-_Bool vm_callvalue(VM *vm, Value callee, int argCount);
-_Bool vm_invokefromclass(VM *vm, ObjClass *kelas, ObjString *name, int argCount);
-_Bool vm_invoke(VM *vm, ObjString *name, int argCount);
-_Bool vm_bindmethod(VM *vm, ObjClass *kelas, ObjString *name);
+bool vm_call(VM *vm, ObjClosure *closure, int argc);
+bool vm_callvalue(VM *vm, Value callee, int argc);
+bool vm_invokefromclass(VM *vm, ObjClass *klass, ObjString *name, int argc);
+bool vm_invoke(VM *vm, ObjString *name, int argc);
+bool vm_bindmethod(VM *vm, ObjClass *klass, ObjString *name);
 ObjUpvalue *vm_captureupvalue(VM *vm, Value *local);
 void vm_closeupvalues(VM *vm, Value *last);
 void vm_defmethod(VM *vm, ObjString *name);
-_Bool vm_isfalsey(VM *vm, Value value);
+bool vm_isfalsey(VM *vm, Value value);
 void vm_concatenate(VM *vm);
 InterpretResult vm_interpret(VM *vm, const char *source);
 InterpretResult vm_run(VM *vm);
@@ -868,10 +919,11 @@ token enums from scanner is reused
 static ParseRule rules[] =
 {
     // function calls are like infixes, with high precedence on the left, ( in the middle for arguments, then ) at the end
-    [TOKEN_LEFT_PAREN] = { rule_grouping, rule_parsecall, PREC_CALL },// vm_call for functions
-    [TOKEN_RIGHT_PAREN] = { NULL, NULL, PREC_NONE },
-    [TOKEN_LEFT_BRACE] = { NULL, NULL, PREC_NONE },
-    [TOKEN_RIGHT_BRACE] = { NULL, NULL, PREC_NONE },
+    // vm_call for functions
+    [TOKEN_LEFTPAREN] = { rule_grouping, rule_parsecall, PREC_CALL },
+    [TOKEN_RIGHTPAREN] = { NULL, NULL, PREC_NONE },
+    [TOKEN_LEFTBRACE] = { NULL, NULL, PREC_NONE },
+    [TOKEN_RIGHTBRACE] = { NULL, NULL, PREC_NONE },
     [TOKEN_COMMA] = { NULL, NULL, PREC_NONE },
     [TOKEN_DOT] = { NULL, rule_dot, PREC_CALL },
     [TOKEN_MINUS] = { rule_unary, rule_binary, PREC_TERM },
@@ -881,13 +933,15 @@ static ParseRule rules[] =
     [TOKEN_STAR] = { NULL, rule_binary, PREC_FACTOR },
     [TOKEN_MODULO] = { NULL, rule_binary, PREC_FACTOR },
     [TOKEN_BANG] = { rule_unary, NULL, PREC_NONE },
-    [TOKEN_BANG_EQUAL] = { NULL, rule_binary, PREC_EQUALITY },// equality precedence
-    [TOKEN_EQUAL] = { NULL, rule_binary, PREC_COMPARISON },// comaprison precedence
-    [TOKEN_EQUAL_EQUAL] = { NULL, rule_binary, PREC_COMPARISON },
-    [TOKEN_GREATER] = { NULL, rule_binary, PREC_COMPARISON },
-    [TOKEN_GREATER_EQUAL] = { NULL, rule_binary, PREC_COMPARISON },
-    [TOKEN_LESS] = { NULL, rule_binary, PREC_COMPARISON },
-    [TOKEN_LESS_EQUAL] = { NULL, rule_binary, PREC_COMPARISON },
+    // equality precedence
+    [TOKEN_BANGEQUAL] = { NULL, rule_binary, PREC_EQUALITY },
+    // comaprison precedence
+    [TOKEN_EQUAL] = { NULL, rule_binary, PREC_COMPARISON },
+    [TOKEN_EQUALEQUAL] = { NULL, rule_binary, PREC_COMPARISON },
+    [TOKEN_GREATERTHAN] = { NULL, rule_binary, PREC_COMPARISON },
+    [TOKEN_GREATEREQUAL] = { NULL, rule_binary, PREC_COMPARISON },
+    [TOKEN_LESSTHAN] = { NULL, rule_binary, PREC_COMPARISON },
+    [TOKEN_LESSEQUAL] = { NULL, rule_binary, PREC_COMPARISON },
     [TOKEN_IDENTIFIER] = { rule_variable, NULL, PREC_NONE },
     [TOKEN_STRING] = { rule_string, NULL, PREC_NONE },
     [TOKEN_NUMBER] = { rule_number, NULL, PREC_NONE },
@@ -911,11 +965,9 @@ static ParseRule rules[] =
     [TOKEN_EOF] = { NULL, NULL, PREC_NONE },
 };
 
-
-// for REPL, the print eval read loop
 void repl(VM* vm)
 {
-    char line[1024];// char array to hold everything, with a length limit
+    char line[1024];
     for(;;)
     {
         printf(">> ");
@@ -937,8 +989,7 @@ void repl(VM* vm)
     }
 }
 
-// get raw source code from file
-char* readFile(VM* vm, const char* path)
+char* readfile(VM* vm, const char* path)
 {
     (void)vm;
     /*	Reading files in C
@@ -949,30 +1000,22 @@ char* readFile(VM* vm, const char* path)
 	rb(special read to open non-text files, a binary file)
 	*/
     FILE* file = fopen(path, "rb");
-    if(file == NULL)// if file does not exist or user does not have access
+    if(file == NULL)
     {
         fprintf(stderr, "Could not open file \"%s\".\n", path);
         exit(74);
     }
-
-    // fseek - move file pointer to a specific position, offset is number of byte to offset form POSITION(last parameter)
-    // int fseek(file pointer, long int offset, int position)
-    // SEEK_END, SEEK_SET(start), SEEK_CUR
-    // basically set pointer to end of file
-    // 0l = 0 long
     fseek(file, 0L, SEEK_END);
-    size_t fileSize = ftell(file);// ftell is used to find position of file pointer, used to denote size
-    // top two lines used to get file size
-    rewind(file);// sets file pointer to the beginning of the file
-
-    char* buffer = (char*)malloc(fileSize + 1);// allocate a char*(string) to the size of the file
+    size_t fsz = ftell(file);
+    rewind(file);
+    char* buffer = (char*)malloc(fsz + 1);
     if(buffer == NULL)
     {
         fprintf(stderr, "Not enough memory to read \"%s\".\n", path);
         exit(74);
     }
 
-    size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);// read the file
+    size_t bytesread = fread(buffer, sizeof(char), fsz, file);
     /* notes on fread in C
 	size_t fread(void * buffer, size_t size, size_t count, FILE * stream)
 	buffer =  a pointer to the block of memoery with a least (size*count) byte
@@ -980,75 +1023,71 @@ char* readFile(VM* vm, const char* path)
 	count = number of elements/ file size
 	*/
 
-    if(bytesRead < fileSize)// if read size less than file size
+    if(bytesread < fsz)
     {
         fprintf(stderr, "Could not read \"%s\".\n", path);
         exit(74);
     }
 
-    buffer[bytesRead] = '\0';// mark the last character as '\0', the end of file symbol
+    buffer[bytesread] = '\0';
 
     fclose(file);
     return buffer;
 }
 
-// A void pointer is a pointer that has no associated data type with it.
-// A void pointer can hold address of any type and can be typcasted to any type.
-void* mem_realloc(VM* vm, void* pointer, size_t oldSize, size_t newSize)
+void* mem_realloc(VM* vm, void* pointer, size_t oldsize, size_t newsize)
 {
-    vm->bytesAllocated += newSize - oldSize;// self adjusting heap for garbage collection
-
-    if(newSize > oldSize)// when allocating NEW memory, not when freeing as collecGarbage will cal void* mem_realloc itself
+    // self adjusting heap for garbage collection
+    vm->totalalloc += newsize - oldsize;
+    // when allocating NEW memory, not when freeing as collectgarbage will call mem_realloc itself
+    if(newsize > oldsize)
     {
 #ifdef DEBUG_STRESS_GC
         mem_collectgarbage(vm);
 #endif
 
-        // run collecter if bytesAllocated is above threshold
-        if(vm->bytesAllocated > vm->nextGC)
+        // run collecter if totalalloc is above threshold
+        if(vm->totalalloc > vm->nextgc)
         {
             mem_collectgarbage(vm);
         }
     }
 
-    if(newSize == 0)
+    if(newsize == 0)
     {
         free(pointer);
         return NULL;
     }
-
-    // C realloc
-    void* result = realloc(pointer, newSize);
-
-    // if there is not enought memory, realloc will return null
+    void* result = realloc(pointer, newsize);
     if(result == NULL)
-        exit(1);// exit with code 1
-
+    {
+        fprintf(stderr, "realloc(..., %d) returned NULL!\n", newsize);
+        exit(1);
+    }
     return result;
 }
 
 
 Obj* mem_allocobject(VM* vm, size_t size, ObjType type)
 {
-    Obj* object = (Obj*)mem_realloc(vm, NULL, 0, size);// allocate memory for obj
+    Obj* object = (Obj*)mem_realloc(vm, NULL, 0, size);
     object->type = type;
-    object->isMarked = false;
+    object->ismarked = false;
 
     // every time an object is allocated, insert to the list
     // insert as the HEAD; the latest one inserted will be at the start
-    object->next = vm->objects;// globalvm from virtualm.h, with extern
+    object->next = vm->objects;
     vm->objects = object;
 
 #ifdef DEBUG_LOG_GC
-    printf("%p allocate %zd for %d\n", (void*)object, size, type);// %ld prints LONG INT
-    // (void*) for 'native pointer type'
+    printf("%p allocate %zd for %d\n", (void*)object, size, type);
 #endif
     return object;
 }
 
 
 // you can pass in a'lower' struct pointer, in this case Obj*, and get the higher level which is ObjFunction
-void mem_freeobject(VM* vm, Obj* object)// to handle different types
+void mem_freeobject(VM* vm, Obj* object)
 {
 #ifdef DEBUG_LOG_GC
     printf("%p free type %d\n", (void*)object, object->type);
@@ -1057,55 +1096,58 @@ void mem_freeobject(VM* vm, Obj* object)// to handle different types
     switch(object->type)
     {
         case OBJ_BOUND_METHOD:
-            FREE(vm, ObjBoundMethod, object);
+            {
+                memwrap_free(vm, ObjBoundMethod, object);
+            }
             break;
 
         case OBJ_CLASS:
-        {
-            // free class type
-            ObjClass* kelas = (ObjClass*)object;
-            htable_free(vm, &kelas->methods);
-            FREE(vm, ObjClass, object);
+            {
+                ObjClass* klass = (ObjClass*)object;
+                htable_free(vm, &klass->methods);
+                memwrap_free(vm, ObjClass, object);
+            }
             break;
-        }
+
         case OBJ_INSTANCE:
-        {
-            ObjInstance* instance = (ObjInstance*)object;
-            htable_free(vm, &instance->fields);
-            FREE(vm, ObjInstance, object);
+            {
+                ObjInstance* instance = (ObjInstance*)object;
+                htable_free(vm, &instance->fields);
+                memwrap_free(vm, ObjInstance, object);
+            }
             break;
-        }
         case OBJ_CLOSURE:
         {
             // free upvalues
             ObjClosure* closure = (ObjClosure*)object;
-            FREE_ARRAY(vm, ObjUpvalue*, closure->upvalues, closure->upvalueCount);
-
-            FREE(vm, ObjClosure, object);// only free the closure, not the function itself
+            memwrap_freearray(vm, ObjUpvalue*, closure->upvalues, closure->upvaluecount);
+            // only free the closure, not the function itself
+            memwrap_free(vm, ObjClosure, object);
             break;
         }
-        case OBJ_FUNCTION:// return bits(chunk) borrowed to the operating syste,
+        // return bits(chunk) borrowed to the operating system
+        case OBJ_FUNCTION:
         {
             ObjFunction* function = (ObjFunction*)object;
             chunk_free(vm, &function->chunk);
-            FREE(vm, ObjFunction, object);
+            memwrap_free(vm, ObjFunction, object);
             break;
         }
         case OBJ_NATIVE:
         {
-            FREE(vm, ObjNative, object);
+            memwrap_free(vm, ObjNative, object);
             break;
         }
         case OBJ_STRING:
         {
             ObjString* string = (ObjString*)object;
-            FREE_ARRAY(vm, char, string->chars, string->length + 1);
-            FREE(vm, ObjString, object);
+            memwrap_freearray(vm, char, string->chars, string->length + 1);
+            memwrap_free(vm, ObjString, object);
             break;
         }
         case OBJ_UPVALUE:
         {
-            FREE(vm, ObjUpvalue, object);
+            memwrap_free(vm, ObjUpvalue, object);
             break;
         }
     }
@@ -1115,38 +1157,49 @@ void mem_freeobject(VM* vm, Obj* object)// to handle different types
 
 void mem_markobject(VM* vm, Obj* object)
 {
+    // in some places the pointer is empty
     if(object == NULL)
-        return;// in some places the pointer is empty
-    if(object->isMarked)
-        return;// object is already marked
-
-    object->isMarked = true;
+    {
+        return;
+    }
+    // object is already marked
+    if(object->ismarked)
+    {
+        return;
+    }
+    object->ismarked = true;
 
     // create a worklist of grayobjects to traverse later, use a stack to implement it
-    if(vm->grayCapacity < vm->grayCount + 1)// if need more space, allocate
+    if(vm->graycap < vm->graycount + 1)
     {
-        vm->grayCapacity = GROW_CAPACITY(vm, vm->grayCapacity);
-        vm->grayStack = realloc(vm->grayStack, sizeof(Obj*) * vm->grayCapacity);// use native realloc here
+        vm->graycap = memwrap_growcap(vm, vm->graycap);
+        // use native realloc here
+        vm->graystack = realloc(vm->graystack, sizeof(Obj*) * vm->graycap);
     }
 
-    if(vm->grayStack == NULL)
-        exit(1);// if fail to allocate memory for the gray stack
-
+    // if fail to allocate memory for the gray stack
+    if(vm->graystack == NULL)
+    {
+        fprintf(stderr, "failed to allocate graystack!\n");
+        exit(1);
+    }
     // add the 'gray' object to the working list
-    vm->grayStack[vm->grayCount++] = object;
+    vm->graystack[vm->graycount++] = object;
 
 #ifdef DEBUG_LOG_GC
     printf("%p marked ", (void*)object);
-    obj_printvalue(vm, OBJ_VAL(object));// you cant print first class objects, like how you would print in the actual repl
+    // you cant print first class objects, like how you would print in the actual repl
+    obj_printvalue(vm, obj_mkobject(object));
     printf("\n");
 #endif
 }
 
 void mem_markvalue(VM* vm, Value value)
 {
-    if(!IS_OBJ(value))
-        return;// if value is not first class Objtype return
-    mem_markobject(vm, AS_OBJ(value));
+    // if value is not first class Objtype return
+    if(!obj_isobject(value))
+        return;
+    mem_markobject(vm, obj_asobject(value));
 }
 
 
@@ -1155,7 +1208,8 @@ void mem_markarray(VM* vm, ValueArray* array)
 {
     for(int i = 0; i < array->count; i++)
     {
-        mem_markvalue(vm, array->values[i]);// mark each Value in the array
+        // mark each Value in the array
+        mem_markvalue(vm, array->values[i]);
     }
 }
 
@@ -1163,39 +1217,37 @@ void mem_markarray(VM* vm, ValueArray* array)
 void mem_markroots(VM* vm)
 {
     // assiging a pointer to a full array means assigning the pointer to the FIRST element of that array
-    for(Value* slot = vm->stack; slot < vm->stackTop; slot++)// walk through all values/slots in the Value* array
+    // walk through all values/slots in the Value* array
+    for(Value* slot = vm->stack; slot < vm->stacktop; slot++)
     {
         mem_markvalue(vm, *slot);
     }
-
     // mark closures
-    for(int i = 0; i < vm->frameCount; i++)
+    for(int i = 0; i < vm->framecount; i++)
     {
-        mem_markobject(vm, (Obj*)vm->frames[i].closure);// mark ObjClosure  type
+        mem_markobject(vm, (Obj*)vm->frames[i].closure);
     }
 
     // mark upvalues, walk through the linked list of upvalues
-    for(ObjUpvalue* upvalue = vm->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
+    for(ObjUpvalue* upvalue = vm->openupvalues; upvalue != NULL; upvalue = upvalue->next)
     {
         mem_markobject(vm, (Obj*)upvalue);
     }
-
-
-    htable_mark(vm, &vm->globals);// mark global variables, belongs in the VM/hashtable
+    // mark global variables, belongs in the VM/hashtable
+    htable_mark(vm, &vm->globals);
 
     // compiler also grabs memory; special function only for 'backend' processes
-    prs_markroots(vm);// declared in compiler.h
-
-    mem_markobject(vm, (Obj*)vm->initString);// mark objstring for init
+    prs_markroots(vm);
+    // mark objstring for init
+    mem_markobject(vm, (Obj*)vm->initstring);
 }
-
 
 // actual tracing of each gray object and marking it black
 void mem_blackenobject(VM* vm, Obj* object)
 {
 #ifdef DEBUG_LOG_GC
     printf("%p blackened ", (void*)object);
-    obj_printvalue(vm, OBJ_VAL(object));
+    obj_printvalue(vm, obj_mkobject(object));
     printf("\n");
 #endif
 
@@ -1210,24 +1262,29 @@ void mem_blackenobject(VM* vm, Obj* object)
             break;
         }
 
-        case OBJ_UPVALUE:// simply mark the closed value
+        case OBJ_UPVALUE:
+            // simply mark the closed value
             mem_markvalue(vm, ((ObjUpvalue*)object)->closed);
             break;
 
-        case OBJ_FUNCTION:// mark the name and its value array of constants
+        // mark the name and its value array of constants
+        case OBJ_FUNCTION:
         {
             // you can get the coressponding 'higher' object type from a lower derivation struct in C using (higher*)lower
             ObjFunction* function = (ObjFunction*)object;
-            mem_markobject(vm, (Obj*)function->name);// mark its name, an ObjString type
-            mem_markarray(vm, &function->chunk.constants);// mark value array of chunk constants, pass it in AS A POINTER using &
+            // mark its name, an ObjString type
+            mem_markobject(vm, (Obj*)function->name);
+            // mark value array of chunk constants, pass it in AS A POINTER using &
+            mem_markarray(vm, &function->chunk.constants);
             break;
         }
 
-        case OBJ_CLOSURE:// mark the function and all of the closure's upvalues
+        // mark the function and all of the closure's upvalues
+        case OBJ_CLOSURE:
         {
             ObjClosure* closure = (ObjClosure*)object;
             mem_markobject(vm, (Obj*)closure->function);
-            for(int i = 0; i < closure->upvalueCount; i++)
+            for(int i = 0; i < closure->upvaluecount; i++)
             {
                 mem_markobject(vm, (Obj*)closure->upvalues[i]);
             }
@@ -1236,16 +1293,16 @@ void mem_blackenobject(VM* vm, Obj* object)
 
         case OBJ_CLASS:
         {
-            ObjClass* kelas = (ObjClass*)object;
-            mem_markobject(vm, (Obj*)kelas->name);
-            htable_mark(vm, &kelas->methods);
+            ObjClass* klass = (ObjClass*)object;
+            mem_markobject(vm, (Obj*)klass->name);
+            htable_mark(vm, &klass->methods);
             break;
         }
 
         case OBJ_INSTANCE:
         {
             ObjInstance* instance = (ObjInstance*)object;
-            mem_markobject(vm, (Obj*)instance->kelas);
+            mem_markobject(vm, (Obj*)instance->classobject);
             htable_mark(vm, &instance->fields);
             break;
         }
@@ -1260,12 +1317,12 @@ void mem_blackenobject(VM* vm, Obj* object)
 // traversing the gray stack work list
 void mem_tracerefs(VM* vm)
 {
-    while(vm->grayCount > 0)
+    while(vm->graycount > 0)
     {
         // vm_pop Obj* (pointer) from the stack
         // note how -- is the prefix; subtract first then use it as an index
-        // --vm->grayCount already decreases its count, hence everything is already 'popped'
-        Obj* object = vm->grayStack[--vm->grayCount];
+        // --vm->graycount already decreases its count, hence everything is already 'popped'
+        Obj* object = vm->graystack[--vm->graycount];
         mem_blackenobject(vm, object);
     }
 }
@@ -1275,31 +1332,36 @@ void mem_tracerefs(VM* vm)
 void mem_sweep(VM* vm)
 {
     Obj* previous = NULL;
-    Obj* object = vm->objects;// linked intrusive list of Objects in the VM
+    // linked intrusive list of Objects in the VM
+    Obj* object = vm->objects;
 
     while(object != NULL)
     {
-        if(object->isMarked)// object marked, do not free
+        // object marked, do not free
+        if(object->ismarked)
         {
-            object->isMarked = false;// reset the marking to 'white'
+            // reset the marking to 'white'
+            object->ismarked = false;
             previous = object;
             object = object->next;
         }
-        else// free the unreachable object
+        // free the unreachable object
+        else
         {
             Obj* unreached = object;
             object = object->next;
-
-            if(previous != NULL)// link to previous object if previous not null
+            // link to previous object if previous not null
+            if(previous != NULL)
             {
                 previous->next = object;
             }
-            else// if not set the next as the start of the list
+            // if not set the next as the start of the list
+            else
             {
                 vm->objects = object;
             }
-
-            mem_freeobject(vm, unreached);// method that actually frees the object
+            // method that actually frees the object
+            mem_freeobject(vm, unreached);
         }
     }
 }
@@ -1308,28 +1370,29 @@ void mem_collectgarbage(VM* vm)
 {
 #ifdef DEBUG_LOG_GC
     printf("--Garbage Collection Begin\n");
-    size_t before = vm->bytesAllocated;
+    size_t before = vm->totalalloc;
 #endif
-
-    mem_markroots(vm);// function to start traversing the graph, from the root and marking them
-    mem_tracerefs(vm);// tracing each gray marked object
+    // function to start traversing the graph, from the root and marking them
+    mem_markroots(vm);
+    // tracing each gray marked object
+    mem_tracerefs(vm);
 
     // removing intern strings, BEFORE the sweep so the pointers can still access its memory
     // function defined in hahst.c
     htable_removewhite(vm, &vm->strings);
-
-    mem_sweep(vm);// free all unreachable roots
+    // free all unreachable roots
+    mem_sweep(vm);
 
     // adjust size of threshold
-    vm->nextGC = vm->bytesAllocated * GC_HEAP_GROW_FACTOR;
+    vm->nextgc = vm->totalalloc * GC_HEAP_GROW_FACTOR;
 
 #ifdef DEBUG_LOG_GC
     printf("--Garbage Collection End\n");
-    printf("	collected %zd bytes (from %zd to %zd) next at %zd\n", before - vm->bytesAllocated, before, vm->bytesAllocated, vm->nextGC);
+    printf("	collected %zd bytes (from %zd to %zd) next at %zd\n", before - vm->totalalloc, before, vm->totalalloc, vm->nextgc);
 #endif
 }
 
-void mem_freeobjlist(VM* vm)// free from VM
+void mem_freeobjlist(VM* vm)
 {
     Obj* object = vm->objects;
     // free from the whole list
@@ -1339,15 +1402,15 @@ void mem_freeobjlist(VM* vm)// free from VM
         mem_freeobject(vm, object);
         object = next;
     }
-
-    free(vm->grayStack);// free gray marked obj stack used for garbage collection
+    // free gray marked obj stack used for garbage collection
+    free(vm->graystack);
 }
 
 
 int dbg_print_simpleinst(VM* vm, const char* name, int offset)
 {
     (void)vm;
-    printf("%s\n", name);// print as a string, or char*
+    printf("%s\n", name);
     return offset + 1;
 }
 
@@ -1362,20 +1425,27 @@ int dbg_print_byteinst(VM* vm, const char* name, Chunk* chunk, int offset)
 int dbg_print_constinst(VM* vm, const char* name, Chunk* chunk, int offset)
 {
     (void)vm;
-    uint8_t constant = chunk->code[offset + 1];// pullout the constant index from the subsequent byte in the chunk
-    printf("%-16s %4d '", name, constant);// print out name of the opcode, then the constant index
-    obj_printvalue(vm, chunk->constants.values[constant]);//	display the value of the constant,  user defined function
+    // pullout the constant index from the subsequent byte in the chunk
+    uint8_t constant = chunk->code[offset + 1];
+    // print out name of the opcode, then the constant index
+    printf("%-16s %4d '", name, constant);
+    //	display the value of the constant,  user defined function
+    obj_printvalue(vm, chunk->constants.values[constant]);
     printf("'\n");
-    return offset + 2;//OP_RETURN is a single byte, and the other byte is the operand, hence offsets by 2
+    //OP_RETURN is a single byte, and the other byte is the operand, hence offsets by 2
+    return offset + 2;
 }
 
 int dbg_print_invokeinst(VM* vm, const char* name, Chunk* chunk, int offset)
 {
     (void)vm;
-    uint8_t constant = chunk->code[offset + 1];// get index of the name first
-    uint8_t argCount = chunk->code[offset + 2];// then get number of arguments
-    printf("%-16s (%d args) %4d", name, argCount, constant);
-    obj_printvalue(vm, chunk->constants.values[constant]);// print the method
+    // get index of the name first
+    uint8_t constant = chunk->code[offset + 1];
+    // then get number of arguments
+    uint8_t argc = chunk->code[offset + 2];
+    printf("%-16s (%d args) %4d", name, argc, constant);
+    // print the method
+    obj_printvalue(vm, chunk->constants.values[constant]);
     printf("\n");
     return offset + 3;
 }
@@ -1383,7 +1453,8 @@ int dbg_print_invokeinst(VM* vm, const char* name, Chunk* chunk, int offset)
 int dbg_print_jumpinst(VM* vm, const char* name, int sign, Chunk* chunk, int offset)
 {
     (void)vm;
-    uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);// get jump
+    // get jump
+    uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
     jump |= chunk->code[offset + 2];
     printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
     return offset + 3;
@@ -1391,28 +1462,26 @@ int dbg_print_jumpinst(VM* vm, const char* name, int sign, Chunk* chunk, int off
 
 void dbg_disasmchunk(VM* vm, Chunk* chunk, const char* name)
 {
-    printf("== %s ==\n", name);// print a little header for debugging
+    // print a little header for debugging
+    printf("== %s ==\n", name);
 
-    for(int offset = 0; offset < chunk->count;)// for every existing instruction in the chunk
+    // for every existing instruction in the chunk
+    for(int offset = 0; offset < chunk->count;)
     {
-        offset = dbg_disasminst(vm, chunk, offset);// disassemble individually, offset will be controlled from this function
+        // disassemble individually, offset will be controlled from this function
+        offset = dbg_disasminst(vm, chunk, offset);
     }
 }
 
 int dbg_disasminst(VM* vm, Chunk* chunk, int offset)
 {
-    printf("%04d ", offset);// print byte offset of the given instruction, or the index
-    /* quick note on C placeholders
-	say, we have int a = 2
-	if %2d, it will be " 2"
-	if %02d, it will be "02'
-	*/
-
+    // print byte offset of the given instruction, or the index
+    printf("%04d ", offset);
 
     // show source line each instruction was compiled from
-    if(offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1])// show a | for any instruction that comes from the
+    // show a | for any instruction that comes from the
     //same source as its preceding one
-
+    if(offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1])
     {
         printf("	| ");
     }
@@ -1420,12 +1489,13 @@ int dbg_disasminst(VM* vm, Chunk* chunk, int offset)
     {
         printf("%4d ", chunk->lines[offset]);
     }
-
-    uint8_t instruction = chunk->code[offset];// takes one byte, or an element, from the container
+    // takes one byte, or an element, from the container
+    uint8_t instruction = chunk->code[offset];
     switch(instruction)
     {
+        // pass in chunk to get ValueArray element
         case OP_CONSTANT:
-            return dbg_print_constinst(vm, "OP_CONSTANT", chunk, offset);// pass in chunk to get ValueArray element
+            return dbg_print_constinst(vm, "OP_CONSTANT", chunk, offset);
 
         // literals
         case OP_NULL:
@@ -1465,36 +1535,36 @@ int dbg_disasminst(VM* vm, Chunk* chunk, int offset)
             return dbg_print_simpleinst(vm, "OP_POP", offset);
 
         // names for local variables do not get carried over, hence only the slot number is shown
-        case OP_GET_LOCAL:
-            return dbg_print_byteinst(vm, "OP_GET_LOCAL", chunk, offset);
-        case OP_SET_LOCAL:
-            return dbg_print_byteinst(vm, "OP_SET_LOCAL", chunk, offset);
+        case OP_GETLOCAL:
+            return dbg_print_byteinst(vm, "OP_GETLOCAL", chunk, offset);
+        case OP_SETLOCAL:
+            return dbg_print_byteinst(vm, "OP_SETLOCAL", chunk, offset);
 
         case OP_GET_UPVALUE:
             return dbg_print_byteinst(vm, "OP_GET_UPVALUE", chunk, offset);
-        case OP_SET_UPVALUE:
-            return dbg_print_byteinst(vm, "OP_SET_UPVALUE", chunk, offset);
-        case OP_GET_PROPERTY:
-            return dbg_print_constinst(vm, "OP_GET_PROPERTY", chunk, offset);
-        case OP_SET_PROPERTY:
-            return dbg_print_constinst(vm, "OP_SET_PROPERTY", chunk, offset);
+        case OP_SETUPVALUE:
+            return dbg_print_byteinst(vm, "OP_SETUPVALUE", chunk, offset);
+        case OP_GETPROPERTY:
+            return dbg_print_constinst(vm, "OP_GETPROPERTY", chunk, offset);
+        case OP_SETPROPERTY:
+            return dbg_print_constinst(vm, "OP_SETPROPERTY", chunk, offset);
 
-        case OP_CLOSE_UPVALUE:
-            return dbg_print_simpleinst(vm, "OP_CLOSE_VALUE", offset);
+        case OP_CLOSEUPVALUE:
+            return dbg_print_simpleinst(vm, "OP_CLOSEVALUE", offset);
 
-        case OP_DEFINE_GLOBAL:
-            return dbg_print_simpleinst(vm, "OP_DEFINE_GLOBAL", offset);
-        case OP_GET_GLOBAL:
-            return dbg_print_simpleinst(vm, "OP_GET_GLOBAL", offset);
-        case OP_SET_GLOBAL:
-            return dbg_print_simpleinst(vm, "OP_SET_GLOBAL", offset);
-        case OP_SWITCH_EQUAL:
-            return dbg_print_simpleinst(vm, "OP_SWITCH_EQUAL", offset);
+        case OP_DEFINEGLOBAL:
+            return dbg_print_simpleinst(vm, "OP_DEFINEGLOBAL", offset);
+        case OP_GETGLOBAL:
+            return dbg_print_simpleinst(vm, "OP_GETGLOBAL", offset);
+        case OP_SETGLOBAL:
+            return dbg_print_simpleinst(vm, "OP_SETGLOBAL", offset);
+        case OP_SWITCHEQUAL:
+            return dbg_print_simpleinst(vm, "OP_SWITCHEQUAL", offset);
 
         case OP_JUMP:
             return dbg_print_jumpinst(vm, "OP_JUMP", 1, chunk, offset);
-        case OP_JUMP_IF_FALSE:
-            return dbg_print_jumpinst(vm, "OP_JUMP_IF_FALSE", 1, chunk, offset);
+        case OP_JUMPIFFALSE:
+            return dbg_print_jumpinst(vm, "OP_JUMPIFFALSE", 1, chunk, offset);
 
         case OP_CALL:
             return dbg_print_byteinst(vm, "OP_CALL", chunk, offset);
@@ -1509,17 +1579,20 @@ int dbg_disasminst(VM* vm, Chunk* chunk, int offset)
         case OP_CLOSURE:
         {
             offset++;
-            uint8_t constant = chunk->code[offset++];// index for Value
+            // index for Value
+            uint8_t constant = chunk->code[offset++];
             printf("%-16s %4d ", "OP_CLOSURE", constant);
-            obj_printvalue(vm, chunk->constants.values[constant]);// accessing the value using the index
+            // accessing the value using the index
+            obj_printvalue(vm, chunk->constants.values[constant]);
             printf("\n");
 
-            ObjFunction* function = AS_FUNCTION(chunk->constants.values[constant]);
-            for(int j = 0; j < function->upvalueCount; j++)// walk through upvalues
+            ObjFunction* function = obj_asfunction(chunk->constants.values[constant]);
+            // walk through upvalues
+            for(int j = 0; j < function->upvaluecount; j++)
             {
-                int isLocal = chunk->code[offset++];
+                int isl = chunk->code[offset++];
                 int index = chunk->code[offset++];
-                printf("%04d	|	%s %d\n", offset - 2, isLocal ? "local" : "upvalue", index);
+                printf("%04d	|	%s %d\n", offset - 2, isl ? "local" : "upvalue", index);
             }
 
             return offset;
@@ -1531,24 +1604,25 @@ int dbg_disasminst(VM* vm, Chunk* chunk, int offset)
         case OP_INHERIT:
             return dbg_print_simpleinst(vm, "OP_INEHEIRT", offset);
 
+        // class inheritance
+        case OP_GETSUPER:
+            return dbg_print_constinst(vm, "OP_GETSUPER", chunk, offset);
 
-        case OP_GET_SUPER:// class inheritance
-            return dbg_print_constinst(vm, "OP_GET_SUPER", chunk, offset);
+        case OP_SUPERINVOKE:
+            return dbg_print_invokeinst(vm, "OP_SUPERINVOKE", chunk, offset);
 
-        case OP_SUPER_INVOKE:
-            return dbg_print_invokeinst(vm, "OP_SUPER_INVOKE", chunk, offset);
-
+        // dispatch to a utility function to display it
         case OP_RETURN:
-            return dbg_print_simpleinst(vm, "OP_RETURN", offset);// dispatch to a utility function to display it
+            return dbg_print_simpleinst(vm, "OP_RETURN", offset);
 
         case OP_LOOP:
             return dbg_print_jumpinst(vm, "OP_LOOP", -1, chunk, offset);
 
-        case OP_LOOP_IF_TRUE:
-            return dbg_print_jumpinst(vm, "OP_LOOP_IF_TRUE", -1, chunk, offset);
+        case OP_LOOPIFTRUE:
+            return dbg_print_jumpinst(vm, "OP_LOOPIFTRUE", -1, chunk, offset);
 
-        case OP_LOOP_IF_FALSE:
-            return dbg_print_jumpinst(vm, "OP_LOOP_IF_FALSE", -1, chunk, offset);
+        case OP_LOOPIFFALSE:
+            return dbg_print_jumpinst(vm, "OP_LOOPIFFALSE", -1, chunk, offset);
 
         default:
             printf("Unknown opcode %d\n", instruction);
@@ -1566,33 +1640,38 @@ void htable_init(VM* vm, Table* table)
 
 void htable_free(VM* vm, Table* table)
 {
-    FREE_ARRAY(vm, Entry, table->entries, table->capacity);
+    memwrap_freearray(vm, Entry, table->entries, table->capacity);
     htable_init(vm, table);
     table->entries = NULL;
 }
 
 Entry* htable_findentry(Entry* entries, int capacity, ObjString* key)
 {
-    uint32_t index = key->hash % capacity;// use modulo to map the key's hash to the code index
+    // use modulo to map the key's hash to the code index
+    uint32_t index = key->hash % capacity;
     Entry* tombstone = NULL;
 
     for(;;)
     {
-        Entry* entry = &entries[index];// index is 'inserted' here
+        // index is 'inserted' here
+        Entry* entry = &entries[index];
 
         if(entry->key == NULL)
         {
-            if(IS_NULL(entry->value))
+            if(obj_isnull(entry->value))
             {
-                return tombstone != NULL ? tombstone : entry;// empty entry
+                // empty entry
+                return tombstone != NULL ? tombstone : entry;
             }
             else
             {
+                // can return tombstone bucket as empty and reuse it
                 if(tombstone == NULL)
-                    tombstone = entry;// can return tombstone bucket as empty and reuse it
+                    tombstone = entry;
             }
         }
-        if(entry->key == key)// compare them in MEMORY
+        // compare them in MEMORY
+        if(entry->key == key)
         {
             return entry;
         }
@@ -1612,7 +1691,8 @@ bool htable_get(VM* vm, Table* table, ObjString* key, Value* value)
     if(entry->key == NULL)
         return false;
 
-    *value = entry->value;// asign the value parameter the entry value
+    // asign the value parameter the entry value
+    *value = entry->value;
     return true;
 }
 
@@ -1623,16 +1703,20 @@ void htable_adjustcap(VM* vm, Table* table, int capacity)
     Entry* dest;
     Entry* entry;
     Entry* entries;
-    entries = ALLOCATE(vm, Entry, capacity);// create a bucket with capacity entries, new array
-    for(i = 0; i < capacity; i++)// initialize every element
+    // create a bucket with capacity entries, new array
+    entries = memwrap_allocate(vm, Entry, capacity);
+    // initialize every element
+    for(i = 0; i < capacity; i++)
     {
         entries[i].key = NULL;
-        entries[i].value = NULL_VAL;
+        entries[i].value = obj_nullval;
     }
-    table->count = 0;// do not copy tombstones over when growing
+    // do not copy tombstones over when growing
+    table->count = 0;
     // NOTE: entries may end up in different buckets
     // with the same hash as it is divided by the modulo; loop below recalculates everything
-    for(i = 0; i < table->capacity; i++)// travers through old array
+    // travers through old array
+    for(i = 0; i < table->capacity; i++)
     {
         entry = &table->entries[i];
         if(entry->key == NULL)
@@ -1640,13 +1724,16 @@ void htable_adjustcap(VM* vm, Table* table, int capacity)
             continue;
         }
         // insert into new array
-        dest = htable_findentry(entries, capacity, entry->key);// pass in new array
-        dest->key = entry->key;// match old array to new array
+        // pass in new array
+        dest = htable_findentry(entries, capacity, entry->key);
+        // match old array to new array
+        dest->key = entry->key;
         dest->value = entry->value;
-        table->count++;// recound the number of entries
+        // recound the number of entries
+        table->count++;
     }
 
-    FREE_ARRAY(vm, Entry, table->entries, table->capacity);
+    memwrap_freearray(vm, Entry, table->entries, table->capacity);
     table->entries = entries;
     table->capacity = capacity;
 }
@@ -1657,21 +1744,22 @@ bool htable_set(VM* vm, Table* table, ObjString* key, Value value)
     // make sure array is big enough
     if(table->count + 1 > table->capacity * TABLE_MAX_LOAD)
     {
-        int capacity = GROW_CAPACITY(vm, table->capacity);
+        int capacity = memwrap_growcap(vm, table->capacity);
         htable_adjustcap(vm, table, capacity);
     }
 
 
     Entry* entry = htable_findentry(table->entries, table->capacity, key);
 
-    bool isNewKey = entry->key == NULL;
-    if(isNewKey && IS_NULL(entry->value))
-        table->count++;// IS_NULL for tombstones; treat them as full objects
+    bool isnewkey = entry->key == NULL;
+    // obj_isnull for tombstones; treat them as full objects
+    if(isnewkey && obj_isnull(entry->value))
+        table->count++;
 
     entry->key = key;
     entry->value = value;
 
-    return isNewKey;
+    return isnewkey;
 }
 
 
@@ -1688,7 +1776,7 @@ bool htable_delete(VM* vm, Table* table, ObjString* key)
 
     // place tombstone
     entry->key = NULL;
-    entry->value = BOOL_VAL(true);//BOOL_VAL(true) as the tombstone
+    entry->value = obj_mkbool(true);
 
     return true;
 }
@@ -1706,26 +1794,32 @@ void htable_addall(VM* vm, Table* from, Table* to)
 }
 
 // used in VM to find the string
-ObjString* htable_findstring(VM* vm, Table* table, const char* chars, int length, uint32_t hash)// pass in raw character array
+ObjString* htable_findstring(VM* vm, Table* table, const char* chars, int length, uint32_t hash)
 {
     (void)vm;
     if(table->count == 0)
         return NULL;
 
-    uint32_t index = hash % table->capacity;// get index
+    // get index
+    uint32_t index = hash % table->capacity;
 
     for(;;)
     {
-        Entry* entry = &table->entries[index];// get entry pointer
+        // get entry pointer
+        Entry* entry = &table->entries[index];
         if(entry->key == NULL)
         {
             // stop if found empty non-tombstone entry
-            if(IS_NULL(entry->value))
-                return NULL;// return null if not tombstone(tombstone value is BOOL_VAL(true))
+            if(obj_isnull(entry->value))
+            {
+                // return null if not tombstone(tombstone value is obj_mkbool(true))
+                return NULL;
+            }
         }
         else if(entry->key->length == length && entry->key->hash == hash && memcmp(entry->key->chars, chars, length) == 0)
         {
-            return entry->key;// found the entry
+            // found the entry
+            return entry->key;
         }
 
         index = (index + 1) % table->capacity;
@@ -1738,7 +1832,8 @@ void htable_removewhite(VM* vm, Table* table)
     for(int i = 0; i < table->capacity; i++)
     {
         Entry* entry = &table->entries[i];
-        if(entry->key != NULL && !entry->key->obj.isMarked)// remove not marked (string) object pointers
+        // remove not marked (string) object pointers
+        if(entry->key != NULL && !entry->key->obj.ismarked)
         {
             htable_delete(vm, table, entry->key);
         }
@@ -1753,8 +1848,10 @@ void htable_mark(VM* vm, Table* table)
     {
         Entry* entry = &table->entries[i];
         // need to mark both the STRING KEYS and the actual value/obj itself
-        mem_markobject(vm, (Obj*)entry->key);// mark the string key(ObjString type)
-        mem_markvalue(vm, entry->value);// mark the actual avlue
+        // mark the string key(ObjString type)
+        mem_markobject(vm, (Obj*)entry->key);
+        // mark the actual avlue
+        mem_markvalue(vm, entry->value);
     }
 }
 
@@ -1762,22 +1859,28 @@ void chunk_init(VM* vm, Chunk* chunk)
 {
     chunk->count = 0;
     chunk->capacity = 0;
-    chunk->code = NULL;// dynamic array starts off completely empty
-    chunk->lines = NULL;// to store current line of code
-    obj_initvalarray(vm, &chunk->constants);// initialize constant list
+    // dynamic array starts off completely empty
+    chunk->code = NULL;
+    // to store current line of code
+    chunk->lines = NULL;
+    // initialize constant list
+    obj_initvalarray(vm, &chunk->constants);
 }
 
 void chunk_write(VM* vm, Chunk* chunk, uint8_t byte, int line)
 {
-    if(chunk->capacity < chunk->count + 1)// check if chunk is full
+    // check if chunk is full
+    if(chunk->capacity < chunk->count + 1)
     {
-        int oldCapacity = chunk->capacity;
-        chunk->capacity = GROW_CAPACITY(vm, oldCapacity);// get size of new capacity
-        chunk->code = GROW_ARRAY(vm, uint8_t, chunk->code, oldCapacity, chunk->capacity);// mem_realloc memory and grow array
-        chunk->lines = GROW_ARRAY(vm, int, chunk->lines, oldCapacity, chunk->capacity);
+        int oldcapacity = chunk->capacity;
+        // get size of new capacity
+        chunk->capacity = memwrap_growcap(vm, oldcapacity);
+        // mem_realloc memory and grow array
+        chunk->code = memwrap_growarray(vm, uint8_t, chunk->code, oldcapacity, chunk->capacity);
+        chunk->lines = memwrap_growarray(vm, int, chunk->lines, oldcapacity, chunk->capacity);
     }
-
-    chunk->code[chunk->count] = byte;// code is an array, [] is just the index number
+    // code is an array, [] is just the index number
+    chunk->code[chunk->count] = byte;
     chunk->lines[chunk->count] = line;
     chunk->count++;
 }
@@ -1785,23 +1888,27 @@ void chunk_write(VM* vm, Chunk* chunk, uint8_t byte, int line)
 
 void chunk_free(VM* vm, Chunk* chunk)
 {
-    FREE_ARRAY(vm, uint8_t, chunk->code, chunk->capacity);// chunk->code is the pointer to the array, capacity is the size
-    FREE_ARRAY(vm, int, chunk->lines, chunk->capacity);
+    // chunk->code is the pointer to the array, capacity is the size
+    memwrap_freearray(vm, uint8_t, chunk->code, chunk->capacity);
+    memwrap_freearray(vm, int, chunk->lines, chunk->capacity);
     obj_freevalarray(vm, &chunk->constants);
     chunk_init(vm, chunk);
 }
 
 int chunk_addconstant(VM* vm, Chunk* chunk, Value value)
 {
-    vm_push(vm, value);// garbage collection
+    // garbage collection
+    vm_push(vm, value);
     obj_writevalarray(vm, &chunk->constants, value);
-    vm_pop(vm);// garbage collection
-    return chunk->constants.count - 1;// return index of the newly added constant
+    // garbage collection
+    vm_pop(vm);
+    // return index of the newly added constant
+    return chunk->constants.count - 1;
 }
 
 bool obj_istype(Value value, ObjType type)
 {
-	return IS_OBJ(value) && AS_OBJ(value)->type == type;
+	return obj_isobject(value) && obj_asobject(value)->type == type;
 }
 
 // new bound method for classes
@@ -1819,51 +1926,55 @@ ObjClosure* obj_mkclosure(VM* vm, ObjFunction* function)
 {
     // initialize array of upvalue pointers
     // upvalues carry over
-    ObjUpvalue** upvalues = ALLOCATE(vm, ObjUpvalue*, function->upvalueCount);
+    ObjUpvalue** upvalues = memwrap_allocate(vm, ObjUpvalue*, function->upvaluecount);
 
-    for(int i = 0; i < function->upvalueCount; i++)
+    for(int i = 0; i < function->upvaluecount; i++)
     {
-        upvalues[i] = NULL;// initialize all as null
+        // initialize all as null
+        upvalues[i] = NULL;
     }
 
 
     ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
     closure->function = function;
     closure->upvalues = upvalues;
-    closure->upvalueCount = function->upvalueCount;
+    closure->upvaluecount = function->upvaluecount;
     return closure;
 }
 
-ObjString* obj_mkstring(VM* vm, char* chars, int length, uint32_t hash)// pass in hash
+ObjString* obj_mkstring(VM* vm, char* chars, int length, uint32_t hash)
 {
     ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
     string->length = length;
     string->chars = chars;
     string->hash = hash;
 
-    vm_push(vm, OBJ_VAL(string));// garbage collection
+    // garbage collection
+    vm_push(vm, obj_mkobject(string));
     //printf("allocate\n");
-    htable_set(vm, &vm->strings, string, NULL_VAL);// for string interning
-    vm_pop(vm);// garbage collection
-
+    // for string interning
+    htable_set(vm, &vm->strings, string, obj_nullval);
+    // garbage collection
+    vm_pop(vm);
     return string;
 }
 
 ObjClass* obj_mkclass(VM* vm, ObjString* name)
 {
-    ObjClass* kelas = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);// kelas not class for compiling in c++
-    kelas->name = name;
-    htable_init(vm, &kelas->methods);
-    return kelas;
+    ObjClass* klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
+    klass->name = name;
+    htable_init(vm, &klass->methods);
+    return klass;
 }
 
 
 // create new class instance
-ObjInstance* obj_mkinstance(VM* vm, ObjClass* kelas)
+ObjInstance* obj_mkinstance(VM* vm, ObjClass* klass)
 {
     ObjInstance* instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
-    instance->kelas = kelas;
-    htable_init(vm, &instance->fields);// memory address of the fields
+    instance->classobject = klass;
+    // memory address of the fields
+    htable_init(vm, &instance->fields);
     return instance;
 }
 
@@ -1873,7 +1984,7 @@ ObjFunction* obj_mkfunction(VM* vm)
     ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
 
     function->arity = 0;
-    function->upvalueCount = 0;
+    function->upvaluecount = 0;
     function->name = NULL;
     chunk_init(vm, &function->chunk);
     return function;
@@ -1893,11 +2004,13 @@ ObjNative* obj_mknative(VM* vm, NativeFn function)
 uint32_t obj_hashstring(VM* vm, const char* key, int length)
 {
     (void)vm;
-    uint32_t hash = 2116136261u;// initial hash value, u at end means unsigned
-
-    for(int i = 0; i < length; i++)// traverse through the data to be hashed
+    // initial hash value, u at end means unsigned
+    uint32_t hash = 2116136261u;
+    // traverse through the data to be hashed
+    for(int i = 0; i < length; i++)
     {
-        hash ^= key[i];// munge the bits from the string key to the hash value; ^= is a bitwise operator
+        // munge the bits from the string key to the hash value; ^= is a bitwise operator
+        hash ^= key[i];
         hash *= 16777619;
     }
 
@@ -1911,10 +2024,11 @@ ObjString* obj_takestring(VM* vm, char* chars, int length)
     uint32_t hash = obj_hashstring(vm, chars, length);
     ObjString* interned = htable_findstring(vm, &vm->strings, chars, length, hash);
 
-
-    if(interned != NULL)// if the same string already exists
+    // if the same string already exists
+    if(interned != NULL)
     {
-        FREE_ARRAY(vm, char, chars, length + 1);// free the memory for use
+        // free the memory for use
+        memwrap_freearray(vm, char, chars, length + 1);
         return interned;
     }
 
@@ -1930,13 +2044,17 @@ ObjString* obj_copystring(VM* vm, const char* chars, int length)
 
     if(interned != NULL)
     {
-        return interned;// if we find a string already in vm->srings, no need to copy just return the pointer
+        // if we find a string already in vm->srings, no need to copy just return the pointer
+        return interned;
     }
-    char* heapChars = ALLOCATE(vm, char, length + 1);// length +1 for null terminator
-    memcpy(heapChars, chars, length);// copy memory from one location to another; memcpy(*to, *from, size_t (from))
-    heapChars[length] = '\0';// '\0', a null terminator used to signify the end of the string, placed at the end
+    // length +1 for null terminator
+    char* heapchars = memwrap_allocate(vm, char, length + 1);
+    // copy memory from one location to another; memcpy(*to, *from, size_t (from))
+    memcpy(heapchars, chars, length);
+    // '\0', a null terminator used to signify the end of the string, placed at the end
+    heapchars[length] = '\0';
 
-    return obj_mkstring(vm, heapChars, length, hash);
+    return obj_mkstring(vm, heapchars, length, hash);
 }
 
 
@@ -1946,7 +2064,7 @@ ObjUpvalue* obj_mkupvalue(VM* vm, Value* slot)
     ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
     upvalue->location = slot;
     upvalue->next = NULL;
-    upvalue->closed = NULL_VAL;
+    upvalue->closed = obj_nullval;
     return upvalue;
 }
 
@@ -1958,34 +2076,35 @@ void obj_printfunction(VM* vm, ObjFunction* function)
         printf("<script>");
         return;
     }
-    printf("fun %s(%d params)", function->name->chars, function->arity);// print name and number of parameters
+    // print name and number of parameters
+    printf("fun %s(%d params)", function->name->chars, function->arity);
 }
 
 void obj_printobject(VM* vm, Value value)
 {
     // first class objects can be printed; string and functions
-    switch(OBJ_TYPE(value))
+    switch(obj_type(value))
     {
         case OBJ_BOUND_METHOD:
-            obj_printfunction(vm, AS_BOUND_METHOD(value)->method->function);
+            obj_printfunction(vm, obj_asboundmethod(value)->method->function);
             break;
         case OBJ_CLASS:
-            printf("%s", AS_CLASS(value)->name->chars);
+            printf("%s", obj_asclass(value)->name->chars);
             break;
         case OBJ_INSTANCE:
-            printf("%s instance", AS_INSTANCE(value)->kelas->name->chars);
+            printf("%s instance", obj_asinstance(value)->classobject->name->chars);
             break;
         case OBJ_CLOSURE:
-            obj_printfunction(vm, AS_CLOSURE(value)->function);
+            obj_printfunction(vm, obj_asclosure(value)->function);
             break;
         case OBJ_FUNCTION:
-            obj_printfunction(vm, AS_FUNCTION(value));
+            obj_printfunction(vm, obj_asfunction(value));
             break;
         case OBJ_NATIVE:
             printf("<native fun>");
             break;
         case OBJ_STRING:
-            printf("%s", AS_CSTRING(value));
+            printf("%s", obj_asstring(value)->chars);
             break;
         case OBJ_UPVALUE:
             printf("upvalue");
@@ -2008,9 +2127,9 @@ void obj_writevalarray(VM* vm, ValueArray* array, Value value)
 {
     if(array->capacity < array->count + 1)
     {
-        int oldCapacity = array->capacity;
-        array->capacity = GROW_CAPACITY(vm, oldCapacity);
-        array->values = GROW_ARRAY(vm, Value, array->values, oldCapacity, array->capacity);
+        int oldcapacity = array->capacity;
+        array->capacity = memwrap_growcap(vm, oldcapacity);
+        array->values = memwrap_growarray(vm, Value, array->values, oldcapacity, array->capacity);
     }
 
     array->values[array->count] = value;
@@ -2019,7 +2138,7 @@ void obj_writevalarray(VM* vm, ValueArray* array, Value value)
 
 void obj_freevalarray(VM* vm, ValueArray* array)
 {
-    FREE_ARRAY(vm, Value, array->values, array->capacity);
+    memwrap_freearray(vm, Value, array->values, array->capacity);
     obj_initvalarray(vm, array);
 }
 
@@ -2029,17 +2148,17 @@ void obj_printvalue(VM* vm, Value value)
     switch(value.type)
     {
         case VAL_BOOL:
-            printf(AS_BOOL(value) ? "true" : "false");
+            printf(obj_asbool(value) ? "true" : "false");
             break;
         case VAL_NULL:
             printf("null");
             break;
         case VAL_NUMBER:
-            printf("%g", AS_NUMBER(value));
+            printf("%g", obj_asnumber(value));
             break;
         case VAL_OBJ:
             obj_printobject(vm, value);
-            break;// print heap allocated value, from object.h
+            break;
     }
 }
 
@@ -2054,27 +2173,28 @@ bool obj_valequal(VM* vm, Value a, Value b)
     switch(a.type)
     {
         case VAL_BOOL:
-            return AS_BOOL(a) == AS_BOOL(b);
+            return obj_asbool(a) == obj_asbool(b);
         case VAL_NUMBER:
-            return AS_NUMBER(a) == AS_NUMBER(b);
+            return obj_asnumber(a) == obj_asnumber(b);
+        // true for all nulls
         case VAL_NULL:
-            return true;// true for all nulls
+            return true;
         case VAL_OBJ:
-            return AS_OBJ(a) == AS_OBJ(b);// already interned, occupies the same address
+            // already interned, occupies the same address
+            return obj_asobject(a) == obj_asobject(b);
         default:
-            return false;// unreachable
+            // unreachable
+            return false;
     }
 }
 
 void scanner_init(const char* source)
 {
-    g_scanner.start = source;// again, pointing to a string array means pointing to the beginning
-    g_scanner.current = source;
-    g_scanner.line = 1;
+    g_currentscanner.start = source;
+    g_currentscanner.current = source;
+    g_currentscanner.line = 1;
 }
 
-
-// to check for identifiers(eg. for, while, print)
 bool scanner_isalpha(char c)
 {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
@@ -2082,35 +2202,30 @@ bool scanner_isalpha(char c)
 
 bool scanner_isdigit(char c)
 {
-    return c >= '0' && c <= '9';// let string comparison handle it
+    return c >= '0' && c <= '9';
 }
 
-// to get EOF symbol -> '\0'
 bool scanner_isatend()
 {
-    return *g_scanner.current == '\0';
+    return *g_currentscanner.current == '\0';
 }
 
-
-// goes to next char
 char scanner_advance()
 {
-    g_scanner.current++;// advance to next
-    return g_scanner.current[-1];// return previous one
+    g_currentscanner.current++;
+    return g_currentscanner.current[-1];
 }
 
 // logical conditioning to check if 2nd character is embedded to first(e.g two char token)
 bool scanner_match(char expected)
 {
     if(scanner_isatend())
-        return false;// if already at end, error
-    if(*g_scanner.current != expected)
+        return false;
+    if(*g_currentscanner.current != expected)
     {
-        //printf("no match");
-        return false;// if current char does not equal expected char, it is false
+        return false;
     }
-    //printf("match");
-    g_scanner.current++;// if yes, advance to next
+    g_currentscanner.current++;
     return true;
 }
 
@@ -2119,9 +2234,9 @@ Token scanner_maketoken(TokenType type)
 {
     Token token;
     token.type = type;
-    token.start = g_scanner.start;
-    token.length = (int)(g_scanner.current - g_scanner.start);
-    token.line = g_scanner.line;
+    token.start = g_currentscanner.start;
+    token.length = (int)(g_currentscanner.current - g_currentscanner.start);
+    token.line = g_currentscanner.line;
 
     return token;
 }
@@ -2132,8 +2247,8 @@ Token scanner_errortoken(const char* message)
     Token token;
     token.type = TOKEN_ERROR;
     token.start = message;
-    token.length = (int)strlen(message);// get string length and turn to int
-    token.line = g_scanner.line;
+    token.length = (int)strlen(message);
+    token.line = g_currentscanner.line;
 
     return token;
 }
@@ -2141,7 +2256,7 @@ Token scanner_errortoken(const char* message)
 // returns current character
 char scanner_peek()
 {
-    return *g_scanner.current;
+    return *g_currentscanner.current;
 }
 
 // returns next character
@@ -2149,7 +2264,7 @@ char scanner_peeknext()
 {
     if(scanner_isatend())
         return '\0';
-    return g_scanner.current[1];// C syntax, basically return index 1 (or second) from the array/pointer
+    return g_currentscanner.current[1];
 }
 
 // skipping white spaces, tabs, etc.
@@ -2169,7 +2284,7 @@ void scanner_skipspace()
                 break;
             case '\n':
                 {
-                    g_scanner.line++;
+                    g_currentscanner.line++;
                     scanner_advance();
                 }
                 break;
@@ -2180,7 +2295,10 @@ void scanner_skipspace()
                     {
                         // comment goes until end of line
                         while(scanner_peek() != '\n' && !scanner_isatend())
-                            scanner_advance();// if not new line or not end, treat as whitespace and advance
+                        {
+                            // if not new line or not end, treat as whitespace and advance
+                            scanner_advance();
+                        }
                     }
                     else
                     {
@@ -2205,24 +2323,26 @@ TokenType scanner_checkkeyword(int start, int length, const char* rest, TokenTyp
 	bascially if they are exactly the same, and compares their memory(memcmp)
 	int memcmp(const void *str1, const void *str2, size_t n) -> if it is exactly the same, then it is 0
 	*/
-    if(g_scanner.current - g_scanner.start == start + length && memcmp(g_scanner.start + start, rest, length) == 0)
+    if(g_currentscanner.current - g_currentscanner.start == start + length && memcmp(g_currentscanner.start + start, rest, length) == 0)
     {
         return type;
     }
 
     return TOKEN_IDENTIFIER;
 }
+
 // the 'trie' to store the set of strings
 TokenType scanner_parseidenttype()
 {
-    switch(g_scanner.start[0])// start of the lexeme
+    // start of the lexeme
+    switch(g_currentscanner.start[0])
     {
         //case 'a': return scanner_checkkeyword(1, 2, "nd", TOKEN_AND);
         case 'a':
             {
-                if(g_scanner.current - g_scanner.start > 1)
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])
+                    switch(g_currentscanner.start[1])
                     {
                         case 'n':
                             {
@@ -2245,9 +2365,9 @@ TokenType scanner_parseidenttype()
             break;
         case 'c':
             {
-                if(g_scanner.current - g_scanner.start > 1)
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])
+                    switch(g_currentscanner.start[1])
                     {
                         case 'a':
                             {
@@ -2270,9 +2390,9 @@ TokenType scanner_parseidenttype()
             break;
         case 'd':
             {
-                if(g_scanner.current - g_scanner.start > 1)
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])
+                    switch(g_currentscanner.start[1])
                     {
                         case 'e':
                             {
@@ -2290,15 +2410,17 @@ TokenType scanner_parseidenttype()
             break;
         case 'e':
             {
-                if(g_scanner.current - g_scanner.start > 1)
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])// check if there is a second letter
+                    // check if there is a second letter
+                    switch(g_currentscanner.start[1])
                     {
                         case 'l':
                             {
-                                if(g_scanner.current - g_scanner.start > 2)// check if there is a third letter
+                                // check if there is a third letter
+                                if(g_currentscanner.current - g_currentscanner.start > 2)
                                 {
-                                    switch(g_scanner.start[2])
+                                    switch(g_currentscanner.start[2])
                                     {
                                         case 's':
                                             return scanner_checkkeyword(3, 1, "e", TOKEN_ELSE);
@@ -2310,7 +2432,7 @@ TokenType scanner_parseidenttype()
                             break;
                         case 'q':
                             {
-                                return scanner_checkkeyword(2, 4, "uals", TOKEN_EQUAL_EQUAL);
+                                return scanner_checkkeyword(2, 4, "uals", TOKEN_EQUALEQUAL);
                             }
                             break;
                     }
@@ -2319,13 +2441,13 @@ TokenType scanner_parseidenttype()
             break;
         case 'f':
             {
-                if(g_scanner.current - g_scanner.start > 1)// check if there is a second letter
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])
+                    switch(g_currentscanner.start[1])
                     {
                         case 'a':
                             {
-                                return scanner_checkkeyword(2, 3, "lse", TOKEN_FALSE);// starts from 2 not 3, as first letter is already an f
+                                return scanner_checkkeyword(2, 3, "lse", TOKEN_FALSE);
                             }
                             break;
                         case 'o':
@@ -2354,9 +2476,9 @@ TokenType scanner_parseidenttype()
             break;
         case 'i':
             {
-                if(g_scanner.current - g_scanner.start > 1)
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])
+                    switch(g_currentscanner.start[1])
                     {
                         case 'f':
                             {
@@ -2365,7 +2487,7 @@ TokenType scanner_parseidenttype()
                             break;
                         case 's':
                             {
-                                return scanner_checkkeyword(2, 0, "", TOKEN_EQUAL_EQUAL);
+                                return scanner_checkkeyword(2, 0, "", TOKEN_EQUALEQUAL);
                             }
                             break;
                     }
@@ -2374,7 +2496,19 @@ TokenType scanner_parseidenttype()
             break;
         case 'n':
             {
-                return scanner_checkkeyword(1, 3, "ull", TOKEN_NULL);
+                switch(g_currentscanner.start[1])
+                {
+                    case 'u':
+                        {
+                            return scanner_checkkeyword(1, 3, "ull", TOKEN_NULL);
+                        }
+                        break;
+                    case 'i':
+                        {
+                            return scanner_checkkeyword(1, 2, "il", TOKEN_NULL);
+                        }
+                        break;
+                }
             }
             break;
         case 'o':
@@ -2384,14 +2518,14 @@ TokenType scanner_parseidenttype()
             break;
         case 'r':
             {
-                if(g_scanner.current - g_scanner.start > 1)
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])
+                    switch(g_currentscanner.start[1])
                     {
                         case 'e':
-                            if(g_scanner.current - g_scanner.start > 2)
+                            if(g_currentscanner.current - g_currentscanner.start > 2)
                             {
-                                switch(g_scanner.start[2])
+                                switch(g_currentscanner.start[2])
                                 {
                                     case 't':
                                         {
@@ -2411,9 +2545,9 @@ TokenType scanner_parseidenttype()
             break;
         case 's':
             {
-                if(g_scanner.current - g_scanner.start > 1)// if there is a second letter
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])
+                    switch(g_currentscanner.start[1])
                     {
                         case 'u':
                             {
@@ -2431,21 +2565,20 @@ TokenType scanner_parseidenttype()
             break;
         case 't':
             {
-                if(g_scanner.current - g_scanner.start > 1)
+                if(g_currentscanner.current - g_currentscanner.start > 1)
                 {
-                    switch(g_scanner.start[1])
+                    switch(g_currentscanner.start[1])
                     {
-                        //case 'h': return scanner_checkkeyword(2, 2, "is", TOKEN_THIS);
                         case 'h':
                             {
-                                if(g_scanner.current - g_scanner.start > 2)// check if there is a third letter
+                                if(g_currentscanner.current - g_currentscanner.start > 2)
                                 {
-                                    switch(g_scanner.start[2])
+                                    switch(g_currentscanner.start[2])
                                     {
                                         case 'e':
                                             return scanner_checkkeyword(3, 1, "n", TOKEN_THEN);
                                         case 'i':
-                                            return scanner_checkkeyword(3, 1, "s", TOKEN_THIS);// already matched
+                                            return scanner_checkkeyword(3, 1, "s", TOKEN_THIS);
                                     }
                                 }
                             }
@@ -2481,17 +2614,23 @@ TokenType scanner_parseidenttype()
 Token scanner_parseident()
 {
     while(scanner_isalpha(scanner_peek()) || scanner_isdigit(scanner_peek()))
-        scanner_advance();// skip if still letters or digits
+    {
+        // skip if still letters or digits
+        scanner_advance();
+    }
     return scanner_maketoken(scanner_parseidenttype());
 }
 
 Token scanner_parsenumber()
 {
     while(scanner_isdigit(scanner_peek()))
-        scanner_advance();// while next is still a digit advance
-
+    {
+        // while next is still a digit advance
+        scanner_advance();
+    }
     // look for fractional part
-    if(scanner_peek() == '.' && scanner_isdigit(scanner_peeknext()))// if there is a . and next is still digit
+    // if there is a . and next is still digit
+    if(scanner_peek() == '.' && scanner_isdigit(scanner_peeknext()))
     {
         // consume '.'
         scanner_advance();
@@ -2509,51 +2648,56 @@ Token scanner_parsestring()
     while(scanner_peek() != '"' && !scanner_isatend())
     {
         if(scanner_peek() == '\n')
-            g_scanner.line++;// allow strings to go until next line
+        {
+            // allow strings to go until next line
+            g_currentscanner.line++;
+        }
         scanner_advance();// consume characters until the closing quote is reached
     }
 
     if(scanner_isatend())
+    {
         return scanner_errortoken("Unterminated string.");
-
+    }
     // closing quote
     scanner_advance();
     return scanner_maketoken(TOKEN_STRING);
-
-    // convert lexeme to runtime value later
 }
 
 // reading the char, and return a token
 Token scanner_scantoken()
 {
     scanner_skipspace();
-
-    g_scanner.start = g_scanner.current;// reset the g_scanner to current
-
+    // reset the g_currentscanner to current
+    g_currentscanner.start = g_currentscanner.current;
+    // check if at end
     if(scanner_isatend())
-        return scanner_maketoken(TOKEN_EOF);// check if at end
-
+    {
+        return scanner_maketoken(TOKEN_EOF);
+    }
     // if not end of file
     char c = scanner_advance();
 
     if(scanner_isalpha(c))
+    {
         return scanner_parseident();
+    }
     if(scanner_isdigit(c))
+    {
         return scanner_parsenumber();
-
-
+    }
     // lexical grammar for the language
+    // for single characters
     switch(c)
     {
-            // for single characters
         case '(':
-            return scanner_maketoken(TOKEN_LEFT_PAREN);
+            return scanner_maketoken(TOKEN_LEFTPAREN);
         case ')':
-            return scanner_maketoken(TOKEN_RIGHT_PAREN);
+            return scanner_maketoken(TOKEN_RIGHTPAREN);
         case '{':
-            return scanner_maketoken(TOKEN_LEFT_BRACE);
+            return scanner_maketoken(TOKEN_LEFTBRACE);
         case '}':
-            return scanner_maketoken(TOKEN_RIGHT_BRACE);
+            return scanner_maketoken(TOKEN_RIGHTBRACE);
         case ';':
             return scanner_maketoken(TOKEN_SEMICOLON);
         case ':':
@@ -2572,23 +2716,20 @@ Token scanner_scantoken()
             return scanner_maketoken(TOKEN_SLASH);
         case '%':
             return scanner_maketoken(TOKEN_MODULO);
-
-            // for two characters
+        // for two characters
         case '!':
-            return scanner_maketoken(scanner_match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
+            return scanner_maketoken(scanner_match('=') ? TOKEN_BANGEQUAL : TOKEN_BANG);
         case '=':
-            return scanner_maketoken(scanner_match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
+            return scanner_maketoken(scanner_match('=') ? TOKEN_EQUALEQUAL : TOKEN_EQUAL);
         case '>':
-            return scanner_maketoken(scanner_match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
+            return scanner_maketoken(scanner_match('=') ? TOKEN_GREATEREQUAL : TOKEN_GREATERTHAN);
         case '<':
-            return scanner_maketoken(scanner_match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
+            return scanner_maketoken(scanner_match('=') ? TOKEN_LESSEQUAL : TOKEN_LESSTHAN);
 
             // literal tokens
         case '"':
             return scanner_parsestring();// string token
     }
-
-
     return scanner_errortoken("Unexpected character.");
 }
 
@@ -2601,39 +2742,35 @@ void prs_parseprecedence(VM* vm, Precedence precedence)
     /*	PREFIX FIRST
 	look up for a prefix token, and the FIRSt token is ALWAYS going to be a prefix
 	*/
-    prs_advance(vm);// again, go next first then use previous type as the 'current' token
+    // again, go next first then use previous type as the 'current' token
+    prs_advance(vm);
     // the way the compiler is designed is that it has to always have a prefix
-    ParseFn prefixRule = prs_getrule(vm, parser.previous.type)->prefix;
+    ParseFn prefixrule = prs_getrule(vm, g_currentparser.previous.type)->prefix;
 
-    if(prefixRule == NULL)
+    if(prefixrule == NULL)
     {
         prs_error(vm, "Expect expression.");
         return;
     }
-
-    //
-
-    bool canAssign = precedence <= PREC_ASSIGNMENT;// for assignment precedence
-    prefixRule(vm, canAssign);// vm_call the prefix function, may consume a lot of tokens
+    // for assignment precedence
+    bool canassign = precedence <= PREC_ASSIGNMENT;
+    // vm_call the prefix function, may consume a lot of tokens
+    prefixrule(vm, canassign);
 
 
     /* after prefix expression is done, look for infix expression
 	IMPORTANT: infix only runs if given precedence is LOWER than the operator for the infix
 	or more nicely if NEXT/INFIX PRECEDENCE IS HIGHER THAN PREC ASSIGNMENT(parameter above_
 	*/
-
-
-    while(precedence <= prs_getrule(vm, parser.current.type)->precedence)
+    while(precedence <= prs_getrule(vm, g_currentparser.current.type)->precedence)
     {
         prs_advance(vm);
-        ParseFn infixRule = prs_getrule(vm, parser.previous.type)->infix;
+        ParseFn infixrule = prs_getrule(vm, g_currentparser.previous.type)->infix;
 
-        infixRule(vm, canAssign);
+        infixrule(vm, canassign);
     }
-
-    //prs_consume(vm, TOKEN_AND, "consume and failed");
-
-    if(canAssign && prs_matchtoken(vm, TOKEN_EQUAL))// if = is not consumed as part of the expression, nothing will , hence an error
+    // if = is not consumed as part of the expression, nothing will , hence an error
+    if(canassign && prs_matchtoken(vm, TOKEN_EQUAL))
     {
         prs_error(vm, "Invalid Assignment target.");
     }
@@ -2646,19 +2783,23 @@ ParseRule* prs_getrule(VM* vm, TokenType type)
     return &rules[type];
 }
 
-void prs_expression(VM* vm)// a single 'statement' or line
+// a single 'statement' or line
+void prs_expression(VM* vm)
 {
-    prs_parseprecedence(vm, PREC_ASSIGNMENT);// as assignment is the 2nd lowest, parses evrything
+    // as assignment is the 2nd lowest, parses evrything
+    prs_parseprecedence(vm, PREC_ASSIGNMENT);
 }
 
 void prs_block(VM* vm)
 {
-    while(!prs_check(vm, TOKEN_RIGHT_BRACE) && !prs_check(vm, TOKEN_EOF))// parse until EOF or right brace is 'peeked'
+    // parse until EOF or right brace is 'peeked'
+    while(!prs_check(vm, TOKEN_RIGHTBRACE) && !prs_check(vm, TOKEN_EOF))
     {
-        prs_declaration(vm);// compile rest of block, keeps on parsing until right brace or EOF is 'peeked'
+        // compile rest of block, keeps on parsing until right brace or EOF is 'peeked'
+        prs_declaration(vm);
     }
 
-    prs_consume(vm, TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+    prs_consume(vm, TOKEN_RIGHTBRACE, "Expect '}' after block.");
 }
 
 
@@ -2667,73 +2808,78 @@ void prs_function(VM* vm, FunctionType type)
 {
     // create separate Compiler for each function
     Compiler compiler;
-    prs_initcompiler(vm, &compiler, type);// set new compiler(function) as the current one
+    // set new compiler(function) as the current one
+    prs_initcompiler(vm, &compiler, type);
     prs_beginscope(vm);
-
-    // compile parameters
-    prs_consume(vm, TOKEN_LEFT_PAREN, "Expect '(' after function name.");
-
-    if(!prs_check(vm, TOKEN_RIGHT_PAREN))// if end ) has not been reached
     {
-        do
+        // compile parameters
+        prs_consume(vm, TOKEN_LEFTPAREN, "Expect '(' after function name.");
+        // if end ) has not been reached
+        if(!prs_check(vm, TOKEN_RIGHTPAREN))
         {
-            current->function->arity++;// add number of parameters
-            if(current->function->arity > 255)
+            do
             {
-                prs_erroratcurrent(vm, "Cannot have more than 255 parameters.");
-            }
+                // add number of parameters
+                g_currentcompiler->function->arity++;
+                if(g_currentcompiler->function->arity > 255)
+                {
+                    prs_erroratcurrent(vm, "Cannot have more than 255 parameters.");
+                }
+                // get name
+                uint8_t paramconst = prs_parsevariable(vm, "Expect variable name.");
+                // scope handled here already
+                prs_definevariable(vm, paramconst);
+            } while(prs_matchtoken(vm, TOKEN_COMMA));
+        }
 
-            uint8_t paramConstant = prs_parsevariable(vm, "Expect variable name.");// get name
-            prs_definevariable(vm, paramConstant);// scope handled here already
-        } while(prs_matchtoken(vm, TOKEN_COMMA));
-    }
+        prs_consume(vm, TOKEN_RIGHTPAREN, "expect ')' after parameter list");
 
-    prs_consume(vm, TOKEN_RIGHT_PAREN, "Expect ')' after parameter list.");
+        // body
+        prs_consume(vm, TOKEN_LEFTBRACE, "expect '{' before function body");
+        prs_block(vm);
 
-    // body
-    prs_consume(vm, TOKEN_LEFT_BRACE, "Expect '{' before function body.");
-    prs_block(vm);
+        // create function object
+        // ends the current compiler
+        ObjFunction* function = prs_endcompiler(vm);
+        // compilers are treated like a stack; if current one is ended, like above, return to the previous one
+        prs_emitbytes(vm, OP_CLOSURE, prs_makeconst(vm, obj_mkobject(function)));
 
-    // create function object
-    ObjFunction* function = prs_endcompiler(vm);// ends the current compiler
-    // compilers are treated like a stack; if current one is ended, like above, return to the previous one
+        /*	by the time the compiler reaches the end of a function prs_declaration,
+        every variable reference hass been resolved as either local, upvalue or global.
+        each upvalue may return a local var or another upvalue
 
-    // prs_emitbytes(vm, OP_CONSTANT, prs_makeconst(vm, OBJ_VAL(function)));
-    prs_emitbytes(vm, OP_CLOSURE, prs_makeconst(vm, OBJ_VAL(function)));
+        -> for each upvalue there are two single-byte operands
+        -> if first byte is one, then it captures a local variable in the enclosing function
+        -> if first byte is 0, it captures the function's upvalues
+        */
 
-    /*	by the time the compiler reaches the end of a function prs_declaration,
-	every variable reference hass been resolved as either local, upvalue or global.
-	each upvalue may return a local var or another upvalue
-
-	-> for each upvalue there are two single-byte operands
-	-> if first byte is one, then it captures a local variable in the enclosing function
-	-> if first byte is 0, it captures the function's upvalues
-	*/
-
-    for(int i = 0; i < function->upvalueCount; i++)
-    {
-        prs_emitbyte(vm, compiler.upvalues[i].isLocal ? 1 : 0);
-        prs_emitbyte(vm, compiler.upvalues[i].index);// emit index
+        for(int i = 0; i < function->upvaluecount; i++)
+        {
+            prs_emitbyte(vm, compiler.upvalues[i].islocal ? 1 : 0);
+            // emit index
+            prs_emitbyte(vm, compiler.upvalues[i].index);
+        }
     }
 }
 
 // create method for class type
-void prs_method(VM* vm)
+void prs_parsemethod(VM* vm)
 {
-    prs_consume(vm, TOKEN_IDENTIFIER, "Expect method name.");
-    uint8_t constant = prs_makeconstident(vm, &parser.previous);// get method name
+
+    prs_consume(vm, TOKEN_IDENTIFIER, "expect method name");
+    // get method name
+    uint8_t constant = prs_makeconstident(vm, &g_currentparser.previous);
 
     // method body
     FunctionType type = TYPE_METHOD;
 
     // if initializer
-    if(parser.previous.length == 4 && memcmp(parser.previous.start, "init", 4) == 0)
+    if(g_currentparser.previous.length == 4 && memcmp(g_currentparser.previous.start, "init", 4) == 0)
     {
         type = TYPE_INITIALIZER;
     }
-
-    prs_function(vm, type);// process the function
-
+    // process the function
+    prs_function(vm, type);
     prs_emitbytes(vm, OP_METHOD, constant);
 }
 
@@ -2741,28 +2887,34 @@ void prs_method(VM* vm)
 void prs_classdecl(VM* vm)
 {
     prs_consume(vm, TOKEN_IDENTIFIER, "Expect class name.");
-    Token className = parser.previous;// get class name
-    uint8_t nameConstant = prs_makeconstident(vm, &parser.previous);// add to constant table as a string, return its index
-    prs_declarevariable(vm);// declare that name variable
-
-    prs_emitbytes(vm, OP_CLASS, nameConstant);// takes opcode and takes the constant table index
-    prs_definevariable(vm, nameConstant);// add it to the global hasht; we must DEFINE AFTER DECLARE to use it
+    // get class name
+    Token classname = g_currentparser.previous;
+    // add to constant table as a string, return its index
+    uint8_t nameconst = prs_makeconstident(vm, &g_currentparser.previous);
+    // declare that name variable
+    prs_declarevariable(vm);
+    // takes opcode and takes the constant table index
+    prs_emitbytes(vm, OP_CLASS, nameconst);
+    // add it to the global hasht; we must DEFINE AFTER DECLARE to use it
+    prs_definevariable(vm, nameconst);
 
     // handle class enclosing for 'this'
-    ClassCompiler classCompiler;
-    classCompiler.name = parser.previous;
-    classCompiler.hasSuperclass = false;
-    classCompiler.enclosing = currentClass;
-    currentClass = &classCompiler;// set new class as current
+    ClassCompiler classcc;
+    classcc.name = g_currentparser.previous;
+    classcc.hassuper = false;
+    classcc.enclosing = g_currentclass;
+    // set new class as current
+    g_currentclass = &classcc;
 
     // class inheritance
     if(prs_matchtoken(vm, TOKEN_FROM))
     {
         prs_consume(vm, TOKEN_IDENTIFIER, "Expect parent class name.");
-        rule_variable(vm, false);// get the class variable, looks up the parent class by name and vm_push it to the stack
+        // get the class variable, looks up the parent class by name and vm_push it to the stack
+        rule_variable(vm, false);
 
         // check that the class names must be different
-        if(prs_identequal(vm, &className, &parser.previous))
+        if(prs_identequal(vm, &classname, &g_currentparser.previous))
         {
             prs_error(vm, "Cannot inherit class from itself");
         }
@@ -2775,33 +2927,43 @@ void prs_classdecl(VM* vm)
         prs_addlocal(vm, prs_makesyntoken(vm, "super"));
         prs_definevariable(vm, 0);
 
-        rule_namedvar(vm, className, false);
+        rule_namedvar(vm, classname, false);
         prs_emitbyte(vm, OP_INHERIT);
-        classCompiler.hasSuperclass = true;
+        classcc.hassuper = true;
     }
-    rule_namedvar(vm, className, false);// helper function to geenrate code that LOADS a variable with a given name to te stack
-    prs_consume(vm, TOKEN_LEFT_BRACE, "Expect '{' before class body.");
-    while(!prs_check(vm, TOKEN_RIGHT_BRACE) && !prs_check(vm, TOKEN_EOF))
+    // helper function to geenrate code that LOADS a variable with a given name to te stack
+    rule_namedvar(vm, classname, false);
+    prs_consume(vm, TOKEN_LEFTBRACE, "Expect '{' before class body.");
+    while(!prs_check(vm, TOKEN_RIGHTBRACE) && !prs_check(vm, TOKEN_EOF))
     {
-        prs_method(vm);
+        if(prs_matchtoken(vm, TOKEN_FUN))
+        {
+            prs_parsemethod(vm);
+        }
+        else
+        {
+            prs_error(vm, "unexpected token in class body");
+        }
     }
-    prs_consume(vm, TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
-    prs_emitbyte(vm, OP_POP);// no longer need the class, vm_pop it
+    prs_consume(vm, TOKEN_RIGHTBRACE, "Expect '}' after class body.");
+    // no longer need the class, vm_pop it
+    prs_emitbyte(vm, OP_POP);
 
     // close local scope for superclass variable
-    if(classCompiler.hasSuperclass)
+    if(classcc.hassuper)
     {
         prs_endscope(vm);
     }
-
-    currentClass = currentClass->enclosing;// go back to enclosing/main() class
+    // go back to enclosing/main() class
+    g_currentclass = g_currentclass->enclosing;
 }
 
 
 void prs_funcdecl(VM* vm)
 {
     uint8_t global = prs_parsevariable(vm, "Expect function name.");
-    prs_markinitialized(vm);// scoping
+    // scoping
+    prs_markinitialized(vm);
     prs_function(vm, TYPE_FUNCTION);
     prs_definevariable(vm, global);
 }
@@ -2816,11 +2978,12 @@ void prs_vardecl(VM* vm)
     }
     else
     {
-        prs_emitbyte(vm, OP_NULL);// not initialized
+        // not initialized
+        prs_emitbyte(vm, OP_NULL);
     }
     prs_consume(vm, TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
-
-    prs_definevariable(vm, global);// create global variable here; if local, not added to table
+    // create global variable here; if local, not added to table
+    prs_definevariable(vm, global);
 }
 
 void prs_exprstmt(VM* vm)
@@ -2833,21 +2996,15 @@ void prs_exprstmt(VM* vm)
 // if method
 void prs_ifstmt(VM* vm)
 {
-    //	prs_consume(v, TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
-    prs_expression(vm);// compile the expression statment inside; prs_parseprecedence()
-    // after compiling expression above conditon value will be left at the top of the stack
-    //	prs_consume(vm, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
-
-    //prs_consume(vm, TOKEN_THEN, "Missing 'then' keyword after if expression.");
-
+    prs_expression(vm);
     // gives an operand on how much to offset the ip; how many bytes of code to skip
     // if falsey, simply adjusts the ip by that amount
     // offset to jump to next (potentially else or elf) statment
     // insert to opcode the then branch statment first, then get offset
-    int thenJump = prs_emitjump(vm, OP_JUMP_IF_FALSE); /* this gets distance */
+    int thenjump = prs_emitjump(vm, OP_JUMPIFFALSE);
 
-
-    prs_emitbyte(vm, OP_POP);// vm_pop then
+    // vm_pop then
+    prs_emitbyte(vm, OP_POP);
 
     /* use BACKPATCHING
 	- emit jump first with a placeholder offset, and get how far to jump
@@ -2858,17 +3015,20 @@ void prs_ifstmt(VM* vm)
     prs_statement(vm);
 
     // below jump wil SURELY jump; this is skipped if the first prs_emitjump is not false
-    int elseJump = prs_emitjump(vm, OP_JUMP);// need to jump at least 'twice' with an else statement
+    // need to jump at least 'twice' with an else statement
     // if the original statement is  true, then skip the the else statement
+    int elsejump = prs_emitjump(vm, OP_JUMP);
 
     // if then statment is run; vm_pop the expression inside () after if
-    prs_patchjump(vm, thenJump); /* this actually jumps */
+    prs_patchjump(vm, thenjump);
 
-    prs_emitbyte(vm, OP_POP);// if else statment is run; vm_pop the expression inside () after if
+    // if else statment is run; vm_pop the expression inside () after if
+    prs_emitbyte(vm, OP_POP);
     if(prs_matchtoken(vm, TOKEN_ELSE))
         prs_statement(vm);
 
-    if(prs_matchtoken(vm, TOKEN_ELF))// else if
+    // else if
+    if(prs_matchtoken(vm, TOKEN_ELF))
     {
         // go to statement, then go back to IF
         prs_ifstmt(vm);
@@ -2876,82 +3036,79 @@ void prs_ifstmt(VM* vm)
 
     /* this actually jumps */
     // last jump that is executed IF FIRST STATEMENT IS TRUE
-    prs_patchjump(vm, elseJump);// for the second jump
+    // for the second jump
+    prs_patchjump(vm, elsejump);
 }
 
 void prs_switchstmt(VM* vm)
 {
-    // prs_consume(vm, TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
-    if(!prs_check(vm, TOKEN_IDENTIFIER))// check next token
+    if(!prs_check(vm, TOKEN_IDENTIFIER))
     {
         prs_erroratcurrent(vm, "Expect identifier after switch.");
     }
 
     // if no error, prs_consume the identifier
     prs_expression(vm);
-    prs_consume(vm, TOKEN_LEFT_BRACE, "Expect '{' after switch identifier.");
+    prs_consume(vm, TOKEN_LEFTBRACE, "Expect '{' after switch identifier.");
     prs_consume(vm, TOKEN_CASE, "Expect at least 1 case after switch declaration.");
 
     /* to store  opcode offsets */
-    uint8_t casesCount = -1;
+    uint8_t casescount = -1;
     uint8_t capacity = 0;
-    int* casesOffset = ALLOCATE(vm, int, 8);// 8 initial switch cases
-
-    do// while next token is a case, match also advances
+    // 8 initial switch cases
+    int* coffset = memwrap_allocate(vm, int, 8);
+    // while next token is a case, match also advances
+    do
     {
         // grow array if needed
-        if(capacity < casesCount + 1)
+        if(capacity < casescount + 1)
         {
-            int oldCapacity = capacity;
-            capacity = GROW_CAPACITY(vm, oldCapacity);
-            casesOffset = GROW_ARRAY(vm, int, casesOffset, oldCapacity, capacity);
+            int oldcapacity = capacity;
+            capacity = memwrap_growcap(vm, oldcapacity);
+            coffset = memwrap_growarray(vm, int, coffset, oldcapacity, capacity);
         }
 
-        casesCount++;
+        casescount++;
 
         prs_expression(vm);
         prs_consume(vm, TOKEN_COLON, "Expect ':' after case expression.");
-        prs_emitbyte(vm, OP_SWITCH_EQUAL);// check if both values are equal
-
-        int caseFalseJump = prs_emitjump(vm, OP_JUMP_IF_FALSE);// jump if false
-        //printf("\ncase false jump offset: %d", caseFalseJump);
-
+        // check if both values are equal
+        prs_emitbyte(vm, OP_SWITCHEQUAL);
+        // jump if false
+        int casefalsejump = prs_emitjump(vm, OP_JUMPIFFALSE);
         // parse the statment
         prs_statement(vm);
-
-        prs_emitbyte(vm, OP_POP);// vm_pop the 'true' from OP_SWITCH_EQUAL
-        casesOffset[casesCount] = prs_emitjump(vm, OP_JUMP);
-        //printf("\ncase true jump offset: %d", casesOffset[casesCount]);
-
+        // vm_pop the 'true' from OP_SWITCHEQUAL
+        prs_emitbyte(vm, OP_POP);
+        coffset[casescount] = prs_emitjump(vm, OP_JUMP);
         // jump to end of case if false
-        prs_patchjump(vm, caseFalseJump);
-        prs_emitbyte(vm, OP_POP);// vm_pop the 'false' statment from OP_SWITCH_EQUAL
+        prs_patchjump(vm, casefalsejump);
+        // vm_pop the 'false' statment from OP_SWITCHEQUAL
+        prs_emitbyte(vm, OP_POP);
     } while(prs_matchtoken(vm, TOKEN_CASE));
 
     if(prs_matchtoken(vm, TOKEN_DEFAULT))
     {
         prs_consume(vm, TOKEN_COLON, "Expect ':' default case.");
-        prs_statement(vm);// running the default statement
+        // running the default statement
+        prs_statement(vm);
     }
-    //prs_consume(vm, TOKEN_DEFAULT, "Default case not provided for switch.");
-
-
     // prs_patchjump for each available jump
-    for(uint8_t i = 0; i <= casesCount; i++)
+    for(uint8_t i = 0; i <= casescount; i++)
     {
-        prs_patchjump(vm, casesOffset[i]);
+        prs_patchjump(vm, coffset[i]);
     }
 
-    prs_emitbyte(vm, OP_POP);// vm_pop switch constant
-    FREE_ARRAY(vm, int, casesOffset, capacity);
+    prs_emitbyte(vm, OP_POP);
+    memwrap_freearray(vm, int, coffset, capacity);
 
-    prs_consume(vm, TOKEN_RIGHT_BRACE, "Expect '}' at the end of switch statement");
+    prs_consume(vm, TOKEN_RIGHTBRACE, "Expect '}' at the end of switch statement");
 }
 
 
 void prs_returnstmt(VM* vm)
 {
-    if(current->type == TYPE_SCRIPT)
+    if(g_currentcompiler->type == TYPE_SCRIPT)
     {
         prs_error(vm, "Cannot return from top-level code.");
     }
@@ -2962,7 +3119,7 @@ void prs_returnstmt(VM* vm)
     else
     {
         // error in returning from an initializer
-        if(current->type == TYPE_INITIALIZER)
+        if(g_currentcompiler->type == TYPE_INITIALIZER)
         {
             prs_error(vm, "Cannot return a value from an initializer");
         }
@@ -2975,12 +3132,10 @@ void prs_returnstmt(VM* vm)
 
 void prs_forstmt(VM* vm)
 {
-    prs_beginscope(vm);// for possible variable declarations in clause
-
+    // for possible variable declarations in clause
+    prs_beginscope(vm);
     prs_beginloopscope(vm);
-
-    prs_consume(vm, TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
-
+    prs_consume(vm, TOKEN_LEFTPAREN, "Expect '(' after 'for'.");
     // initializer clause
     if(prs_matchtoken(vm, TOKEN_SEMICOLON))
     {
@@ -2988,34 +3143,36 @@ void prs_forstmt(VM* vm)
     }
     else if(prs_matchtoken(vm, TOKEN_VAR))
     {
-        prs_vardecl(vm);// for clause scope only
+        // for clause scope only
+        prs_vardecl(vm);
     }
     else
     {
         prs_exprstmt(vm);
     }
 
-    // for for/while loops, loop starts here, with currenChunk()->count
-    int loopStart = prs_currentchunk(vm)->count;
+    // for for/while loops, loop starts here, with currentchunk()->count
+    int loopstart = prs_currentchunk(vm)->count;
 
     //  the condition clause
     /* CONDITION CLAUSE
 	1. If false, vm_pop the recently calculated expression and skip the loop
 	2. if true, go to the body; see increment clause below
 	*/
-    int exitJump = -1;
+    int exitjump = -1;
     if(!prs_matchtoken(vm, TOKEN_SEMICOLON))
     {
         prs_expression(vm);
         prs_consume(vm, TOKEN_SEMICOLON, "Expect ';' after loop condition.");
 
         // jump out of loop if condition is false
-        exitJump = prs_emitjump(vm, OP_JUMP_IF_FALSE);
-        prs_emitbyte(vm, OP_POP);// still need to figure this out, most likely just deleting 'temporary' constants in the scope
+        exitjump = prs_emitjump(vm, OP_JUMPIFFALSE);
+        // still need to figure this out, most likely just deleting 'temporary' constants in the scope
+        prs_emitbyte(vm, OP_POP);
     }
-
     // the increment clause
-    if(!prs_matchtoken(vm, TOKEN_RIGHT_PAREN))// if there is something else before the terminating ')'
+    // if there is something else before the terminating ')'
+    if(!prs_matchtoken(vm, TOKEN_RIGHTPAREN))
     {
         /*	INCEREMENT CLAUSE
 		1. from the condition clause, first jump OVER the increment, to the body
@@ -3023,36 +3180,36 @@ void prs_forstmt(VM* vm)
 		3. jump BACK to the increment and run it
 		4. from the increment jump BACK to the CONDITION clause, back to the cycle
 		*/
-
-        // for continue
-
-
-        int bodyJump = prs_emitjump(vm, OP_JUMP);// jump the increment clause
-
-        int incrementStart = prs_currentchunk(vm)->count;// starting index for increment
+        // jump the increment clause
+        int bodyjump = prs_emitjump(vm, OP_JUMP);
+        // starting index for increment
+        int incrstart = prs_currentchunk(vm)->count;
 
         // set continue jump here, right after the increment statement
         prs_markcontjump(vm);
-
-        prs_expression(vm);// run the for expression
-        prs_emitbyte(vm, OP_POP);// vm_pop expression constant
-        prs_consume(vm, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
+        // run the for expression
+        prs_expression(vm);
+        // vm_pop expression constant
+        prs_emitbyte(vm, OP_POP);
+        prs_consume(vm, TOKEN_RIGHTPAREN, "Expect ')' after for clauses.");
 
         // running the loop
-        prs_emitloop(vm, loopStart);// goes back to the start of the CONDITION clause of the for loop
-        loopStart = incrementStart;
-        prs_patchjump(vm, bodyJump);
+        // goes back to the start of the CONDITION clause of the for loop
+        prs_emitloop(vm, loopstart);
+        loopstart = incrstart;
+        prs_patchjump(vm, bodyjump);
     }
+    // running the code inside the loop
+    prs_statement(vm);
 
-    prs_statement(vm);// running the code inside the loop
-
-    prs_emitloop(vm, loopStart);
+    prs_emitloop(vm, loopstart);
 
     // patch the jump in the loop body
-    if(exitJump != -1)
+    if(exitjump != -1)
     {
-        prs_patchjump(vm, exitJump);
-        prs_emitbyte(vm, OP_POP);// only vm_pop when THERE EXISTS A CONDITION from the clause
+        prs_patchjump(vm, exitjump);
+        // only vm_pop when THERE EXISTS A CONDITION from the clause
+        prs_emitbyte(vm, OP_POP);
     }
 
     // patch break jumps, if available
@@ -3064,7 +3221,8 @@ void prs_forstmt(VM* vm)
 
 void prs_whilestmt(VM* vm)
 {
-    int loopStart = prs_currentchunk(vm)->count;// index where the statement to loop starts
+    // index where the statement to loop starts
+    int loopstart = prs_currentchunk(vm)->count;
     prs_beginloopscope(vm);
 
     // set jump for potential continue statement
@@ -3073,15 +3231,16 @@ void prs_whilestmt(VM* vm)
     prs_expression(vm);
 
 
-    int exitJump = prs_emitjump(vm, OP_JUMP_IF_FALSE);// skip stament if condition is false
-
-    prs_emitbyte(vm, OP_POP);// vm_pop the last expression(true or false)
+    // skip stament if condition is false
+    int exitjump = prs_emitjump(vm, OP_JUMPIFFALSE);
+    // vm_pop the last expression(true or false)
+    prs_emitbyte(vm, OP_POP);
 
     prs_statement(vm);
+    // method to 'loop' the instruction
+    prs_emitloop(vm, loopstart);
 
-    prs_emitloop(vm, loopStart);// method to 'loop' the instruction
-
-    prs_patchjump(vm, exitJump);
+    prs_patchjump(vm, exitjump);
 
     prs_emitbyte(vm, OP_POP);
 
@@ -3093,22 +3252,22 @@ void prs_whilestmt(VM* vm)
 
 void prs_breakstmt(VM* vm)
 {
-    if(current->loopCountTop < 0)
+    if(g_currentcompiler->loopcounttop < 0)
     {
         prs_error(vm, "Break statement must be enclosed in a loop");
         return;
     }
 
-    if(++current->breakJumpCounts[current->loopCountTop] > UINT8_COUNT)
+    if(++g_currentcompiler->breakjumpcounts[g_currentcompiler->loopcounttop] > UINT8_COUNT)
     {
         prs_error(vm, "Too many break statments in one loop");
         return;
     }
 
-    int breakJump = prs_emitjump(vm, OP_JUMP);
-    int loopDepth = current->loopCountTop;
-    int breakAmount = current->breakJumpCounts[loopDepth];
-    current->breakPatchJumps[current->loopCountTop][breakAmount - 1] = breakJump;
+    int breakjump = prs_emitjump(vm, OP_JUMP);
+    int loopdepth = g_currentcompiler->loopcounttop;
+    int breakamount = g_currentcompiler->breakjumpcounts[loopdepth];
+    g_currentcompiler->breakpatchjumps[g_currentcompiler->loopcounttop][breakamount - 1] = breakjump;
 
     prs_consume(vm, TOKEN_SEMICOLON, "Expect ';' after break.");
 }
@@ -3116,28 +3275,28 @@ void prs_breakstmt(VM* vm)
 
 void prs_continuestmt(VM* vm)
 {
-    if(current->loopCountTop < 0)
+    if(g_currentcompiler->loopcounttop < 0)
     {
         prs_error(vm, "Continue statement must be enclosed in a loop");
         return;
     }
 
-    if(current->loopCountTop == current->continueJumpCapacity)
+    if(g_currentcompiler->loopcounttop == g_currentcompiler->continuejumpcap)
     {
-        int oldCapacity = current->continueJumpCapacity;
-        current->continueJumpCapacity = GROW_CAPACITY(vm, oldCapacity);
-        current->continueJumps = GROW_ARRAY(vm, int, current->continueJumps, oldCapacity, current->continueJumpCapacity);
+        int oldcapacity = g_currentcompiler->continuejumpcap;
+        g_currentcompiler->continuejumpcap = memwrap_growcap(vm, oldcapacity);
+        g_currentcompiler->continuejumps = memwrap_growarray(vm, int, g_currentcompiler->continuejumps, oldcapacity, g_currentcompiler->continuejumpcap);
     }
 
-    prs_emitloop(vm, current->continueJumps[current->loopCountTop]);
+    prs_emitloop(vm, g_currentcompiler->continuejumps[g_currentcompiler->loopcounttop]);
 
     prs_consume(vm, TOKEN_SEMICOLON, "Expect ';' after continue.");
 }
 
 void prs_repeatuntilstmt(VM* vm)
 {
-    // prs_consume(vm, TOKEN_LEFT_BRACE, "Expect '{' after repeat.");
-    int loopStart = prs_currentchunk(vm)->count;
+    // prs_consume(vm, TOKEN_LEFTBRACE, "Expect '{' after repeat.");
+    int loopstart = prs_currentchunk(vm)->count;
     prs_beginloopscope(vm);
     prs_markcontjump(vm);
 
@@ -3150,7 +3309,7 @@ void prs_repeatuntilstmt(VM* vm)
     prs_expression(vm);
 
     // emit loop if false op code
-    prs_emitcondloop(vm, loopStart, false);
+    prs_emitcondloop(vm, loopstart, false);
 
     // patch possible break jumps
     prs_patchbreakjumps(vm);
@@ -3161,7 +3320,7 @@ void prs_repeatuntilstmt(VM* vm)
 
 void prs_dowhilestmt(VM* vm)
 {
-    int loopStart = prs_currentchunk(vm)->count;
+    int loopstart = prs_currentchunk(vm)->count;
     prs_beginloopscope(vm);
     prs_markcontjump(vm);
 
@@ -3174,7 +3333,7 @@ void prs_dowhilestmt(VM* vm)
     prs_expression(vm);
 
     // emit loop if true op code
-    prs_emitcondloop(vm, loopStart, true);
+    prs_emitcondloop(vm, loopstart, true);
 
     // patch possible break jumps
     prs_patchbreakjumps(vm);
@@ -3185,18 +3344,16 @@ void prs_dowhilestmt(VM* vm)
 
 void prs_synchronize(VM* vm)
 {
-    parser.panicMode = false;
-
-    //printf("panic mode");
+    g_currentparser.panicmode = false;
 
     // basically turn off the 'error' mode and skips token until something that looks like a statement boundary is found
     // skips tokens indiscriminately until somehing that looks like a statement boundary(eg. semicolon) is found
-    while(parser.current.type != TOKEN_EOF)
+    while(g_currentparser.current.type != TOKEN_EOF)
     {
-        if(parser.previous.type == TOKEN_SEMICOLON)
+        if(g_currentparser.previous.type == TOKEN_SEMICOLON)
             return;
 
-        switch(parser.current.type)
+        switch(g_currentparser.current.type)
         {
             case TOKEN_CLASS:
             case TOKEN_FUN:
@@ -3206,7 +3363,8 @@ void prs_synchronize(VM* vm)
             case TOKEN_WHILE:
             case TOKEN_RETURN:
                 return;
-            default:// do nothing
+            default:
+                // do nothing
             ;
         }
 
@@ -3226,21 +3384,26 @@ void prs_declaration(VM* vm)
     }
     else if(prs_matchtoken(vm, TOKEN_VAR))
     {
-        prs_vardecl(vm);// declare variable
+        // declare variable
+        prs_vardecl(vm);
     }
     else
     {
         prs_statement(vm);
     }
-    if(parser.panicMode)
-        prs_synchronize(vm);// for errors
+    if(g_currentparser.panicmode)
+    {
+        // for errors
+        prs_synchronize(vm);
+    }
 }
 
-void prs_statement(VM* vm)// either an expression or a print
+void prs_statement(VM* vm)
 {
     if(prs_matchtoken(vm, TOKEN_RETURN))
     {
-        prs_returnstmt(vm);// for functions return
+        // for functions return
+        prs_returnstmt(vm);
     }
     else if(prs_matchtoken(vm, TOKEN_WHILE))
     {
@@ -3274,7 +3437,8 @@ void prs_statement(VM* vm)// either an expression or a print
     {
         prs_dowhilestmt(vm);
     }
-    else if(prs_matchtoken(vm, TOKEN_LEFT_BRACE))// parse initial { token
+    // parse initial { token
+    else if(prs_matchtoken(vm, TOKEN_LEFTBRACE))
     {
         prs_beginscope(vm);
         prs_block(vm);
@@ -3288,28 +3452,32 @@ void prs_statement(VM* vm)// either an expression or a print
 
 ObjFunction* prs_compile(VM* vm, const char* source)
 {
-    scanner_init(source);// start scan/lexing
+    // start scan/lexing
+    scanner_init(source);
     Compiler compiler;
     prs_initcompiler(vm, &compiler, TYPE_SCRIPT);
 
-    parser.hadError = false;
-    parser.panicMode = false;
+    g_currentparser.haderror = false;
+    g_currentparser.panicmode = false;
 
-    prs_advance(vm);// vm_call to advance once to 'pump' the g_scanner
-
-    while(!prs_matchtoken(vm, TOKEN_EOF))/// while EOF token is not met
+    // vm_call to advance once to 'pump' the g_currentscanner
+    prs_advance(vm);
+    // while EOF token is not met
+    while(!prs_matchtoken(vm, TOKEN_EOF))
     {
         prs_declaration(vm);
     }
-    ObjFunction* function = prs_endcompiler(vm);// ends the expression with a return type
-    return parser.hadError ? NULL : function;// if no error return true
+    // ends the expression with a return type
+    ObjFunction* function = prs_endcompiler(vm);
+    // if no error return true
+    return g_currentparser.haderror ? NULL : function;
 }
 
 
 // marking compiler roots, for garbage collection
 void prs_markroots(VM* vm)
 {
-    Compiler* compiler = current;
+    Compiler* compiler = g_currentcompiler;
     while(compiler != NULL)
     {
         mem_markobject(vm, (Obj*)compiler->function);
@@ -3320,16 +3488,19 @@ void prs_markroots(VM* vm)
 Chunk* prs_currentchunk(VM* vm)
 {
     (void)vm;
-    return &current->function->chunk;
+    return &g_currentcompiler->function->chunk;
 }
 
 // to handle syntax errors
 void prs_errorat(VM* vm, Token* token, const char* message)
 {
     (void)vm;
-    if(parser.panicMode)
-        return;// if an error already exists, no need to run other errors
-    parser.panicMode = true;
+    if(g_currentparser.panicmode)
+    {
+        // if an error already exists, no need to run other errors
+        return;
+    }
+    g_currentparser.panicmode = true;
 
     fprintf(stderr, "Error at [Line %d]", token->line);
 
@@ -3347,20 +3518,21 @@ void prs_errorat(VM* vm, Token* token, const char* message)
     }
 
     fprintf(stderr, ": %s\n", message);
-    parser.hadError = true;
+    g_currentparser.haderror = true;
 }
 
 // error from token most recently CONSUMED
 void prs_error(VM* vm, const char* message)
 {
-    prs_errorat(vm, &parser.previous, message);
+    prs_errorat(vm, &g_currentparser.previous, message);
 }
 
 
 // handling error from token, the most current one being handed, not yet consumed
-void prs_erroratcurrent(VM* vm, const char* message)// manually provide the message
+void prs_erroratcurrent(VM* vm, const char* message)
 {
-    prs_errorat(vm, &parser.current, message);// pass in the current parser
+    // pass in the current parser
+    prs_errorat(vm, &g_currentparser.current, message);
 }
 
 
@@ -3369,16 +3541,21 @@ void prs_erroratcurrent(VM* vm, const char* message)// manually provide the mess
 // pump the compiler, basically go to / 'read' the next token, a SINGLE token
 void prs_advance(VM* vm)
 {
-    parser.previous = parser.current;//  store next parser as current
+    //  store next parser as current
+    g_currentparser.previous = g_currentparser.current;
 
     for(;;)
     {
-        parser.current = scanner_scantoken();// gets next token, stores it for later use(the next scan)
+        // gets next token, stores it for later use(the next scan)
+        g_currentparser.current = scanner_scantoken();
 
-        if(parser.current.type != TOKEN_ERROR)
-            break;// if error is not found break
-
-        prs_erroratcurrent(vm, parser.current.start);// start is the location/pointer of the token source code
+        if(g_currentparser.current.type != TOKEN_ERROR)
+        {
+            // if error is not found break
+            break;
+        }
+        // start is the location/pointer of the token source code
+        prs_erroratcurrent(vm, g_currentparser.current.start);
     }
 }
 
@@ -3386,19 +3563,24 @@ void prs_advance(VM* vm)
 // advance while skipping the given parameter, give none to skip nothing
 void prs_advancewhileskipping(VM* vm, TokenType type)
 {
-    parser.previous = parser.current;//  store next parser as current
+    //  store next parser as current
+    g_currentparser.previous = g_currentparser.current;
 
     for(;;)
     {
-        parser.current = scanner_scantoken();// gets next token, stores it for later use(the next scan)
+        // gets next token, stores it for later use(the next scan)
+        g_currentparser.current = scanner_scantoken();
 
-        if(parser.current.type == type)
+        if(g_currentparser.current.type == type)
             continue;
 
-        if(parser.current.type != TOKEN_ERROR)
-            break;// if error is not found break
-
-        prs_erroratcurrent(vm, parser.current.start);// start is the location/pointer of the token source code
+        if(g_currentparser.current.type != TOKEN_ERROR)
+        {
+            // if error is not found break
+            break;
+        }
+        // start is the location/pointer of the token source code
+        prs_erroratcurrent(vm, g_currentparser.current.start);
     }
 }
 
@@ -3407,19 +3589,21 @@ void prs_advancewhileskipping(VM* vm, TokenType type)
 // syntax error comes from here, where it is known/expected what the next token will be
 void prs_consume(VM* vm, TokenType type, const char* message)
 {
-    if(parser.current.type == type)// if current token is equal to the token type being compared to
+    // if current token is equal to the token type being compared to
+    if(g_currentparser.current.type == type)
     {
         prs_advance(vm);
         return;
     }
-
-    prs_erroratcurrent(vm, message);// if consumes a different type, error
+    // if consumes a different type, error
+    prs_erroratcurrent(vm, message);
 }
 
 bool prs_check(VM* vm, TokenType type)
 {
     (void)vm;
-    return parser.current.type == type;// check if current matches given
+    // check if current matches given
+    return g_currentparser.current.type == type;
 }
 
 
@@ -3435,7 +3619,8 @@ bool prs_matchtoken(VM* vm, TokenType type)
 // the chunk_write for the compiler
 void prs_emitbyte(VM* vm, uint8_t byte)
 {
-    chunk_write(vm, prs_currentchunk(vm), byte, parser.previous.line);// sends previous line so runtime errors are associated with that line
+    // sends previous line so runtime errors are associated with that line
+    chunk_write(vm, prs_currentchunk(vm), byte, g_currentparser.previous.line);
 }
 
 // write chunk for multiple chunks, used to write an opcode followed by an operand(eg. in constants)
@@ -3446,12 +3631,12 @@ void prs_emitbytes(VM* vm, uint8_t byte1, uint8_t byte2)
 }
 
 // for looping statements
-void prs_emitloop(VM* vm, int loopStart)
+void prs_emitloop(VM* vm, int loopstart)
 {
     prs_emitbyte(vm, OP_LOOP);
 
     // int below jumps back, + 2 accounting the OP_LOOP and the instruction's own operand
-    int offset = prs_currentchunk(vm)->count - loopStart + 2;
+    int offset = prs_currentchunk(vm)->count - loopstart + 2;
     if(offset > UINT16_MAX)
         prs_error(vm, "Loop body too large.");
 
@@ -3459,14 +3644,14 @@ void prs_emitloop(VM* vm, int loopStart)
     prs_emitbyte(vm, offset & 0xff);
 }
 
-void prs_emitcondloop(VM* vm, int loopStart, bool state)
+void prs_emitcondloop(VM* vm, int loopstart, bool state)
 {
     if(state)
-        prs_emitbyte(vm, OP_LOOP_IF_TRUE);
+        prs_emitbyte(vm, OP_LOOPIFTRUE);
     else
-        prs_emitbyte(vm, OP_LOOP_IF_FALSE);
+        prs_emitbyte(vm, OP_LOOPIFFALSE);
 
-    int offset = prs_currentchunk(vm)->count - loopStart + 2;
+    int offset = prs_currentchunk(vm)->count - loopstart + 2;
     if(offset > UINT16_MAX)
         prs_error(vm, "Loop body too large.");
 
@@ -3478,8 +3663,10 @@ void prs_emitcondloop(VM* vm, int loopStart, bool state)
 int prs_emitjump(VM* vm, uint8_t instruction)
 {
     /* backpatching */
-    prs_emitbyte(vm, instruction);// writes a placeholder operand for jump offset
-    prs_emitbyte(vm, 0xff);// hexadecimal number with value of 255
+    // writes a placeholder operand for jump offset
+    prs_emitbyte(vm, instruction);
+    // hexadecimal number with value of 255
+    prs_emitbyte(vm, 0xff);
     prs_emitbyte(vm, 0xff);
 
     // basically, get the difference in bytes before the two 0xff is added
@@ -3489,16 +3676,19 @@ int prs_emitjump(VM* vm, uint8_t instruction)
 //  emit specific return type
 void prs_emitreturn(VM* vm)
 {
-    if(current->type == TYPE_INITIALIZER)// class constructor
+    // class constructor
+    if(g_currentcompiler->type == TYPE_INITIALIZER)
     {
-        prs_emitbytes(vm, OP_GET_LOCAL, 0);// return the instance
+        // return the instance
+        prs_emitbytes(vm, OP_GETLOCAL, 0);
     }
     else
     {
-        prs_emitbyte(vm, OP_NULL);// for functions that return nothing
+        // for functions that return nothing
+        prs_emitbyte(vm, OP_NULL);
     }
-
-    prs_emitbyte(vm, OP_RETURN);// emit return type at the end of a compiler
+    // emit return type at the end of a compiler
+    prs_emitbyte(vm, OP_RETURN);
 }
 
 // to insert into constant table
@@ -3510,13 +3700,15 @@ uint8_t prs_makeconst(VM* vm, Value value)
         prs_error(vm, "Too many constants in one chunk.");
         return 0;
     }
-
-    return (uint8_t)constant;// return as byte, the byte being the INDEX of the constantin the constats array
+    // return as byte, the byte being the INDEX of the constantin the constats array
+    return (uint8_t)constant;
 }
 
-void prs_emitconst(VM* vm, Value value)// for constant emit the opcode, then the index
+// for constant emit the opcode, then the index
+void prs_emitconst(VM* vm, Value value)
 {
-    prs_emitbytes(vm, OP_CONSTANT, prs_makeconst(vm, value));// add value to constant table
+    // add value to constant table
+    prs_emitbytes(vm, OP_CONSTANT, prs_makeconst(vm, value));
 }
 
 void prs_patchjump(VM* vm, int offset)
@@ -3530,99 +3722,111 @@ void prs_patchjump(VM* vm, int offset)
     }
 
     // the prs_patchjump provides the VALUE or amount to JUMP
-    prs_currentchunk(vm)->code[offset] = (jump >> 8) & 0xff;// right shift by 8, then bitwise AND with 255(oxff is 111111)
-    prs_currentchunk(vm)->code[offset + 1] = jump & 0xff;// only AND
+    // right shift by 8, then bitwise AND with 255(oxff is 111111)
+    prs_currentchunk(vm)->code[offset] = (jump >> 8) & 0xff;
+    // only AND
+    prs_currentchunk(vm)->code[offset + 1] = jump & 0xff;
 }
 
 // initialize the compiler
 void prs_initcompiler(VM* vm, Compiler* compiler, FunctionType type)
 {
-    compiler->enclosing = current;// the 'outer' compiler
+    // the 'outer' compiler
+    compiler->enclosing = g_currentcompiler;
     compiler->function = NULL;
     compiler->type = type;
-    compiler->localCount = 0;
-    compiler->scopeDepth = 0;
+    compiler->localcount = 0;
+    compiler->scopedepth = 0;
     compiler->function = obj_mkfunction(vm);
-    current = compiler;// current is the global variable pointer for the Compiler struct, point to to the parameter
+    // current is the global variable pointer for the Compiler struct, point to to the parameter
     // basically assign the global pointer
+    g_currentcompiler = compiler;
 
     // for functions
     if(type != TYPE_SCRIPT)
     {
-        current->function->name = obj_copystring(vm, parser.previous.start, parser.previous.length);// function name handled here
+        // function name handled here
+        g_currentcompiler->function->name = obj_copystring(vm, g_currentparser.previous.start, g_currentparser.previous.length);
     }
 
     // compiler implicitly claims slot zero for local variables
-    Local* local = &current->locals[current->localCount++];
-    local->isCaptured = false;
+    Local* local = &g_currentcompiler->locals[g_currentcompiler->localcount++];
+    local->iscaptured = false;
 
     // for this tags
-    if(type != TYPE_FUNCTION)// for none function types, for class methods
+    // for none function types, for class methods
+    if(type != TYPE_FUNCTION)
     {
         local->name.start = "this";
         local->name.length = 4;
     }
-    else// for functions
+    // for functions
+    else
     {
         local->name.start = "";
         local->name.length = 0;
     }
 
     // for loop scopes, for break and continue statements
-    compiler->loopCountTop = -1;
-    compiler->continueJumpCapacity = 4;
-    compiler->continueJumps = ALLOCATE(vm, int, 4);
+    compiler->loopcounttop = -1;
+    compiler->continuejumpcap = 4;
+    compiler->continuejumps = memwrap_allocate(vm, int, 4);
 
     // use memset to initialize array to 0
-    memset(compiler->breakJumpCounts, 0, UINT8_COUNT * sizeof(compiler->breakJumpCounts[0]));
+    memset(compiler->breakjumpcounts, 0, UINT8_COUNT * sizeof(compiler->breakjumpcounts[0]));
 }
 
 ObjFunction* prs_endcompiler(VM* vm)
 {
     prs_emitreturn(vm);
-    ObjFunction* function = current->function;
+    ObjFunction* function = g_currentcompiler->function;
 
-    FREE(vm, int, current->continueJumps);
+    memwrap_free(vm, int, g_currentcompiler->continuejumps);
 
 
     // for debugging
 #ifdef DEBUG_PRINT_CODE
-    if(!parser.hadError)
+    if(!g_currentparser.haderror)
     {
-        dbg_disasmchunk(vm, prs_currentchunk(vm), function->name != NULL ? function->name->chars : "<script>");// if name is NULL then it is the Script type(main()
+        // if name is NULL then it is the Script type(main()
+        dbg_disasmchunk(vm, prs_currentchunk(vm), function->name != NULL ? function->name->chars : "<script>");
     }
 #endif
 
-    current = current->enclosing;// return back to enclosing compiler after function
+    // return back to enclosing compiler after function
+    g_currentcompiler = g_currentcompiler->enclosing;
     return function;// return to free
 }
 
 void prs_beginscope(VM* vm)
 {
     (void)vm;
-    current->scopeDepth++;
+    g_currentcompiler->scopedepth++;
 }
 
 void prs_endscope(VM* vm)
 {
-    current->scopeDepth--;
+    g_currentcompiler->scopedepth--;
 
     // remove variables out of scope
-    while(current->localCount > 0 && current->locals[current->localCount - 1].depth > current->scopeDepth)
+    while(g_currentcompiler->localcount > 0 && g_currentcompiler->locals[g_currentcompiler->localcount - 1].depth > g_currentcompiler->scopedepth)
     {
         /* at the end of a block scope, when the compiler emits code to free the stack slot for the locals, 
 		tell which one to hoist to the heap
 		*/
-        if(current->locals[current->localCount - 1].isCaptured)// if it is captured/used
+        // if it is captured/used
+        if(g_currentcompiler->locals[g_currentcompiler->localcount - 1].iscaptured)
         {
-            prs_emitbyte(vm, OP_CLOSE_UPVALUE);// op code to move the upvalue to the heap
+            // op code to move the upvalue to the heap
+            prs_emitbyte(vm, OP_CLOSEUPVALUE);
         }
         else
         {
-            prs_emitbyte(vm, OP_POP);// if not used anymore/capture simply vm_pop the value off the stack
+            // if not used anymore/capture simply vm_pop the value off the stack
+            prs_emitbyte(vm, OP_POP);
         }
 
-        current->localCount--;
+        g_currentcompiler->localcount--;
     }
 }
 
@@ -3630,37 +3834,38 @@ void prs_endscope(VM* vm)
 void prs_beginloopscope(VM* vm)
 {
     (void)vm;
-    current->loopCountTop++;
+    g_currentcompiler->loopcounttop++;
 }
 
 void prs_endloopscope(VM* vm)
 {
     (void)vm;
-    if(current->breakJumpCounts[current->loopCountTop] > 0)
-        current->breakJumpCounts[current->loopCountTop] = 0;
+    if(g_currentcompiler->breakjumpcounts[g_currentcompiler->loopcounttop] > 0)
+        g_currentcompiler->breakjumpcounts[g_currentcompiler->loopcounttop] = 0;
 
-    current->loopCountTop--;
+    g_currentcompiler->loopcounttop--;
 }
 
 // mark current chunk for continue jump
 void prs_markcontjump(VM* vm)
 {
-    current->continueJumps[current->loopCountTop] = prs_currentchunk(vm)->count;
+    g_currentcompiler->continuejumps[g_currentcompiler->loopcounttop] = prs_currentchunk(vm)->count;
 }
 
 // patch available break jumps
 void prs_patchbreakjumps(VM* vm)
 {
-    for(int i = 0; i < current->breakJumpCounts[current->loopCountTop]; i++)
+    for(int i = 0; i < g_currentcompiler->breakjumpcounts[g_currentcompiler->loopcounttop]; i++)
     {
-        prs_patchjump(vm, current->breakPatchJumps[current->loopCountTop][i]);
+        prs_patchjump(vm, g_currentcompiler->breakpatchjumps[g_currentcompiler->loopcounttop][i]);
     }
 }
 
 /* variable declarations */
 uint8_t prs_makeconstident(VM* vm, Token* name)
 {
-    return prs_makeconst(vm, OBJ_VAL(obj_copystring(vm, name->start, name->length)));// add to constant table
+    // add to constant table
+    return prs_makeconst(vm, obj_mkobject(obj_copystring(vm, name->start, name->length)));
 }
 
 bool prs_identequal(VM* vm, Token* a, Token* b)
@@ -3674,7 +3879,8 @@ bool prs_identequal(VM* vm, Token* a, Token* b)
 
 int prs_resolvelocal(VM* vm, Compiler* compiler, Token* name)
 {
-    for(int i = compiler->localCount - 1; i >= 0; i--)// walk through the local variables
+    // walk through the local variables
+    for(int i = compiler->localcount - 1; i >= 0; i--)
     {
         Local* local = &compiler->locals[i];
         if(prs_identequal(vm, name, &local->name))
@@ -3683,30 +3889,34 @@ int prs_resolvelocal(VM* vm, Compiler* compiler, Token* name)
             {
                 prs_error(vm, "Cannot read local variable in its own initializer.");
             }
-            return i;// found the var, return the index
+            // found the var, return the index
+            return i;
         }
     }
-
-    return -1;// not found, name is global variable
+    // not found, name is global variable
+    return -1;
 }
 
 
 // add upvalue
-int prs_addupvalue(VM* vm, Compiler* compiler, uint8_t index, bool isLocal)
+int prs_addupvalue(VM* vm, Compiler* compiler, uint8_t index, bool isl)
 {
-    int upvalueCount = compiler->function->upvalueCount;// get current upvalue count
+    // get current upvalue count
+    int upvaluecount = compiler->function->upvaluecount;
 
     // check whether the upvalue has already been declared
-    for(int i = 0; i < upvalueCount; i++)
+    for(int i = 0; i < upvaluecount; i++)
     {
-        Upvalue* upvalue = &compiler->upvalues[i];// get pointer for each upvalue in the array
-        if(upvalue->index == index && upvalue->isLocal == isLocal)
+        // get pointer for each upvalue in the array
+        Upvalue* upvalue = &compiler->upvalues[i];
+        if(upvalue->index == index && upvalue->islocal == isl)
         {
-            return i;// if found, return the index of the upvalue in the upvalue array
+            // if found, return the index of the upvalue in the upvalue array
+            return i;
         }
     }
 
-    if(upvalueCount == UINT8_COUNT)
+    if(upvaluecount == UINT8_COUNT)
     {
         prs_error(vm, "Too many closure variables");
         return 0;
@@ -3715,9 +3925,12 @@ int prs_addupvalue(VM* vm, Compiler* compiler, uint8_t index, bool isLocal)
     // compiler keeps an array of upvalue structs to track closed-over identifiers
     // indexes in the array match the indexes of ObjClosure at runtime
     // insert to upvalues array
-    compiler->upvalues[upvalueCount].isLocal = isLocal;// insert bool status
-    compiler->upvalues[upvalueCount].index = index;// insert index
-    return compiler->function->upvalueCount++;// increase count and return
+    // insert bool status
+    compiler->upvalues[upvaluecount].islocal = isl;
+    // insert index
+    compiler->upvalues[upvaluecount].index = index;
+    // increase count and return
+    return compiler->function->upvaluecount++;
 }
 
 
@@ -3728,18 +3941,25 @@ int prs_addupvalue(VM* vm, Compiler* compiler, uint8_t index, bool isLocal)
 int prs_resolveupvalue(VM* vm, Compiler* compiler, Token* name)
 {
     if(compiler->enclosing == NULL)
-        return -1;// if in main()
-
-    int local = prs_resolvelocal(vm, compiler->enclosing, name);// looks for local value in enclosing function/compiler
+    {
+        // if in main()
+        return -1;
+    }
+    
+    // looks for local value in enclosing function/compiler
+    int local = prs_resolvelocal(vm, compiler->enclosing, name);
     if(local != -1)
     {
-        compiler->enclosing->locals[local].isCaptured = true;// mark local is captured/used by and upvalue
-        return prs_addupvalue(vm, compiler, (uint8_t)local, true);// create up value
+        // mark local is captured/used by and upvalue
+        compiler->enclosing->locals[local].iscaptured = true;
+        // create up value
+        return prs_addupvalue(vm, compiler, (uint8_t)local, true);
     }
 
     // recursion to solve nested upvalues
     // recursive vm_call right in the middle
-    int upvalue = prs_resolveupvalue(vm, compiler->enclosing, name);// if the enclosing function is main() (NULL), it returns -1
+    // if the enclosing function is main() (NULL), it returns -1
+    int upvalue = prs_resolveupvalue(vm, compiler->enclosing, name);
     if(upvalue != -1)
     {
         return prs_addupvalue(vm, compiler, (uint8_t)upvalue, true);
@@ -3752,37 +3972,39 @@ int prs_resolveupvalue(VM* vm, Compiler* compiler, Token* name)
 
 void prs_addlocal(VM* vm, Token name)
 {
-    if(current->localCount == UINT8_COUNT)
+    if(g_currentcompiler->localcount == UINT8_COUNT)
     {
         prs_error(vm, "Too many local variables in block.");
         return;
     }
 
-    Local* local = &current->locals[current->localCount++];
+    Local* local = &g_currentcompiler->locals[g_currentcompiler->localcount++];
     local->name = name;
-    local->depth = -1;// for cases where a variable name is redefined inside another scope, using the variable itself
-    local->isCaptured = false;
+    // for cases where a variable name is redefined inside another scope, using the variable itself
+    local->depth = -1;
+    local->iscaptured = false;
 }
 
-void prs_declarevariable(VM* vm)// for local variables
+void prs_declarevariable(VM* vm)
 {
     int i;
     Local* local;
     Token* name;
     // global vars are implicitly declared, and are late bound, not 'initialized' here but in the VM
-    if(current->scopeDepth == 0)
+    if(g_currentcompiler->scopedepth == 0)
         return;
 
     /* local variable declaration happens below */
-    name = &parser.previous;
+    name = &g_currentparser.previous;
 
     // to not allow two variable declarations to have the same name
     // loop only checks to a HIGHER SCOPE; another block overlaping/shadowing is allowed
     // work backwards
-    for(i = current->localCount - 1; i >= 0; i--)
+    for(i = g_currentcompiler->localcount - 1; i >= 0; i--)
     {
-        local = &current->locals[i];
-        if(local->depth != -1 && local->depth < current->scopeDepth)// if reach beginning of array(highest scope)
+        local = &g_currentcompiler->locals[i];
+        // if reach beginning of array(highest scope)
+        if(local->depth != -1 && local->depth < g_currentcompiler->scopedepth)
         {
             break;
         }
@@ -3795,38 +4017,44 @@ void prs_declarevariable(VM* vm)// for local variables
     prs_addlocal(vm, *name);
 }
 
-uint8_t prs_parsevariable(VM* vm, const char* errorMessage)
+uint8_t prs_parsevariable(VM* vm, const char* errormessage)
 {
-    prs_consume(vm, TOKEN_IDENTIFIER, errorMessage);// requires next token to be an identifier
+    // requires next token to be an identifier
+    prs_consume(vm, TOKEN_IDENTIFIER, errormessage);
 
     prs_declarevariable(vm);
-    if(current->scopeDepth > 0)
-        return 0;// if scopeDepth is not 0, then it is a local not global var
+    if(g_currentcompiler->scopedepth > 0)
+    {
+        // if scopedepth is not 0, then it is a local not global var
+        return 0;
+    }
     // return a dummy index
     // at runtime, locals are not looked up by name so no need to insert them to a table
-
-
-    return prs_makeconstident(vm, &parser.previous);// return index from the constant table
+    // return index from the constant table
+    return prs_makeconstident(vm, &g_currentparser.previous);
 }
 
 
 void prs_markinitialized(VM* vm)
 {
     (void)vm;
-    if(current->scopeDepth == 0)
-        return;// if global return
-    current->locals[current->localCount - 1].depth = current->scopeDepth;
+    if(g_currentcompiler->scopedepth == 0)
+    {
+        // if global return
+        return;
+    }    
+    g_currentcompiler->locals[g_currentcompiler->localcount - 1].depth = g_currentcompiler->scopedepth;
 }
 
 void prs_definevariable(VM* vm, uint8_t global)
 {
-    if(current->scopeDepth > 0)
+    if(g_currentcompiler->scopedepth > 0)
     {
         prs_markinitialized(vm);
         return;
     }
-
-    prs_emitbytes(vm, OP_DEFINE_GLOBAL, global);// opcode for declaration and the constant itself
+    // opcode for declaration and the constant itself
+    prs_emitbytes(vm, OP_DEFINEGLOBAL, global);
 }
 
 
@@ -3834,35 +4062,37 @@ void prs_definevariable(VM* vm, uint8_t global)
 // each argument expression generates code which leaves value on the stack in preparation for the vm_call
 uint8_t prs_parsearglist(VM* vm)
 {
-    uint8_t argCount = 0;
-    if(!prs_check(vm, TOKEN_RIGHT_PAREN))// if ) has not been reached
+    uint8_t argc = 0;
+    // if ) has not been reached
+    if(!prs_check(vm, TOKEN_RIGHTPAREN))
     {
         do
         {
-            prs_expression(vm);// collect the arguments
-
-            if(argCount == 255)// cannot have more than 255 arguments as each operand is a single byte(uint8_t)
+            // collect the arguments
+            prs_expression(vm);
+            // cannot have more than 255 arguments as each operand is a single byte(uint8_t)
+            if(argc == 255)
             {
                 prs_error(vm, "Cannot have more than 255 arguments.");
             }
 
-            argCount++;
+            argc++;
         } while(prs_matchtoken(vm, TOKEN_COMMA));
     }
 
-    prs_consume(vm, TOKEN_RIGHT_PAREN, "Expect ')' after argument list.");
-    return argCount;
+    prs_consume(vm, TOKEN_RIGHTPAREN, "Expect ')' after argument list.");
+    return argc;
 }
 
-void rule_and(VM* vm, bool canAssign)
+void rule_and(VM* vm, bool canassign)
 {
-    (void)canAssign;
-    int endJump = prs_emitjump(vm, OP_JUMP_IF_FALSE);// left hand side is already compiled,
+    (void)canassign;
+    // left hand side is already compiled,
+    int endjump = prs_emitjump(vm, OP_JUMPIFFALSE);
     // and if it is false skip it and go to next
-
     prs_emitbyte(vm, OP_POP);
     prs_parseprecedence(vm, PREC_AND);
-    prs_patchjump(vm, endJump);
+    prs_patchjump(vm, endjump);
 }
 
 
@@ -3870,38 +4100,40 @@ void rule_and(VM* vm, bool canAssign)
 // or INFIX parser, where the operator is in the middle
 // entire left hand expression has been compiled, and the infix operator has been consumed
 // rule_binary() handles the rest of the arithmetic operator
-void rule_binary(VM* vm, bool canAssign)
+void rule_binary(VM* vm, bool canassign)
 {
-    (void)canAssign;
+    (void)canassign;
     // remember type of operator, already consumed
-    TokenType operatorType = parser.previous.type;
+    TokenType opertype = g_currentparser.previous.type;
 
     // compile right operand
-    ParseRule* rule = prs_getrule(vm, operatorType);// the BIDMAS rule, operands in the right side have HIGHER PRECEDENCE
+    // the BIDMAS rule, operands in the right side have HIGHER PRECEDENCE
+    ParseRule* rule = prs_getrule(vm, opertype);
     // as binary operators are LEFT ASSOCIATIVE
     // recursively vm_call prs_parseprecedence again
     prs_parseprecedence(vm, (Precedence)(rule->precedence + 1));// conert from rule to enum(precedence) type
 
-    switch(operatorType)
+    switch(opertype)
     {
             // note how NOT opcode is at the end
             // six binary operators for three instructions only(greater, not, equal)
-        case TOKEN_BANG_EQUAL:
+        case TOKEN_BANGEQUAL:
+            // add equal and not to the stack
             prs_emitbytes(vm, OP_EQUAL, OP_NOT);
-            break;// add equal and not to the stack
-        case TOKEN_EQUAL_EQUAL:
+            break;
+        case TOKEN_EQUALEQUAL:
             prs_emitbyte(vm, OP_EQUAL);
             break;
-        case TOKEN_GREATER:
+        case TOKEN_GREATERTHAN:
             prs_emitbyte(vm, OP_GREATER);
             break;
-        case TOKEN_GREATER_EQUAL:
+        case TOKEN_GREATEREQUAL:
             prs_emitbytes(vm, OP_LESS, OP_NOT);
             break;
-        case TOKEN_LESS:
+        case TOKEN_LESSTHAN:
             prs_emitbyte(vm, OP_LESS);
             break;
-        case TOKEN_LESS_EQUAL:
+        case TOKEN_LESSEQUAL:
             prs_emitbytes(vm, OP_GREATER, OP_NOT);
             break;
 
@@ -3921,53 +4153,63 @@ void rule_binary(VM* vm, bool canAssign)
             prs_emitbyte(vm, OP_MODULO);
             break;
         default:
-            return;// unreachable
+            {
+                // unreachable
+                return;
+            }
+            break;
     }
 }
 
 
 // for function calls
-void rule_parsecall(VM* vm, bool canAssign)
+void rule_parsecall(VM* vm, bool canassign)
 {
-    (void)canAssign;
+    (void)canassign;
     // again, assumes the function itself(its vm_call name) has been placed on the codestream stack
-    uint8_t argCount = prs_parsearglist(vm);// compile arguments using prs_parsearglist
-    prs_emitbytes(vm, OP_CALL, argCount);// write on the chunk
+    // compile arguments using prs_parsearglist
+    uint8_t argc = prs_parsearglist(vm);
+    // write on the chunk
+    prs_emitbytes(vm, OP_CALL, argc);
 }
 
 // class members/fields/properties
-void rule_dot(VM* vm, bool canAssign)
+void rule_dot(VM* vm, bool canassign)
 {
     prs_consume(vm, TOKEN_IDENTIFIER, "Expect propery name after class instance.");
-    uint8_t name = prs_makeconstident(vm, &parser.previous);// already consumed
-
-    if(canAssign && prs_matchtoken(vm, TOKEN_EQUAL))// assignment
+    // already consumed
+    uint8_t name = prs_makeconstident(vm, &g_currentparser.previous);
+    // assignment
+    if(canassign && prs_matchtoken(vm, TOKEN_EQUAL))
     {
-        prs_expression(vm);// evalute expression to be set
-        prs_emitbytes(vm, OP_SET_PROPERTY, name);
+        // evalute expression to be set
+        prs_expression(vm);
+        prs_emitbytes(vm, OP_SETPROPERTY, name);
     }
-    else if(prs_matchtoken(vm, TOKEN_LEFT_PAREN))// for running class methods, access the method and vm_call it at the same time
+    // for running class methods, access the method and vm_call it at the same time
+    else if(prs_matchtoken(vm, TOKEN_LEFTPAREN))
     {
-        uint8_t argCount = prs_parsearglist(vm);
+        uint8_t argc = prs_parsearglist(vm);
 
         /* new OP_INVOKE opcode that takes two operands:
 		1. the index of the property name in the constant table
 		2. the number of arguments passed in the methods
-		*** combines OP_GET_PROPERTY and OP_CALL
+		*** combines OP_GETPROPERTY and OP_CALL
 		*/
         prs_emitbytes(vm, OP_INVOKE, name);
-        prs_emitbyte(vm, argCount);
+        prs_emitbyte(vm, argc);
     }
-    else// simply get
+    else
     {
-        prs_emitbytes(vm, OP_GET_PROPERTY, name);
+        // simply get
+        prs_emitbytes(vm, OP_GETPROPERTY, name);
     }
 }
 
-void rule_literal(VM* vm, bool canAssign)
+void rule_literal(VM* vm, bool canassign)
 {
-    (void)canAssign;
-    switch(parser.previous.type)
+    (void)canassign;
+    switch(g_currentparser.previous.type)
     {
         case TOKEN_FALSE:
             prs_emitbyte(vm, OP_FALSE);
@@ -3979,25 +4221,30 @@ void rule_literal(VM* vm, bool canAssign)
             prs_emitbyte(vm, OP_NULL);
             break;
 
-        default:// unreachable
-            return;
+        default:
+            {
+                // unreachable
+                return;
+            }
+            break;
     }
 }
 
 // parentheses for rule_grouping
-void rule_grouping(VM* vm, bool canAssign)
+void rule_grouping(VM* vm, bool canassign)
 {
-    (void)canAssign;
+    (void)canassign;
     // assume initial ( has already been consumed, and recursively vm_call to expression() to compile between the parentheses
     prs_expression(vm);
-    prs_consume(vm, TOKEN_RIGHT_PAREN, "Expect ')' after expression.");// expects a right parentheses, if not received then  error
+    // expects a right parentheses, if not received then  error
+    prs_consume(vm, TOKEN_RIGHTPAREN, "Expect ')' after expression.");
 }
 
 
 /* parsing the tokens */
-void rule_number(VM* vm, bool canAssign)
+void rule_number(VM* vm, bool canassign)
 {
-    (void)canAssign;
+    (void)canassign;
     // strtod below converts from string to double
     // assume that token for the number literal has already been consumed and is stored in previous
     // double strtod(const char* str, char** endptr)
@@ -4006,73 +4253,77 @@ void rule_number(VM* vm, bool canAssign)
 	-> in scanner, if a digit exists after a digit, it advances() (skips) the current
 	-> hence, we get that the start points to the START of the digit, and using strtod smartly it reaches until the last digit
 	*/
-    double value = strtod(parser.previous.start, NULL);
-    //printf("num %c\n", *parser.previous.start);
-    prs_emitconst(vm, NUMBER_VAL(value));
+    double value = strtod(g_currentparser.previous.start, NULL);
+    prs_emitconst(vm, obj_mknumber(value));
 }
 
-void rule_or(VM* vm, bool canAssign)
+void rule_or(VM* vm, bool canassign)
 {
-    (void)canAssign;
+    (void)canassign;
     // jump if left hand side is true
-    int elseJump = prs_emitjump(vm, OP_JUMP_IF_FALSE);// if left is false jump directly to right hand
-    int endJump = prs_emitjump(vm, OP_JUMP);// if not skipped(as left is true) jump the right hand
+    // if left is false jump directly to right hand
+    int elsejump = prs_emitjump(vm, OP_JUMPIFFALSE);
+    // if not skipped(as left is true) jump the right hand
+    int endjump = prs_emitjump(vm, OP_JUMP);
 
-    prs_patchjump(vm, elseJump);
+    prs_patchjump(vm, elsejump);
     prs_emitbyte(vm, OP_POP);
 
     prs_parseprecedence(vm, PREC_OR);
-    prs_patchjump(vm, endJump);
+    prs_patchjump(vm, endjump);
 }
 
 // 'initialize' the string here
-void rule_string(VM* vm, bool canAssign)
+void rule_string(VM* vm, bool canassign)
 {
-    (void)canAssign;
+    (void)canassign;
     // in a string, eg. "hitagi", the quotation marks are trimmed
-    prs_emitconst(vm, OBJ_VAL(obj_copystring(vm, parser.previous.start + 1, parser.previous.length - 2)));
+    prs_emitconst(vm, obj_mkobject(obj_copystring(vm, g_currentparser.previous.start + 1, g_currentparser.previous.length - 2)));
 }
 
 // declare/vm_call variables
-void rule_namedvar(VM* vm, Token name, bool canAssign)
+void rule_namedvar(VM* vm, Token name, bool canassign)
 {
-    uint8_t getOp, setOp;
-    int arg = prs_resolvelocal(vm, current, &name);// try find a local variable with a given name
+    uint8_t getop, setop;
+    // try find a local variable with a given name
+    int arg = prs_resolvelocal(vm, g_currentcompiler, &name);
     if(arg != -1)
     {
-        getOp = OP_GET_LOCAL;
-        setOp = OP_SET_LOCAL;
+        getop = OP_GETLOCAL;
+        setop = OP_SETLOCAL;
     }
-    else if((arg = prs_resolveupvalue(vm, current, &name)) != -1)// for upvalues
+    // for upvalues
+    else if((arg = prs_resolveupvalue(vm, g_currentcompiler, &name)) != -1)
     {
-        getOp = OP_GET_UPVALUE;
-        setOp = OP_SET_UPVALUE;
+        getop = OP_GET_UPVALUE;
+        setop = OP_SETUPVALUE;
     }
     else
     {
         arg = prs_makeconstident(vm, &name);
-        getOp = OP_GET_GLOBAL;
-        setOp = OP_SET_GLOBAL;
+        getop = OP_GETGLOBAL;
+        setop = OP_SETGLOBAL;
     }
 
 
     // test case to check whether it is a get(just the name) or a reassignment
-    if(canAssign && prs_matchtoken(vm, TOKEN_EQUAL))// if a = follows right after
+    // if a = follows right after
+    if(canassign && prs_matchtoken(vm, TOKEN_EQUAL))
     {
         prs_expression(vm);
-        prs_emitbytes(vm, setOp, (uint8_t)arg);// reassignment/set
+        // reassignment/set
+        prs_emitbytes(vm, setop, (uint8_t)arg);
     }
     else
     {
-        prs_emitbytes(vm, getOp, (uint8_t)arg);// as normal get
-        // printf("gest");
+        // as normal get
+        prs_emitbytes(vm, getop, (uint8_t)arg);
     }
 }
 
-
-void rule_variable(VM* vm, bool canAssign)
+void rule_variable(VM* vm, bool canassign)
 {
-    rule_namedvar(vm, parser.previous, canAssign);
+    rule_namedvar(vm, g_currentparser.previous, canassign);
 }
 
 // for super classes, token that mimics as if a user types in 'super'
@@ -4081,30 +4332,28 @@ Token prs_makesyntoken(VM* vm, const char* text)
     Token token;
     (void)vm;
     token.start = text;
-    token.length = (int)strlen(text);// strlen to get char* length
+    // strlen to get char* length
+    token.length = (int)strlen(text);
     return token;
 }
 
 // for super calls
-void rule_super(VM* vm, bool canAssign)
+void rule_super(VM* vm, bool canassign)
 {
-    (void)canAssign;
+    (void)canassign;
     // if token is not inside a class
-    if(currentClass == NULL)
+    if(g_currentclass == NULL)
     {
         prs_error(vm, "'super' can only be initialized inside a class.");
     }
-    else if(!currentClass->hasSuperclass)// if class has no parent class
+    // if class has no parent class
+    else if(!g_currentclass->hassuper)
     {
         prs_error(vm, "'super' cannot be used on a class with no parent class.");
     }
-
-
     prs_consume(vm, TOKEN_DOT, "Expect '.' after 'super'.");
     prs_consume(vm, TOKEN_IDENTIFIER, "Expect parent class method identifier.");
-    uint8_t name = prs_makeconstident(vm, &parser.previous);// get identifier index
-
-
+    uint8_t name = prs_makeconstident(vm, &g_currentparser.previous);// get identifier index
     /*
 	in order to access a superclass method on the CURRENT INSTANCE, runtime needs both the receiver and the superclass
 	of the surrounding method's class.
@@ -4112,58 +4361,58 @@ void rule_super(VM* vm, bool canAssign)
 	2. second rule_namedvar emits code to look up the superclass and vm_push that on top
 	*/
     rule_namedvar(vm, prs_makesyntoken(vm, "this"), false);
-    if(prs_matchtoken(vm, TOKEN_LEFT_PAREN))// if there is a parameter list, vm_invoke super method
+    // if there is a parameter list, vm_invoke super method
+    if(prs_matchtoken(vm, TOKEN_LEFTPAREN))
     {
-        uint8_t argCount = prs_parsearglist(vm);
+        uint8_t argc = prs_parsearglist(vm);
         rule_namedvar(vm, prs_makesyntoken(vm, "super"), false);
-        prs_emitbytes(vm, OP_SUPER_INVOKE, name);// super vm_invoke opcode
-        prs_emitbyte(vm, argCount);
+        // super vm_invoke opcode
+        prs_emitbytes(vm, OP_SUPERINVOKE, name);
+        prs_emitbyte(vm, argc);
     }
     else
     {
         rule_namedvar(vm, prs_makesyntoken(vm, "super"), false);
-        prs_emitbytes(vm, OP_GET_SUPER, name);
+        prs_emitbytes(vm, OP_GETSUPER, name);
     }
 }
 
-
 // for class methods
-void rule_this(VM* vm, bool canAssign)
+void rule_this(VM* vm, bool canassign)
 {
-    (void)canAssign;
+    (void)canassign;
     // if not inside a class
-    if(currentClass == NULL)
+    if(g_currentclass == NULL)
     {
         prs_error(vm, "Cannot use 'this' outside of class.");
         return;
     }
-
-    rule_variable(vm, false);// always false
+    // always false
+    rule_variable(vm, false);
 }
 
 // unary
-void rule_unary(VM* vm, bool canAssign)
+void rule_unary(VM* vm, bool canassign)
 {
-    (void)canAssign;
-    TokenType operatorType = parser.previous.type;// leading - token has already been consumed
-
+    (void)canassign;
+    // leading - token has already been consumed
+    TokenType opertype = g_currentparser.previous.type;
     // compile operand
     prs_expression(vm);
-
-    switch(operatorType)
+    switch(opertype)
     {
         case TOKEN_BANG:
             prs_emitbyte(vm, OP_NOT);
             break;
 
-
             // OP_NEGATE should be emitted last, AFTER the constant itself
             // eg. say 4 - 5; 5 needs to be emitted and added to the chunk->constants first before OP_NEGATE
-            /* it is important to take note of the precedence
-		e.g -a.b + 3;
-		when the unary negation is called, all of a.b + 3 will be consumed in expression(). Hence, a method is needed
-		to STOP when + is found, or generally when an operand of LOWER PRECEDENCE is found
-		*/
+            /*
+            * it is important to take note of the precedence
+            * e.g -a.b + 3;
+            * when the unary negation is called, all of a.b + 3 will be consumed in expression(). Hence, a method is needed
+            * to STOP when + is found, or generally when an operand of LOWER PRECEDENCE is found
+            */
         case TOKEN_MINUS:
             prs_emitbyte(vm, OP_NEGATE);
             break;
@@ -4174,10 +4423,11 @@ void rule_unary(VM* vm, bool canAssign)
 
 void vm_resetstack(VM* vm)
 {
-    // point stackStop to the begininng of the empty array
-    vm->stackTop = vm->stack;// stack array(vm->stack) is already indirectly declared, hence no need to allocate memory for it
-    vm->frameCount = 0;
-    vm->openUpvalues = NULL;
+    // point stacktop to the begininng of the empty array
+    // stack array(vm->stack) is already indirectly declared, hence no need to allocate memory for it
+    vm->stacktop = vm->stack;
+    vm->framecount = 0;
+    vm->openupvalues = NULL;
 }
 
 
@@ -4185,16 +4435,16 @@ void vm_resetstack(VM* vm)
 // variadic function ( ... ), takes a varying number of arguments
 void vm_rterror(VM* vm, const char* format, ...)
 {
-    va_list args;// list from the varying parameter
+    va_list args;
     va_start(args, format);
-    vfprintf(stderr, format, args);// unlike book, not vprintf(stderr, format, args)
+    vfprintf(stderr, format, args);
     va_end(args);
-    fputs("\n", stderr);// fputs; write a string to the stream but not including the null character
+    fputs("\n", stderr);
 
 
     // printing the stack trace for the function
     // print out each function that was still executing when the program died and where the execution was at the point it died
-    for(int i = vm->frameCount - 1; i >= 0; i--)
+    for(int i = vm->framecount - 1; i >= 0; i--)
     {
         CallFrame* frame = &vm->frames[i];
         ObjFunction* function = frame->closure->function;
@@ -4213,8 +4463,10 @@ void vm_rterror(VM* vm, const char* format, ...)
 
 
     // tell which line the error occurred
-    CallFrame* frame = &vm->frames[vm->frameCount - 1];// pulls from topmost CallFrame on the stack
-    size_t instruction = frame->ip - frame->closure->function->chunk.code - 1;// - 1 to deal with the 1 added initially for the main() CallFrame
+    // pulls from topmost CallFrame on the stack
+    CallFrame* frame = &vm->frames[vm->framecount - 1];
+    // - 1 to deal with the 1 added initially for the main() CallFrame
+    size_t instruction = frame->ip - frame->closure->function->chunk.code - 1;
     int line = frame->closure->function->chunk.lines[instruction];
     fprintf(stderr, "Error in script at [Line %d]\n", line);
 
@@ -4223,9 +4475,10 @@ void vm_rterror(VM* vm, const char* format, ...)
 
 void vm_defnative(VM* vm, const char* name, NativeFn function)
 {
-    vm_push(vm, OBJ_VAL(obj_copystring(vm, name, (int)strlen(name))));// strlen to get char* length
-    vm_push(vm, OBJ_VAL(obj_mknative(vm, function)));
-    htable_set(vm, &vm->globals, AS_STRING(vm->stack[0]), vm->stack[1]);
+    // strlen to get char* length
+    vm_push(vm, obj_mkobject(obj_copystring(vm, name, (int)strlen(name))));
+    vm_push(vm, obj_mkobject(obj_mknative(vm, function)));
+    htable_set(vm, &vm->globals, obj_asstring(vm->stack[0]), vm->stack[1]);
     vm_pop(vm);
     vm_pop(vm);
 }
@@ -4235,7 +4488,8 @@ Value cfn_clock(VM* vm, int argc, Value* args)
     (void)vm;
     (void)argc;
     (void)args;
-    return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);// returns elapsed time since program was running
+    // returns elapsed time since program was running
+    return obj_mknumber((double)clock() / CLOCKS_PER_SEC);
 }
 
 Value cfn_print(VM* vm, int argc, Value* args)
@@ -4261,9 +4515,9 @@ Value cfn_print(VM* vm, int argc, Value* args)
             case VAL_OBJ:
                 {
                     o = args[i].as.obj;
-                    if(IS_STRING(args[i]))
+                    if(obj_isstring(args[i]))
                     {
-                        os = AS_STRING(args[i]);
+                        os = obj_asstring(args[i]);
                         fprintf(stdout, "%.*s", os->length, os->chars);
                     }
                     else
@@ -4280,7 +4534,7 @@ Value cfn_print(VM* vm, int argc, Value* args)
         }
         fflush(stdout);
     }
-    return NUMBER_VAL(0);
+    return obj_mknumber(0);
 }
 
 Value cfn_println(VM* vm, int argc, Value* args)
@@ -4297,38 +4551,38 @@ Value cfn_chr(VM* vm, int argc, Value* args)
     char buf[10];
     if(argc > 0)
     {
-        if(IS_NUMBER(args[0]))
+        if(obj_isnumber(args[0]))
         {
             buf[0] = args[0].as.number;
             buf[1] = 0;
-            return OBJ_VAL(obj_copystring(vm, buf, 1));
+            return obj_mkobject(obj_copystring(vm, buf, 1));
         }
         vm_rterror(vm, "expected #1 to be number");
     }
     vm_rterror(vm, "too few arguments");
-    return NULL_VAL;
+    return obj_nullval;
 }
 
 
 void vm_init(VM* vm)
 {
-    vm_resetstack(vm);// initialiing the Value stack, also initializing the callframe count
+    // initialiing the Value stack, also initializing the callframe count
+    vm_resetstack(vm);
     vm->objects = NULL;
     htable_init(vm, &vm->globals);
     htable_init(vm, &vm->strings);
-
     // initializing gray marked obj stack for garbage collection
-    vm->grayCapacity = 0;
-    vm->grayCount = 0;
-    vm->grayStack = NULL;
+    vm->graycap = 0;
+    vm->graycount = 0;
+    vm->graystack = NULL;
 
     // self adjusting heap to control frequency of GC
-    vm->bytesAllocated = 0;
-    vm->nextGC = 1024 * 1024;
+    vm->totalalloc = 0;
+    vm->nextgc = 1024 * 1024;
 
     // init initalizer string
-    vm->initString = NULL;
-    vm->initString = obj_copystring(vm, "init", 4);
+    vm->initstring = NULL;
+    vm->initstring = obj_copystring(vm, "init", 4);
 
     vm_defnative(vm, "clock", cfn_clock);
     vm_defnative(vm, "print", cfn_print);
@@ -4338,8 +4592,9 @@ void vm_init(VM* vm)
 
 void vm_free(VM* vm)
 {
-    vm->initString = NULL;
-    mem_freeobjlist(vm);// free all objects, from vm->objects
+    vm->initstring = NULL;
+    // free all objects, from vm->objects
+    mem_freeobjlist(vm);
     htable_free(vm, &vm->globals);
     htable_free(vm, &vm->strings);
 }
@@ -4347,14 +4602,16 @@ void vm_free(VM* vm)
 /* stack operations */
 void vm_push(VM* vm, Value value)
 {
-    *vm->stackTop = value;// * in front of the pointer means the rvalue itself, assign value(parameter) to it
-    vm->stackTop++;
+    // * in front of the pointer means the rvalue itself, assign value(parameter) to it
+    *vm->stacktop = value;
+    vm->stacktop++;
 }
 
 Value vm_pop(VM* vm)
 {
-    vm->stackTop--;// first move the stack BACK to get the last element(stackTop points to ONE beyond the last element)
-    return *vm->stackTop;
+    // first move the stack BACK to get the last element(stacktop points to ONE beyond the last element)
+    vm->stacktop--;
+    return *vm->stacktop;
 }
 /* end of stack operations */
 
@@ -4363,78 +4620,87 @@ Value vm_pop(VM* vm)
 // this is a C kind of accessing arrays/pointers
 Value vm_peek(VM* vm, int distance)
 {
-    return vm->stackTop[-1 - distance];
+    return vm->stacktop[-1 - distance];
 }
 
 /* for vm_call stacks/functions  */
-bool vm_call(VM* vm, ObjClosure* closure, int argCount)
+bool vm_call(VM* vm, ObjClosure* closure, int argc)
 {
-    if(argCount != closure->function->arity)// if number of parameters does not match
+    // if number of parameters does not match
+    if((closure->function->arity != -1) && (argc != closure->function->arity))
     {
-        vm_rterror(vm, "Expected %d arguments but got %d", closure->function->arity, argCount);
+        vm_rterror(vm, "Expected %d arguments but got %d", closure->function->arity, argc);
         return false;
     }
-
     // as CallFrame is an array, to ensure array does not overflow
-    if(vm->frameCount == FRAMES_MAX)
+    if(vm->framecount == FRAMES_MAX)
     {
         vm_rterror(vm, "Stack overflow.");
         return false;
     }
-
     // get pointer to next in frame array
-    CallFrame* frame = &vm->frames[vm->frameCount++];// initializes callframe to the top of the stack
+    // initializes callframe to the top of the stack
+    CallFrame* frame = &vm->frames[vm->framecount++];
     frame->closure = closure;
     frame->ip = closure->function->chunk.code;
-
     // set up slots pointer to give frame its window into the stack
     // ensures everyting lines up
     // slots is the 'starting pointer' for the function cll
-    frame->slots = vm->stackTop - argCount - 1;
+    frame->slots = vm->stacktop - argc - 1;
     return true;
 }
 
-bool vm_callvalue(VM* vm, Value callee, int argCount)
+bool vm_callvalue(VM* vm, Value callee, int argc)
 {
-    if(IS_OBJ(callee))
+    if(obj_isobject(callee))
     {
-        switch(OBJ_TYPE(callee))
+        switch(obj_type(callee))
         {
             case OBJ_BOUND_METHOD:
             {
-                ObjBoundMethod* bound = AS_BOUND_METHOD(callee);// get ObjBoundMethod from value type(callee)
-                vm->stackTop[-argCount - 1] = bound->receiver;// set [-] inside square brackes of top stack pointer to go down the stack
-                return vm_call(vm, bound->method, argCount);//	run vm_call to execute
+                // get ObjBoundMethod from value type(callee)
+                ObjBoundMethod* bound = obj_asboundmethod(callee);
+                // set [-] inside square brackes of top stack pointer to go down the stack
+                vm->stacktop[-argc - 1] = bound->receiver;
+                //	run vm_call to execute
+                return vm_call(vm, bound->method, argc);
             }
-            case OBJ_CLASS:// create class instance
+            // create class instance
+            case OBJ_CLASS:
             {
-                ObjClass* kelas = AS_CLASS(callee);
+                ObjClass* klass = obj_asclass(callee);
                 // create new instance here
-                vm->stackTop[-argCount - 1] = OBJ_VAL(obj_mkinstance(vm, kelas));// - argcounts as above values are parameters
+                // - argcounts as above values are parameters
+                vm->stacktop[-argc - 1] = obj_mkobject(obj_mkinstance(vm, klass));
 
                 // initializer
                 Value initializer;
                 // if we find one from the table
-                if(htable_get(vm, &kelas->methods, vm->initString, &initializer))// have a vm->initString as 'token', ObjString type
+                // have a vm->initstring as 'token', ObjString type
+                if(htable_get(vm, &klass->methods, vm->initstring, &initializer))
                 {
-                    return vm_call(vm, AS_CLOSURE(initializer), argCount);
+                    return vm_call(vm, obj_asclosure(initializer), argc);
                 }
-                else if(argCount != 0)// if there ARE arguments but the initalizer method cannot be found
+                // if there ARE arguments but the initalizer method cannot be found
+                else if(argc != 0)
                 {
-                    vm_rterror(vm, "Expected 0  arguments but got %d\n", argCount);
+                    vm_rterror(vm, "Expected 0  arguments but got %d\n", argc);
                     return false;
                 }
 
                 return true;
             }
-            case OBJ_CLOSURE:// ensure type is function
-                return vm_call(vm, AS_CLOSURE(callee), argCount);// vm_call to function happens here
+            // ensure type is function
+            case OBJ_CLOSURE:
+                // vm_call to function happens here
+                return vm_call(vm, obj_asclosure(callee), argc);
 
             case OBJ_NATIVE:
             {
-                NativeFn native = AS_NATIVE(callee);
-                Value result = native(vm, argCount, vm->stackTop - argCount);
-                vm->stackTop -= argCount + 1;// remove vm_call and arguments from the stack
+                NativeFn native = obj_asnative(callee);
+                Value result = native(vm, argc, vm->stacktop - argc);
+                // remove vm_call and arguments from the stack
+                vm->stacktop -= argc + 1;
                 vm_push(vm, result);
                 return true;
             }
@@ -4442,66 +4708,68 @@ bool vm_callvalue(VM* vm, Value callee, int argCount)
                 break;
         }
     }
-
     vm_rterror(vm, "Non-function or non-class type is called.");
     return false;
 }
 
 
-bool vm_invokefromclass(VM* vm, ObjClass* kelas, ObjString* name, int argCount)
+bool vm_invokefromclass(VM* vm, ObjClass* klass, ObjString* name, int argc)
 {
     Value method;
-    if(!htable_get(vm, &kelas->methods, name, &method))
+    if(!htable_get(vm, &klass->methods, name, &method))
     {
         vm_rterror(vm, "Undefined property '%s'.", name->chars);
         return false;
     }
 
-    return vm_call(vm, AS_CLOSURE(method), argCount);
+    return vm_call(vm, obj_asclosure(method), argc);
 }
 
 
 // vm_invoke class method, access method + vm_call method
-bool vm_invoke(VM* vm, ObjString* name, int argCount)
+bool vm_invoke(VM* vm, ObjString* name, int argc)
 {
-    Value receiver = vm_peek(vm, argCount);// grab the receiver of the stack
+    // grab the receiver of the stack
+    Value receiver = vm_peek(vm, argc);
 
     // vm_call method with wrong type, not an objinstance type
-    if(!IS_INSTANCE(receiver))
+    if(!obj_isinstance(receiver))
     {
         vm_rterror(vm, "Tried to vm_invoke a method from a non instance object.");
         return false;
     }
 
-    ObjInstance* instance = AS_INSTANCE(receiver);
+    ObjInstance* instance = obj_asinstance(receiver);
 
     // for fields()
     Value value;
     if(htable_get(vm, &instance->fields, name, &value))
     {
-        vm->stackTop[-argCount - 1] = value;
-        return vm_callvalue(vm, value, argCount);
+        vm->stacktop[-argc - 1] = value;
+        return vm_callvalue(vm, value, argc);
     }
 
-
-    return vm_invokefromclass(vm, instance->kelas, name, argCount);// actual function that searches for method and calls it
+    // actual function that searches for method and calls it
+    return vm_invokefromclass(vm, instance->classobject, name, argc);
 }
 
 
 // bind method and wrap it in a new ObjBoundMethod
-bool vm_bindmethod(VM* vm, ObjClass* kelas, ObjString* name)
+bool vm_bindmethod(VM* vm, ObjClass* klass, ObjString* name)
 {
     Value method;
-    if(!htable_get(vm, &kelas->methods, name, &method))// get method from table and bind it
+    // get method from table and bind it
+    if(!htable_get(vm, &klass->methods, name, &method))
     {
         // if method not found
         vm_rterror(vm, "Undefined property %s.", name->chars);
         return false;
     }
-    ObjBoundMethod* bound = obj_mkboundmethod(vm, vm_peek(vm, 0), AS_CLOSURE(method));// wrap method in a new ObjBoundMethodd
-
-    vm_pop(vm);// vm_pop the class instance
-    vm_push(vm, OBJ_VAL(bound));
+    // wrap method in a new ObjBoundMethodd
+    ObjBoundMethod* bound = obj_mkboundmethod(vm, vm_peek(vm, 0), obj_asclosure(method));
+    // vm_pop the class instance
+    vm_pop(vm);
+    vm_push(vm, obj_mkobject(bound));
     return true;
 }
 
@@ -4510,8 +4778,9 @@ bool vm_bindmethod(VM* vm, ObjClass* kelas, ObjString* name)
 ObjUpvalue* vm_captureupvalue(VM* vm, Value* local)
 {
     // set up the linked list
-    ObjUpvalue* prevUpvalue = NULL;
-    ObjUpvalue* upvalue = vm->openUpvalues;// assign at the start of the list
+    ObjUpvalue* prevupvalue = NULL;
+    // assign at the start of the list
+    ObjUpvalue* upvalue = vm->openupvalues;
 
     // look for an existing upvalue in the list
     /*  LINKED LIST
@@ -4525,51 +4794,62 @@ ObjUpvalue* vm_captureupvalue(VM* vm, Value* local)
 	2. ran ouf ot upvalues to search
 	3. found an upvalue whose local slot is BELOW the one we're looking for
 	*/
-    while(upvalue != NULL && upvalue->location > local)// pointer comparison: only find the ones ABOVE local
+    // pointer comparison: only find the ones ABOVE local
+    while(upvalue != NULL && upvalue->location > local)
     {
-        prevUpvalue = upvalue;
+        prevupvalue = upvalue;
         upvalue = upvalue->next;
     }
-
-    if(upvalue != NULL && upvalue->location == local)// if the location/local/indeces match
+    // if the location/local/indeces match
+    if(upvalue != NULL && upvalue->location == local)
     {
-        return upvalue;// return already created upvalue
+        // return already created upvalue
+        return upvalue;
     }
 
-    ObjUpvalue* createdUpvalue = obj_mkupvalue(vm, local);
-    createdUpvalue->next = upvalue;// insert at the front
-
-    if(prevUpvalue == NULL)// ran out of values to search
+    ObjUpvalue* createdupvalue = obj_mkupvalue(vm, local);
+    // insert at the front
+    createdupvalue->next = upvalue;
+    // ran out of values to search
+    if(prevupvalue == NULL)
     {
-        vm->openUpvalues = createdUpvalue;// set pointer to the newly added upvalue
+        // set pointer to the newly added upvalue
+        vm->openupvalues = createdupvalue;
     }
-    else// found local slot BELOW the one we are looking for
+    // found local slot BELOW the one we are looking for
+    else
     {
-        prevUpvalue->next = createdUpvalue;// link next slot(the value below) to the newly inserted upvalue
+        // link next slot(the value below) to the newly inserted upvalue
+        prevupvalue->next = createdupvalue;
     }
 
-    return createdUpvalue;
+    return createdupvalue;
 }
 
 // closes every upvalue it can find that points to the slot or any above the stack
-void vm_closeupvalues(VM* vm, Value* last)// takes pointer to stack slot
+void vm_closeupvalues(VM* vm, Value* last)
 {
-    while(vm->openUpvalues != NULL && vm->openUpvalues->location >= last)
+    while(vm->openupvalues != NULL && vm->openupvalues->location >= last)
     {
-        ObjUpvalue* upvalue = vm->openUpvalues;// pointer to list of openupvalues
+        // pointer to list of openupvalues
+        ObjUpvalue* upvalue = vm->openupvalues;
         upvalue->closed = *upvalue->location;
         upvalue->location = &upvalue->closed;
-        vm->openUpvalues = upvalue->next;
+        vm->openupvalues = upvalue->next;
     }
 }
 
 // defining method for class type
 void vm_defmethod(VM* vm, ObjString* name)
 {
-    Value method = vm_peek(vm, 0);// method/closure is at the top of the stack
-    ObjClass* kelas = AS_CLASS(vm_peek(vm, 1));// class is at the 2nd top
-    htable_set(vm, &kelas->methods, name, method);// add to hashtable
-    vm_pop(vm);// vm_pop the method
+    // method/closure is at the top of the stack
+    Value method = vm_peek(vm, 0);
+    // class is at the 2nd top
+    ObjClass* klass = obj_asclass(vm_peek(vm, 1));
+    // add to hashtable
+    htable_set(vm, &klass->methods, name, method);
+    // vm_pop the method
+    vm_pop(vm);
 }
 
 
@@ -4578,7 +4858,7 @@ bool vm_isfalsey(VM* vm, Value value)
 {
     (void)vm;
     // return true if value is the null type or if it is a false bool type
-    bool test = IS_NULL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+    bool test = obj_isnull(value) || (obj_isbool(value) && !obj_asbool(value));
 
     return test;
 }
@@ -4586,11 +4866,13 @@ bool vm_isfalsey(VM* vm, Value value)
 // string concatenation
 void vm_concatenate(VM* vm)
 {
-    ObjString* second = AS_STRING(vm_peek(vm, 0));// vm_peek, so we do not vm_pop it off if calling a GC is needed
-    ObjString* first = AS_STRING(vm_peek(vm, 1));
+    // vm_peek, so we do not vm_pop it off if calling a GC is needed
+    ObjString* second = obj_asstring(vm_peek(vm, 0));
+    ObjString* first = obj_asstring(vm_peek(vm, 1));
 
     int length = first->length + second->length;
-    char* chars = ALLOCATE(vm, char, length + 1);// dynamically allocate memory for the char, chars is now a NULL string
+    // dynamically allocate memory for the char, chars is now a NULL string
+    char* chars = memwrap_allocate(vm, char, length + 1);
 
     /* NOTE ON C STRINGS, NULL VS EMPTY
 	-> null string has no elements, it is an empty charray, ONLY DECLARED
@@ -4598,14 +4880,16 @@ void vm_concatenate(VM* vm)
 	*/
 
     // IMPORTANt -> use memcpy when assinging to a char* pointer
-    memcpy(chars, first->chars, first->length);// memcpy function, copy to chars, from first->chars, with second->length number of bits
-    memcpy(chars + first->length, second->chars, second->length);// remember to add the first length of bits to chars again, so it will START AFTER the given offset
-    chars[length] = '\0';// IMPORTANT-> terminating character for Cstring, if not put will get n2222
-
-    ObjString* result = obj_takestring(vm, chars, length);// declare new ObjString ptr
-    vm_pop(vm);// vm_pop the two strings, garbage collection
+    memcpy(chars, first->chars, first->length);
+    // remember to add the first length of bits to chars again, so it will START AFTER the given offset
+    memcpy(chars + first->length, second->chars, second->length);
+    chars[length] = '\0';
+    // declare new ObjString ptr
+    ObjString* result = obj_takestring(vm, chars, length);
+    // vm_pop the two strings, garbage collection
     vm_pop(vm);
-    vm_push(vm, OBJ_VAL(result));
+    vm_pop(vm);
+    vm_push(vm, obj_mkobject(result));
 }
 
 
@@ -4614,22 +4898,25 @@ InterpretResult vm_interpret(VM* vm, const char* source)
 {
     ObjFunction* function = prs_compile(vm, source);
     if(function == NULL)
-        return INTERPRET_COMPILE_ERROR;// NULL gets passed from compiler
-
-    vm_push(vm, OBJ_VAL(function));
+    {
+        // NULL gets passed from compiler
+        return STATUS_COMPILEFAIL;
+    }
+    vm_push(vm, obj_mkobject(function));
     ObjClosure* closure = obj_mkclosure(vm, function);
     vm_pop(vm);
-    vm_push(vm, OBJ_VAL(closure));
-    vm_callvalue(vm, OBJ_VAL(closure), 0);// 0 params for main()
+    vm_push(vm, obj_mkobject(closure));
+    // 0 params for main()
+    vm_callvalue(vm, obj_mkobject(closure), 0);
     return vm_run(vm);
 }
 
 
 // run the chunk
 // most IMPORTANT part of the interpreter
-InterpretResult vm_run(VM* vm)// means the scope of the function is only to this file
+InterpretResult vm_run(VM* vm)
 {
-    CallFrame* frame = &vm->frames[vm->frameCount - 1];
+    CallFrame* frame = &vm->frames[vm->framecount - 1];
 
 
     for(;;)
@@ -4648,7 +4935,7 @@ InterpretResult vm_run(VM* vm)// means the scope of the function is only to this
 		*/
 
         // prints every existing value in the stack
-        for(Value* slot = vm->stack; slot < vm->stackTop; slot++)
+        for(Value* slot = vm->stack; slot < vm->stacktop; slot++)
         {
             printf("[ ");
             obj_printvalue(vm, *slot);
@@ -4676,137 +4963,153 @@ InterpretResult vm_run(VM* vm)// means the scope of the function is only to this
             }
             // unary opcode
             case OP_NEGATE:
-                if(!IS_NUMBER(vm_peek(vm, 0)))// if next value is not a number
+                // if next value is not a number
+                if(!obj_isnumber(vm_peek(vm, 0)))
                 {
                     //printf("\nnot a number\n"); it actually works
                     vm_rterror(vm, "Operand must be a number.");
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
 
-                vm_push(vm, NUMBER_VAL(-AS_NUMBER(vm_pop(vm))));
-                break;// negates the last element of the stack
+                vm_push(vm, obj_mknumber(-obj_asnumber(vm_pop(vm))));
+                // negates the last element of the stack
+                break;
 
             // literals
             case OP_NULL:
-                vm_push(vm, NULL_VAL);
+                vm_push(vm, obj_nullval);
                 break;
             case OP_TRUE:
-                vm_push(vm, BOOL_VAL(true));
+                vm_push(vm, obj_mkbool(true));
                 break;
             case OP_FALSE:
-                vm_push(vm, BOOL_VAL(false));
+                vm_push(vm, obj_mkbool(false));
                 break;
 
             // binary opcode
             case OP_ADD:
             {
-                if(IS_STRING(vm_peek(vm, 0)) && IS_STRING(vm_peek(vm, 1)))// if last two constants are strings
+                // if last two constants are strings
+                if(obj_isstring(vm_peek(vm, 0)) && obj_isstring(vm_peek(vm, 1)))
                 {
                     vm_concatenate(vm);
                 }
-                else if(IS_NUMBER(vm_peek(vm, 0)) && IS_NUMBER(vm_peek(vm, 1)))
+                else if(obj_isnumber(vm_peek(vm, 0)) && obj_isnumber(vm_peek(vm, 1)))
                 {
                     // in the book, macro is not used and a new algorithm is used directly
-                    vmc_binaryop(NUMBER_VAL, +, double);// initialize new Value struct (NUMBER_VAL) here
+                    // initialize new Value struct (obj_mknumber) here
+                    vmc_binaryop(obj_mknumber, +, double);
                 }
-                else// handle errors dynamically here
+                // handle errors dynamically here
+                else
                 {
-                    //printf("operands error");
                     vm_rterror(vm, "Operands are incompatible.");
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
                 break;
             }
 
             case OP_SUBTRACT:
-                vmc_binaryop(NUMBER_VAL, -, double);
+                vmc_binaryop(obj_mknumber, -, double);
                 break;
             case OP_MULTIPLY:
-                vmc_binaryop(NUMBER_VAL, *, double);
+                vmc_binaryop(obj_mknumber, *, double);
                 break;
             case OP_DIVIDE:
-                vmc_binaryop(NUMBER_VAL, /, double);
+                vmc_binaryop(obj_mknumber, /, double);
                 break;
 
             case OP_MODULO:
-                vmc_binaryop(NUMBER_VAL, %, int);
+                vmc_binaryop(obj_mknumber, %, int);
                 break;
 
             case OP_NOT:
-                vm_push(vm, BOOL_VAL(vm_isfalsey(vm, vm_pop(vm))));// again, pops most recent one from the stack, does the operation on it, and pushes it back
+                // again, pops most recent one from the stack, does the operation on it, and pushes it back
+                vm_push(vm, obj_mkbool(vm_isfalsey(vm, vm_pop(vm))));
                 break;
 
             // for switch eqal
-            case OP_SWITCH_EQUAL:
+            case OP_SWITCHEQUAL:
             {
-                Value b = vm_pop(vm);// only vm_pop second value
-                Value a = vm_peek(vm, 0);// vm_peek topmost, the first value
-                vm_push(vm, BOOL_VAL(obj_valequal(vm, a, b)));
+                // only vm_pop second value
+                Value b = vm_pop(vm);
+                // vm_peek topmost, the first value
+                Value a = vm_peek(vm, 0);
+                vm_push(vm, obj_mkbool(obj_valequal(vm, a, b)));
                 break;
             }
-
-            case OP_EQUAL:// implemenation comparison done here
+            // implemenation comparison done here
+            case OP_EQUAL:
             {
                 Value b = vm_pop(vm);
                 Value a = vm_pop(vm);
-                vm_push(vm, BOOL_VAL(obj_valequal(vm, a, b)));
+                vm_push(vm, obj_mkbool(obj_valequal(vm, a, b)));
                 break;
             }
             case OP_GREATER:
-                vmc_binaryop(BOOL_VAL, >, double);
+                vmc_binaryop(obj_mkbool, >, double);
                 break;
             case OP_LESS:
-                vmc_binaryop(BOOL_VAL, <, double);
+                vmc_binaryop(obj_mkbool, <, double);
                 break;
 
             case OP_POP:
                 vm_pop(vm);
                 break;
 
-            case OP_GET_LOCAL:
+            case OP_GETLOCAL:
             {
                 uint8_t slot = vmc_readbyte();
-                vm_push(vm, frame->slots[slot]);// pushes the value to the stack where later instructions can read it
+                // pushes the value to the stack where later instructions can read it
+                vm_push(vm, frame->slots[slot]);
                 break;
             }
 
-            case OP_SET_LOCAL:
+            case OP_SETLOCAL:
             {
                 uint8_t slot = vmc_readbyte();
                 // all the local var's VARIABLES are stored inside vm->stack
-                frame->slots[slot] = vm_peek(vm, 0);// takes from top of the stack and stores it in the stack slot
+                // takes from top of the stack and stores it in the stack slot
+                frame->slots[slot] = vm_peek(vm, 0);
                 break;
             }
 
-            case OP_DEFINE_GLOBAL:
+            case OP_DEFINEGLOBAL:
             {
-                ObjString* name = vmc_readstring();// get name from constant table
-                htable_set(vm, &vm->globals, name, vm_peek(vm, 0));// take value from the top of the stack
+                // get name from constant table
+                ObjString* name = vmc_readstring();
+                // take value from the top of the stack
+                htable_set(vm, &vm->globals, name, vm_peek(vm, 0));
                 vm_pop(vm);
                 break;
             }
 
-            case OP_GET_GLOBAL:
+            case OP_GETGLOBAL:
             {
-                ObjString* name = vmc_readstring();// get the name
-                Value value;// create new Value
-                if(!htable_get(vm, &vm->globals, name, &value))// if key not in hash table
+                // get the name
+                ObjString* name = vmc_readstring();
+                // create new Value
+                Value value;
+                // if key not in hash table
+                if(!htable_get(vm, &vm->globals, name, &value))
                 {
                     vm_rterror(vm, "Undefined variable '%s'.", name->chars);
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
                 vm_push(vm, value);
                 break;
             }
 
-            case OP_SET_GLOBAL:
+            case OP_SETGLOBAL:
             {
                 ObjString* name = vmc_readstring();
-                if(htable_set(vm, &vm->globals, name, vm_peek(vm, 0)))// if key not in hash table
+                // if key not in hash table
+                if(htable_set(vm, &vm->globals, name, vm_peek(vm, 0)))
                 {
-                    htable_delete(vm, &vm->globals, name);// delete the false name
+                    // delete the false name
+                    htable_delete(vm, &vm->globals, name);
                     vm_rterror(vm, "Undefined variable '%s'.", name->chars);
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
                 break;
             }
@@ -4814,114 +5117,135 @@ InterpretResult vm_run(VM* vm)// means the scope of the function is only to this
             // upvalues set/get
             case OP_GET_UPVALUE:
             {
-                uint8_t slot = vmc_readbyte();// read index
-                vm_push(vm, *frame->closure->upvalues[slot]->location);// vm_push the value to the stack
+                // read index
+                uint8_t slot = vmc_readbyte();
+                // vm_push the value to the stack
+                vm_push(vm, *frame->closure->upvalues[slot]->location);
                 break;
             }
 
-            case OP_SET_UPVALUE:
+            case OP_SETUPVALUE:
             {
-                uint8_t slot = vmc_readbyte();// read index
-                *frame->closure->upvalues[slot]->location = vm_peek(vm, 0);// set to the topmost stack
+                // read index
+                uint8_t slot = vmc_readbyte();
+                // set to the topmost stack
+                *frame->closure->upvalues[slot]->location = vm_peek(vm, 0);
                 break;
             }
 
-            case OP_GET_PROPERTY:
+            case OP_GETPROPERTY:
             {
                 // to make sure only instances are allowed to have fields
-                if(!IS_INSTANCE(vm_peek(vm, 0)))
+                if(!obj_isinstance(vm_peek(vm, 0)))
                 {
                     vm_rterror(vm, "Only instances have properties.");
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
-
-                ObjInstance* instance = AS_INSTANCE(vm_peek(vm, 0));// get instance from top most stack
-                ObjString* name = vmc_readstring();// get identifier name
-
-                Value value;// set up value to add to the stack
-                if(htable_get(vm, &instance->fields, name, &value))// get from fields hash table, assign it to instance
+                // get instance from top most stack
+                ObjInstance* instance = obj_asinstance(vm_peek(vm, 0));
+                // get identifier name
+                ObjString* name = vmc_readstring();
+                // set up value to add to the stack
+                Value value;
+                // get from fields hash table, assign it to instance
+                if(htable_get(vm, &instance->fields, name, &value))
                 {
-                    vm_pop(vm);// vm_pop the instance itself
+                    // vm_pop the instance itself
+                    vm_pop(vm);
                     vm_push(vm, value);
                     break;
                 }
-
-                if(!vm_bindmethod(vm, instance->kelas, name))// no method as well, error
+                // no method as well, error
+                if(!vm_bindmethod(vm, instance->classobject, name))
                 {
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
                 break;
             }
 
-            case OP_SET_PROPERTY:
+            case OP_SETPROPERTY:
             {
-                if(!IS_INSTANCE(vm_peek(vm, 1)))// if not an instance
+                // if not an instance
+                if(!obj_isinstance(vm_peek(vm, 1)))
                 {
                     vm_rterror(vm, "Identifier must be a class instance.");
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
 
                 // not top most, as the top most is reserved for the new value to be set
-                ObjInstance* instance = AS_INSTANCE(vm_peek(vm, 1));
-                htable_set(vm, &instance->fields, vmc_readstring(), vm_peek(vm, 0));//vm_peek(0) is the new value
-
-                Value value = vm_pop(vm);// vm_pop the already set value
-                vm_pop(vm);// vm_pop the property instance itself
-                vm_push(vm, value);// vm_push the value back again
+                ObjInstance* instance = obj_asinstance(vm_peek(vm, 1));
+                //vm_peek(0) is the new value
+                htable_set(vm, &instance->fields, vmc_readstring(), vm_peek(vm, 0));
+                // vm_pop the already set value
+                Value value = vm_pop(vm);
+                // vm_pop the property instance itself
+                vm_pop(vm);
+                // vm_push the value back again
+                vm_push(vm, value);
                 break;
             }
 
 
-            case OP_CLOSE_UPVALUE:
+            case OP_CLOSEUPVALUE:
             {
-                vm_closeupvalues(vm, vm->stackTop - 1);// put address to the slot
-                vm_pop(vm);// vm_pop from the stack
+                // put address to the slot
+                vm_closeupvalues(vm, vm->stacktop - 1);
+                // vm_pop from the stack
+                vm_pop(vm);
                 break;
             }
-
-
-            case OP_JUMP:// will always jump
+            // will always jump
+            case OP_JUMP:
             {
                 uint16_t offset = vmc_readshort();
                 frame->ip += offset;
                 break;
             }
-
-            case OP_JUMP_IF_FALSE:// for initial if, will not jump if expression inside is true
+            // for initial if, will not jump if expression inside is true
+            case OP_JUMPIFFALSE:
             {
-                uint16_t offset = vmc_readshort();// offset already put in the stack
+                // offset already put in the stack
+                uint16_t offset = vmc_readshort();
                 // actual jump instruction is done here; skip over the instruction pointer
                 if(vm_isfalsey(vm, vm_peek(vm, 0)))
-                    frame->ip += offset;// if evaluated expression inside if statement is false jump
+                {
+                    // if evaluated expression inside if statement is false jump
+                    frame->ip += offset;
+                }
                 break;
             }
 
             case OP_LOOP:
             {
                 uint16_t offset = vmc_readshort();
-                frame->ip -= offset;// jumps back
+                // jumps back
+                frame->ip -= offset;
                 break;
             }
 
-            case OP_LOOP_IF_FALSE:
+            case OP_LOOPIFFALSE:
             {
-                uint16_t offset = vmc_readshort();// offset already put in the stack
+                // offset already put in the stack
+                uint16_t offset = vmc_readshort();
                 // bool state is at the top of the stack
                 // if false loop back
                 if(vm_isfalsey(vm, vm_peek(vm, 0)))
                     frame->ip -= offset;
-                vm_pop(vm);// vm_pop the true/false
+                // vm_pop the true/false
+                vm_pop(vm);
                 break;
             }
 
-            case OP_LOOP_IF_TRUE:
+            case OP_LOOPIFTRUE:
             {
-                uint16_t offset = vmc_readshort();// offset already put in the stack
+                // offset already put in the stack
+                uint16_t offset = vmc_readshort();
                 // bool state is at the top of the stack
                 // if not false loop back
                 if(!vm_isfalsey(vm, vm_peek(vm, 0)))
                     frame->ip -= offset;
-                vm_pop(vm);// vm_pop the true/false
+                // vm_pop the true/false
+                vm_pop(vm);
                 break;
             }
 
@@ -4929,35 +5253,43 @@ InterpretResult vm_run(VM* vm)// means the scope of the function is only to this
             // the top level code, or caller, also has the same function name, param1, param2... in the right order
             case OP_CALL:
             {
-                int argCount = vmc_readbyte();
-                if(!vm_callvalue(vm, vm_peek(vm, argCount), argCount))// vm_call function; pass in the function name istelf[vm_peek(depth)] and the number of arguments
+                int argc = vmc_readbyte();
+                // vm_call function; pass in the function name istelf[vm_peek(depth)] and the number of arguments
+                if(!vm_callvalue(vm, vm_peek(vm, argc), argc))
                 {
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
-                frame = &vm->frames[vm->frameCount - 1];// to update pointer if callFrame is successful, asnew frame is added
+                // to update pointer if callframe is successful, asnew frame is added
+                frame = &vm->frames[vm->framecount - 1];
                 break;
             }
 
             // closures
             case OP_CLOSURE:
             {
-                ObjFunction* function = AS_FUNCTION(vmc_readconst());// load compiled function from table
+                // load compiled function from table
+                ObjFunction* function = obj_asfunction(vmc_readconst());
                 ObjClosure* closure = obj_mkclosure(vm, function);
-                vm_push(vm, OBJ_VAL(closure));
+                vm_push(vm, obj_mkobject(closure));
 
                 // fill upvalue array over in the interpreter when a closure is created
                 // to see upvalues in each slot
-                for(int i = 0; i < closure->upvalueCount; i++)
+                for(int i = 0; i < closure->upvaluecount; i++)
                 {
-                    uint8_t isLocal = vmc_readbyte();// read isLocal bool
-                    uint8_t index = vmc_readbyte();// read index for local, if available, in the closure
-                    if(isLocal)
+                    // read islocal bool
+                    uint8_t isl = vmc_readbyte();
+                    // read index for local, if available, in the closure
+                    uint8_t index = vmc_readbyte();
+                    if(isl)
                     {
-                        closure->upvalues[i] = vm_captureupvalue(vm, frame->slots + index);// get from slots stack
+                        // get from slots stack
+                        closure->upvalues[i] = vm_captureupvalue(vm, frame->slots + index);
                     }
-                    else// if not local(nested upvalue)
+                    // if not local(nested upvalue)
+                    else
                     {
-                        closure->upvalues[i] = frame->closure->upvalues[index];// get from current upvalue
+                        // get from current upvalue
+                        closure->upvalues[i] = frame->closure->upvalues[index];
                     }
                 }
 
@@ -4965,85 +5297,99 @@ InterpretResult vm_run(VM* vm)// means the scope of the function is only to this
             }
 
             case OP_CLASS:
-                vm_push(vm, OBJ_VAL(obj_mkclass(vm, vmc_readstring())));// load string for the class' name and vm_push it onto the stack
+                // load string for the class' name and vm_push it onto the stack
+                vm_push(vm, obj_mkobject(obj_mkclass(vm, vmc_readstring())));
                 break;
 
             case OP_METHOD:
-                vm_defmethod(vm, vmc_readstring());// get name of the method
+                // get name of the method
+                vm_defmethod(vm, vmc_readstring());
                 break;
 
             case OP_INVOKE:
             {
                 ObjString* method = vmc_readstring();
-                int argCount = vmc_readbyte();
-                if(!vm_invoke(vm, method, argCount))// new vm_invoke function
+                int argc = vmc_readbyte();
+                // new vm_invoke function
+                if(!vm_invoke(vm, method, argc))
                 {
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
-                frame = &vm->frames[vm->frameCount - 1];
+                frame = &vm->frames[vm->framecount - 1];
                 break;
             }
 
             case OP_INHERIT:
             {
-                Value parent = vm_peek(vm, 1);// parent class from 2nd top of the stack
+                // parent class from 2nd top of the stack
+                Value parent = vm_peek(vm, 1);
 
                 // ensure that parent identifier is a class
-                if(!IS_CLASS(parent))
+                if(!obj_isclass(parent))
                 {
                     vm_rterror(vm, "Parent identifier is not a class.");
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
-
-                ObjClass* child = AS_CLASS(vm_peek(vm, 0));// child class at the top of the stack
-                htable_addall(vm, &AS_CLASS(parent)->methods, &child->methods);// add all methods from parent to child table
-                vm_pop(vm);// vm_pop the child class
+                // child class at the top of the stack
+                ObjClass* child = obj_asclass(vm_peek(vm, 0));
+                // add all methods from parent to child table
+                htable_addall(vm, &obj_asclass(parent)->methods, &child->methods);
+                // vm_pop the child class
+                vm_pop(vm);
                 break;
             }
 
-            case OP_GET_SUPER:
+            case OP_GETSUPER:
             {
-                ObjString* name = vmc_readstring();// get method name/identifier
-                ObjClass* parent = AS_CLASS(vm_pop(vm));// class identifier is at the top of the stack
-                if(!vm_bindmethod(vm, parent, name))// if binding fails
+                // get method name/identifier
+                ObjString* name = vmc_readstring();
+                // class identifier is at the top of the stack
+                ObjClass* parent = obj_asclass(vm_pop(vm));
+                // if binding fails
+                if(!vm_bindmethod(vm, parent, name))
                 {
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
                 break;
             }
-
-            case OP_SUPER_INVOKE:// super calls optimization
+            // super calls optimization
+            case OP_SUPERINVOKE:
             {
                 ObjString* method = vmc_readstring();
                 int count = vmc_readbyte();
-                ObjClass* parent = AS_CLASS(vm_pop(vm));
+                ObjClass* parent = obj_asclass(vm_pop(vm));
                 if(!vm_invokefromclass(vm, parent, method, count))
                 {
-                    return INTERPRET_RUNTIME_ERROR;
+                    return STATUS_RUNTIMEFAIL;
                 }
-                frame = &vm->frames[vm->frameCount - 1];
+                frame = &vm->frames[vm->framecount - 1];
                 break;
             }
 
             case OP_RETURN:
             {
-                Value result = vm_pop(vm);// if function returns a value, value will beon top of the stack
+                // if function returns a value, value will beon top of the stack
+                Value result = vm_pop(vm);
+                // close lingering closed values
+                vm_closeupvalues(vm, frame->slots);
 
-                vm_closeupvalues(vm, frame->slots);// close lingering closed values
-
-                vm->frameCount--;
-                if(vm->frameCount == 0)// return from 'main()'/script function
+                vm->framecount--;
+                // return from 'main()'/script function
+                if(vm->framecount == 0)
                 {
-                    vm_pop(vm);// vm_pop main script function from the stack
-                    return INTERPRET_OK;
+                    // vm_pop main script function from the stack
+                    vm_pop(vm);
+                    return STATUS_OK;
                 }
 
                 // for a function
                 // discard all the slots the callee was using for its parameters
-                vm->stackTop = frame->slots;// basically 're-assign'
-                vm_push(vm, result);// vm_push the return value
-
-                frame = &vm->frames[vm->frameCount - 1];// update run function's current frame
+                // basically 're-assign'
+                vm->stacktop = frame->slots;
+                // vm_push the return value
+                vm_push(vm, result);
+                // update run function's current frame
+                frame = &vm->frames[vm->framecount - 1];
                 break;
             }
         }
@@ -5053,37 +5399,38 @@ InterpretResult vm_run(VM* vm)// means the scope of the function is only to this
 
 
 // function for loading scripts
-void runFile(VM* vm, const char* path)
+void runfile(VM* vm, const char* path)
 {
-    char* source = readFile(vm, path);// get raw source code from the file
-    InterpretResult result = vm_interpret(vm, source);// get enum type result from VM
-    free(source);// free the source code
+    // get raw source code from the file
+    char* source = readfile(vm, path);
+    // get enum type result from VM
+    InterpretResult result = vm_interpret(vm, source);
+    // free the source code
+    free(source);
 
-    if(result == INTERPRET_COMPILE_ERROR)
+    if(result == STATUS_COMPILEFAIL)
         exit(51);
-    if(result == INTERPRET_RUNTIME_ERROR)
+    if(result == STATUS_RUNTIMEFAIL)
         exit(61);
 }
 
 
-int main(int argc, const char* argv[])// used in the command line, argc being the amount of arguments and argv the array
+int main(int argc, const char* argv[])
 {
     VM vm;
     vm_init(&vm);
-    // the FIRST argument will always be the name of the executable being run(e.g node, python in terminal)
 
-    if(argc == 1)// if number of argument is one, run the repl
+    if(argc == 1)
     {
         repl(&vm);
     }
-    else if(argc == 2)// if number of arguments is two, the second one being the file, run the second file
+    else if(argc == 2)
     {
-        runFile(&vm, argv[1]);
+        runfile(&vm, argv[1]);
     }
     else
     {
-        fprintf(stderr, "Usage: cfei [path]\n");// fprintf; print on file but not on console, first argument being the file pointer
-        // in this case it prints STANDARD ERROR
+        fprintf(stderr, "Usage: cfei [path]\n");
         exit(64);
     }
     vm_free(&vm);
