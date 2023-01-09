@@ -189,7 +189,7 @@ void markTable(Table* table)
 	{
 		Entry* entry = &table->entries[i];
 		// need to mark both the STRING KEYS and the actual value/obj itself
-		markObject((Obj*)entry->key);			// mark the string key(ObjString type)
-		markValue(entry->value);				// mark the actual avlue
+		fei_gcmem_markobject((Obj*)entry->key);			// mark the string key(ObjString type)
+		fei_gcmem_markvalue(entry->value);				// mark the actual avlue
 	}
 }

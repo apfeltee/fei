@@ -19,7 +19,7 @@
 
 static Obj* allocateObject(size_t size, ObjType type)
 {
-	Obj* object = (Obj*)reallocate(NULL, 0, size);		// allocate memory for obj
+	Obj* object = (Obj*)fei_gcmem_reallocate(NULL, 0, size);		// allocate memory for obj
 	object->type = type;
 	object->isMarked = false;
 

@@ -13,22 +13,36 @@
 // growth factor for garbage collection heap
 #define GC_HEAP_GROW_FACTOR 2
 
+/* memory.c */
+void *fei_gcmem_reallocate(void *pointer, size_t oldSize, size_t newSize);
+void fei_gcmem_freeobject(Obj *object);
+void fei_gcmem_markobject(Obj *object);
+void fei_gcmem_markvalue(Value value);
+static void fei_gcmem_markarray(ValueArray *array);
+static void fei_gcmem_markroots(void);
+static void fei_gcmem_blackenobject(Obj *object);
+static void fei_gcmem_tracerefs(void);
+static void fei_gcmem_sweep(void);
+void fei_gcmem_collectgarbage(void);
+void fei_gcmem_freeobjects(void);
+
+
 // A void pointer is a pointer that has no associated data type with it.
 // A void pointer can hold address of any type and can be typcasted to any type.
-void* reallocate(void* pointer, size_t oldSize, size_t newSize)
+void* fei_gcmem_reallocate(void* pointer, size_t oldSize, size_t newSize)
 {
 	vm.bytesAllocated += newSize - oldSize;		// self adjusting heap for garbage collection
 
 	if (newSize > oldSize)		// when allocating NEW memory, not when freeing as collecGarbage will cal void* reallocate itself
 	{
 #ifdef DEBUG_STRESS_GC
-		collectGarbage();
+		fei_gcmem_collectgarbage();
 #endif
 	
 		// run collecter if bytesAllocated is above threshold
 		if (vm.bytesAllocated > vm.nextGC)
 		{
-			collectGarbage();
+			fei_gcmem_collectgarbage();
 		}
 	
 	}
@@ -50,7 +64,7 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize)
 
 
 // you can pass in a'lower' struct pointer, in this case Obj*, and get the higher level which is ObjFunction
-void freeObject(Obj* object)		// to handle different types
+void fei_gcmem_freeobject(Obj* object)		// to handle different types
 {
 #ifdef DEBUG_LOG_GC
 	printf("%p free type %d\n", (void*)object, object->type);
@@ -115,7 +129,7 @@ void freeObject(Obj* object)		// to handle different types
 
 /*		garbage collection		 */	
 
-void markObject(Obj* object)
+void fei_gcmem_markobject(Obj* object)
 {
 	if (object == NULL) return;				// in some places the pointer is empty
 	if (object->isMarked) return;			// object is already marked
@@ -141,41 +155,41 @@ void markObject(Obj* object)
 #endif
 }
 
-void markValue(Value value)
+void fei_gcmem_markvalue(Value value)
 {
 	if (!IS_OBJ(value)) return;		// if value is not first class Objtype return
-	markObject(AS_OBJ(value));
+	fei_gcmem_markobject(AS_OBJ(value));
 }
 
 
-// marking array of values/constants of a function, used in blackenObject, case OBJ_FUNCTION
-static void markArray(ValueArray* array)
+// marking array of values/constants of a function, used in fei_gcmem_blackenobject, case OBJ_FUNCTION
+static void fei_gcmem_markarray(ValueArray* array)
 {
 	for (int i = 0; i < array->count; i++)
 	{
-		markValue(array->values[i]);			// mark each Value in the array
+		fei_gcmem_markvalue(array->values[i]);			// mark each Value in the array
 	}
 }
 
 
-static void markRoots()
+static void fei_gcmem_markroots()
 {
 	// assiging a pointer to a full array means assigning the pointer to the FIRST element of that array
 	for (Value* slot = vm.stack; slot < vm.stackTop; slot++)		// walk through all values/slots in the Value* array
 	{
-		markValue(*slot);
+		fei_gcmem_markvalue(*slot);
 	}
 
 	// mark closures
 	for (int i = 0; i < vm.frameCount; i++)
 	{
-		markObject((Obj*)vm.frames[i].closure);			// mark ObjClosure  type
+		fei_gcmem_markobject((Obj*)vm.frames[i].closure);			// mark ObjClosure  type
 	}
 
 	// mark upvalues, walk through the linked list of upvalues
 	for (ObjUpvalue* upvalue = vm.openUpvalues; upvalue != NULL; upvalue = upvalue->next)
 	{
-		markObject((Obj*)upvalue);
+		fei_gcmem_markobject((Obj*)upvalue);
 	}
 
 
@@ -184,12 +198,12 @@ static void markRoots()
 	// compiler also grabs memory; special function only for 'backend' processes
 	fei_compiler_markroots();		// declared in compiler.h
 
-	markObject((Obj*)vm.initString);		// mark objstring for init 
+	fei_gcmem_markobject((Obj*)vm.initString);		// mark objstring for init 
 }
 
 
 // actual tracing of each gray object and marking it black
-static void blackenObject(Obj* object)
+static void fei_gcmem_blackenobject(Obj* object)
 {
 #ifdef DEBUG_LOG_GC
 	printf("%p blackened ", (void*)object);
@@ -203,31 +217,31 @@ static void blackenObject(Obj* object)
 	case OBJ_BOUND_METHOD:
 	{
 		ObjBoundMethod* bound = (ObjBoundMethod*)object;
-		markValue(bound->receiver);
-		markObject((Obj*)bound->method);
+		fei_gcmem_markvalue(bound->receiver);
+		fei_gcmem_markobject((Obj*)bound->method);
 		break;
 	}
 
 	case OBJ_UPVALUE:		// simply mark the closed value
-		markValue(((ObjUpvalue*)object)->closed);
+		fei_gcmem_markvalue(((ObjUpvalue*)object)->closed);
 		break;
 
 	case OBJ_FUNCTION:		// mark the name and its value array of constants
 	{
 		// you can get the coressponding 'higher' object type from a lower derivation struct in C using (higher*)lower
 		ObjFunction* function = (ObjFunction*)object;		
-		markObject((Obj*)function->name);		// mark its name, an ObjString type
-		markArray(&function->chunk.constants);		// mark value array of chunk constants, pass it in AS A POINTER using &
+		fei_gcmem_markobject((Obj*)function->name);		// mark its name, an ObjString type
+		fei_gcmem_markarray(&function->chunk.constants);		// mark value array of chunk constants, pass it in AS A POINTER using &
 		break;
 	}
 
 	case OBJ_CLOSURE:				// mark the function and all of the closure's upvalues
 	{
 		ObjClosure* closure = (ObjClosure*)object;
-		markObject((Obj*)closure->function);
+		fei_gcmem_markobject((Obj*)closure->function);
 		for (int i = 0; i < closure->upvalueCount; i++)
 		{
-			markObject((Obj*)closure->upvalues[i]);
+			fei_gcmem_markobject((Obj*)closure->upvalues[i]);
 		}
 		break;
 	}
@@ -235,7 +249,7 @@ static void blackenObject(Obj* object)
 	case OBJ_CLASS:
 	{
 		ObjClass* kelas = (ObjClass*)object;
-		markObject((Obj*)kelas->name);
+		fei_gcmem_markobject((Obj*)kelas->name);
 		markTable(&kelas->methods);
 		break;
 	}
@@ -243,7 +257,7 @@ static void blackenObject(Obj* object)
 	case OBJ_INSTANCE:
 	{
 		ObjInstance* instance = (ObjInstance*)object;
-		markObject((Obj*)instance->kelas);
+		fei_gcmem_markobject((Obj*)instance->kelas);
 		markTable(&instance->fields);
 		break;
 	}
@@ -256,7 +270,7 @@ static void blackenObject(Obj* object)
 
 
 // traversing the gray stack work list
-static void traceReferences()
+static void fei_gcmem_tracerefs()
 {
 	while (vm.grayCount > 0)
 	{
@@ -264,13 +278,13 @@ static void traceReferences()
 		// note how -- is the prefix; subtract first then use it as an index
 		// --vm.grayCount already decreases its count, hence everything is already 'popped'
 		Obj* object = vm.grayStack[--vm.grayCount];			
-		blackenObject(object);
+		fei_gcmem_blackenobject(object);
 	}
 }
 
 
 // sweeping all unreachable values
-static void sweep()
+static void fei_gcmem_sweep()
 {
 	Obj* previous = NULL;
 	Obj* object = vm.objects;		// linked intrusive list of Objects in the VM
@@ -297,26 +311,26 @@ static void sweep()
 				vm.objects = object;	
 			}
 
-			freeObject(unreached);			// method that actually frees the object
+			fei_gcmem_freeobject(unreached);			// method that actually frees the object
 		}
 	}
 }
 
-void collectGarbage()
+void fei_gcmem_collectgarbage()
 {
 #ifdef DEBUG_LOG_GC
 	printf("--Garbage Collection Begin\n");
 	size_t before = vm.bytesAllocated;
 #endif
 
-	markRoots();			// function to start traversing the graph, from the root and marking them
-	traceReferences();		// tracing each gray marked object
+	fei_gcmem_markroots();			// function to start traversing the graph, from the root and marking them
+	fei_gcmem_tracerefs();		// tracing each gray marked object
 
 	// removing intern strings, BEFORE the sweep so the pointers can still access its memory
 	// function defined in hahst.c
 	tableRemoveWhite(&vm.strings);
 
-	sweep();				// free all unreachable roots
+	fei_gcmem_sweep();				// free all unreachable roots
 
 	// adjust size of threshold
 	vm.nextGC = vm.bytesAllocated * GC_HEAP_GROW_FACTOR;
@@ -333,14 +347,14 @@ void collectGarbage()
 
 
 
-void freeObjects()			// free from VM
+void fei_gcmem_freeobjects()			// free from VM
 {
 	Obj* object = vm.objects;
 	// free from the whole list
 	while (object != NULL)
 	{
 		Obj* next = object->next;
-		freeObject(object);
+		fei_gcmem_freeobject(object);
 		object = next;
 	}
 

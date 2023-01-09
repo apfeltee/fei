@@ -165,7 +165,7 @@ void initVM()
 void freeVM()
 {
 	vm.initString = NULL;
-	freeObjects();		// free all objects, from vm.objects
+	fei_gcmem_freeobjects();		// free all objects, from vm.objects
 	freeTable(&vm.globals);
 	freeTable(&vm.strings);
 }

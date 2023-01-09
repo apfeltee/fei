@@ -1798,7 +1798,7 @@ void fei_compiler_markroots()
 	Compiler* compiler = current;
 	while (compiler != NULL)
 	{
-		markObject((Obj*)compiler->function);
+		fei_gcmem_markobject((Obj*)compiler->function);
 		compiler = compiler->enclosing;
 	}
 }
