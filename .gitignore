@@ -4,12 +4,12 @@ run.*
 old
 old/
 old/*
-new
-new/
-new/*
 backup
 backup/
 backup/*
+_backup
+_backup/
+_backup/*
 big
 big/
 big/*
@@ -18,6 +18,7 @@ uftrace.*
 *.stackdump
 *.class
 push.sh
+ed.sh
 *.p.txt
 *.gcov
 *.gcno
@@ -27,30 +28,11 @@ push.sh
 CMakeFiles*
 CMakeFiles*/*
 cmakefiles*
+CMakeFiles*/*
 misc/*
-.github
-.github/
-.github/*
-x64
-x64/
-x64/*
-# why tf is .gitignore so inconsistent with its pattern matching?
-all/*
-.vc
-.vc/
-.vc/*
-.vs
-.vs/
-.vs/*
-.v*
-.v*/
-.v*/*
-
-# generated files and/or testing helpers
-doit.sh
-# should perhaps be more specific?
-*.rb
-*.sh
+deps
+deps/*
+# generated files from rt inspection
 *.log
 drmemory*
 drstrace*
@@ -63,15 +45,18 @@ uftrace.data
 uftrace.data*
 uftrace.data/*
 uftrace.data*/*
+callgrind.out*
 
 # visualstudio clutter
 Debug
 Debug/*
+x64
+x64/*
 x86
 x86/*
-*.exp
-*.ilk
-*.lib
+.vs
+.vs/
+.vs/*
 
 ## files emitted by each stage
 td.*.txt
@@ -106,13 +91,13 @@ build/
 *.dll
 
 # Fortran module files
-# this will also match modula3 source files. but who still uses modula3?
 *.mod
 
 # Compiled Static libraries
 *.lai
 *.la
 *.a
+*.lib
 
 # Executables
 *.exe
@@ -120,10 +105,12 @@ build/
 *.app
 
 # debug files
+*.ilk
 *.dbg
 *.pdb
 *.mdb
 *.tbh
 *.tbt
 *.tbs
+*.stackdump
 *.core

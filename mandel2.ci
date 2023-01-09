@@ -1,41 +1,87 @@
 
-var xmin = -8601;
-var xmax = 2867;
-var ymin = -4915;
-var ymax = 4915;
-var maxiter = 32;
-var dx = (xmax - xmin) / 79;
-var dy = (ymax - ymin) / 24;
-var cy = ymin;
-var line = "";
-while(cy <= ymax)
+
+function do_add(x, y)
 {
-    var cx = xmin;
-    while(cx <= xmax)
-    {
-        var x = 0;
-        var y = 0;
-        var x2 = 0;
-        var y2 = 0;
-        var iter=0;
-        while(iter < maxiter)
-        {
-            if((x2 + y2) > 16384)
-            {
-                break;
-            }
-            y = ((x * y) >> 11) + cy;
-            x = x2 - y2 + cx;
-            x2 = ((x * x) >> 12);
-            y2 = ((y * y) >> 12);
-            iter +=1;
-        }
-        print((32 + iter).chr());
-        cx += dx;
-    }
-    print("\n");
-    line = "";
-    cy += dy;
+    return x + y;
 }
 
+function do_sub(x, y)
+{
+    return x - y;
+}
+
+function do_mul(x, y)
+{
+    var t = x * y;
+    return (t + 8192 / 2) / 8192;
+}
+
+function do_div(x, y)
+{
+    var t = x * 8192;
+    return (t + y / 2) / y;
+}
+
+function of_int(x)
+{
+    return x * 8192;
+}
+
+function iter(n, a, b, xn, yn)
+{
+    if(n == 100) then
+    {
+        return 1;
+    }
+    var xn2 = do_mul(xn, xn);
+    var yn2 = do_mul(yn, yn);
+    if(do_add(xn2, yn2) > of_int(4)) then
+    {
+        return 0;
+    }
+    return iter(n + 1, a, b, do_add(
+        do_sub(xn2, yn2), a),
+        do_add(
+            do_mul(of_int(2), do_mul(xn, yn)), b));
+}
+
+function inside(x, y)
+{
+    return iter(0, x, y, of_int(0), of_int(0));
+}
+
+function run()
+{
+    var steps = 30;
+    var xmin = of_int(-2);
+    var xmax = of_int(1);
+    var deltax = do_div(do_sub(xmax, xmin), of_int(2 * steps));
+    var ymin = of_int(-1);
+    var ymax = of_int(1);
+    var deltay = do_div(do_sub(ymax, ymin), of_int(steps));
+    var i = 0;
+    while(i < steps)
+    {
+        var other = do_mul(of_int(i), deltay);
+        
+        var y = do_add(ymin, other);
+        var j = 0;
+        while(j < 2 * steps)
+        {
+            var x = do_add(xmin, do_mul(of_int(j), deltax));
+            if(inside(x, y) == 1) then
+            {
+                print("#");
+            }
+            else
+            {
+                print("-");
+            }
+            j=j+1;
+        }
+        println("");
+        i=i+1;
+    }
+}
+run();
 
