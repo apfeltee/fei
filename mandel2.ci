@@ -29,13 +29,13 @@ function of_int(x)
 
 function iter(n, a, b, xn, yn)
 {
-    if(n == 100) then
+    if(n == 100)
     {
         return 1;
     }
     var xn2 = do_mul(xn, xn);
     var yn2 = do_mul(yn, yn);
-    if(do_add(xn2, yn2) > of_int(4)) then
+    if(do_add(xn2, yn2) > of_int(4))
     {
         return 0;
     }
@@ -69,7 +69,7 @@ function run()
         while(j < 2 * steps)
         {
             var x = do_add(xmin, do_mul(of_int(j), deltax));
-            if(inside(x, y) == 1) then
+            if(inside(x, y) == 1)
             {
                 print("#");
             }

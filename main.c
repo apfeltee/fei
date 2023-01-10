@@ -144,7 +144,6 @@ enum TokenType
 	TOKEN_PRINT, TOKEN_RETURN, TOKEN_SUPER, TOKEN_SWITCH,
 	TOKEN_DEFAULT, TOKEN_CASE, TOKEN_THIS, TOKEN_TRUE, 
 	TOKEN_VAR, TOKEN_WHILE, TOKEN_BREAK, TOKEN_CONTINUE,
-	TOKEN_THEN,
 
 	// do while, repeat until
 	TOKEN_DO, TOKEN_REPEAT, TOKEN_UNTIL,
@@ -293,12 +292,13 @@ we use a TAGGED UNION, a value containg a TYPE TAG, and the PAYLOd / ACTUAL VALU
 
 typedef enum TokenType TokenType;
 typedef enum ValueType ValueType;
-typedef struct Value Value;
-typedef struct Obj Obj;
-typedef struct ObjString ObjString;
-typedef struct ObjFunction ObjFunction;
-typedef struct Local Local;
-typedef struct Upvalue Upvalue;
+typedef struct /**/Value Value;
+typedef struct /**/Obj Obj;
+typedef struct /**/ObjString ObjString;
+typedef struct /**/ObjFunction ObjFunction;
+typedef struct /**/Local Local;
+typedef struct /**/Upvalue Upvalue;
+typedef struct /**/State State;
 
 
 
@@ -559,7 +559,7 @@ typedef struct
 	Value* slots;		// this points into the VM's value stack at the first slot the function can use
 } CallFrame;
 
-typedef struct
+struct State
 {
 	// since the whole program is one big 'main()' use callstacks
 	CallFrame frames[FRAMES_MAX];		
@@ -586,7 +586,7 @@ typedef struct
 	// self-adjusting-g-heap, to control frequency of GC, bytesAllocated is the running total
 	size_t bytesAllocated;		// size_t is a 32 bit(integer/4bytes), represents size of an object in bytes
 	size_t nextGC;				// threhsold that triggers the GC
-} VM;
+};
 
 
 
@@ -729,8 +729,8 @@ void fei_compiler_markroots(void);
 void fei_vm_resetstack(void);
 void fei_vm_raiseruntimeerror(const char *format, ...);
 void fei_vm_defnative(const char *name, NativeFn function);
-void fei_vm_init(void);
-void fei_vm_destroy(void);
+State* fei_state_init(void);
+void fei_state_destroy(void);
 void fei_vm_pushvalue(Value value);
 Value fei_vm_popvalue(void);
 Value fei_vm_peekvalue(int distance);
@@ -756,7 +756,7 @@ static inline bool fei_object_istype(Value value, ObjType type)				// inline fun
 }
 
 // initialize virtual machine here
-VM vm;
+State* state;
 Scanner scanner;
 Parser parser;
 ClassCompiler* currentClass = NULL;	
@@ -771,7 +771,7 @@ Compiler* current = NULL;
 // A void pointer can hold address of any type and can be typcasted to any type.
 void* fei_gcmem_reallocate(void* pointer, size_t oldSize, size_t newSize)
 {
-	vm.bytesAllocated += newSize - oldSize;		// self adjusting heap for garbage collection
+	state->bytesAllocated += newSize - oldSize;		// self adjusting heap for garbage collection
 
 	if (newSize > oldSize)		// when allocating NEW memory, not when freeing as collecGarbage will cal void* reallocate itself
 	{
@@ -780,7 +780,7 @@ void* fei_gcmem_reallocate(void* pointer, size_t oldSize, size_t newSize)
 #endif
 	
 		// run collecter if bytesAllocated is above threshold
-		if (vm.bytesAllocated > vm.nextGC)
+		if (state->bytesAllocated > state->nextGC)
 		{
 			fei_gcmem_collectgarbage();
 		}
@@ -877,16 +877,16 @@ void fei_gcmem_markobject(Obj* object)
 	object->isMarked = true;
 
 	// create a worklist of grayobjects to traverse later, use a stack to implement it
-	if (vm.grayCapacity < vm.grayCount + 1)			// if need more space, allocate
+	if (state->grayCapacity < state->grayCount + 1)			// if need more space, allocate
 	{	
-		vm.grayCapacity = GROW_CAPACITY(vm.grayCapacity);
-		vm.grayStack = realloc(vm.grayStack, sizeof(Obj*) * vm.grayCapacity);			// use native realloc here
+		state->grayCapacity = GROW_CAPACITY(state->grayCapacity);
+		state->grayStack = realloc(state->grayStack, sizeof(Obj*) * state->grayCapacity);			// use native realloc here
 	}
 
-	if (vm.grayStack == NULL) exit(1);			// if fail to allocate memory for the gray stack	
+	if (state->grayStack == NULL) exit(1);			// if fail to allocate memory for the gray stack	
 
 	// add the 'gray' object to the working list
-	vm.grayStack[vm.grayCount++] = object;
+	state->grayStack[state->grayCount++] = object;
 
 #ifdef DEBUG_LOG_GC
 	printf("%p marked ", (void*)object);
@@ -915,30 +915,30 @@ void fei_gcmem_markarray(ValueArray* array)
 void fei_gcmem_markroots()
 {
 	// assiging a pointer to a full array means assigning the pointer to the FIRST element of that array
-	for (Value* slot = vm.stack; slot < vm.stackTop; slot++)		// walk through all values/slots in the Value* array
+	for (Value* slot = state->stack; slot < state->stackTop; slot++)		// walk through all values/slots in the Value* array
 	{
 		fei_gcmem_markvalue(*slot);
 	}
 
 	// mark closures
-	for (int i = 0; i < vm.frameCount; i++)
+	for (int i = 0; i < state->frameCount; i++)
 	{
-		fei_gcmem_markobject((Obj*)vm.frames[i].closure);			// mark ObjClosure  type
+		fei_gcmem_markobject((Obj*)state->frames[i].closure);			// mark ObjClosure  type
 	}
 
 	// mark upvalues, walk through the linked list of upvalues
-	for (ObjUpvalue* upvalue = vm.openUpvalues; upvalue != NULL; upvalue = upvalue->next)
+	for (ObjUpvalue* upvalue = state->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
 	{
 		fei_gcmem_markobject((Obj*)upvalue);
 	}
 
 
-	fei_table_mark(&vm.globals);			// mark global variables, belongs in the VM/hashtable
+	fei_table_mark(&state->globals);			// mark global variables, belongs in the VM/hashtable
 
 	// compiler also grabs memory; special function only for 'backend' processes
 	fei_compiler_markroots();		// declared in compiler.h
 
-	fei_gcmem_markobject((Obj*)vm.initString);		// mark objstring for init 
+	fei_gcmem_markobject((Obj*)state->initString);		// mark objstring for init 
 }
 
 
@@ -1012,12 +1012,12 @@ void fei_gcmem_blackenobject(Obj* object)
 // traversing the gray stack work list
 void fei_gcmem_tracerefs()
 {
-	while (vm.grayCount > 0)
+	while (state->grayCount > 0)
 	{
 		// pop Obj* (pointer) from the stack
 		// note how -- is the prefix; subtract first then use it as an index
-		// --vm.grayCount already decreases its count, hence everything is already 'popped'
-		Obj* object = vm.grayStack[--vm.grayCount];			
+		// --state->grayCount already decreases its count, hence everything is already 'popped'
+		Obj* object = state->grayStack[--state->grayCount];			
 		fei_gcmem_blackenobject(object);
 	}
 }
@@ -1027,7 +1027,7 @@ void fei_gcmem_tracerefs()
 void fei_gcmem_sweep()
 {
 	Obj* previous = NULL;
-	Obj* object = vm.objects;		// linked intrusive list of Objects in the VM
+	Obj* object = state->objects;		// linked intrusive list of Objects in the VM
 	
 	while (object != NULL)
 	{
@@ -1048,7 +1048,7 @@ void fei_gcmem_sweep()
 			}
 			else             // if not set the next as the start of the list
 			{
-				vm.objects = object;	
+				state->objects = object;	
 			}
 
 			fei_gcmem_freeobject(unreached);			// method that actually frees the object
@@ -1060,7 +1060,7 @@ void fei_gcmem_collectgarbage()
 {
 #ifdef DEBUG_LOG_GC
 	printf("--Garbage Collection Begin\n");
-	size_t before = vm.bytesAllocated;
+	size_t before = state->bytesAllocated;
 #endif
 
 	fei_gcmem_markroots();			// function to start traversing the graph, from the root and marking them
@@ -1068,17 +1068,17 @@ void fei_gcmem_collectgarbage()
 
 	// removing intern strings, BEFORE the sweep so the pointers can still access its memory
 	// function defined in hahst.c
-	fei_table_removeunreachable(&vm.strings);
+	fei_table_removeunreachable(&state->strings);
 
 	fei_gcmem_sweep();				// free all unreachable roots
 
 	// adjust size of threshold
-	vm.nextGC = vm.bytesAllocated * GC_HEAP_GROW_FACTOR;
+	state->nextGC = state->bytesAllocated * GC_HEAP_GROW_FACTOR;
 
 #ifdef DEBUG_LOG_GC
 	printf("--Garbage Collection End\n");
 	printf("	collected %zd bytes (from %zd to %zd) next at %zd\n",
-		before - vm.bytesAllocated, before, vm.bytesAllocated, vm.nextGC);
+		before - state->bytesAllocated, before, state->bytesAllocated, state->nextGC);
 #endif
 }
 
@@ -1089,7 +1089,7 @@ void fei_gcmem_collectgarbage()
 
 void fei_gcmem_freeobjects()			// free from VM
 {
-	Obj* object = vm.objects;
+	Obj* object = state->objects;
 	// free from the whole list
 	while (object != NULL)
 	{
@@ -1098,7 +1098,7 @@ void fei_gcmem_freeobjects()			// free from VM
 		object = next;
 	}
 
-	free(vm.grayStack);			// free gray marked obj stack used for garbage collection
+	free(state->grayStack);			// free gray marked obj stack used for garbage collection
 }
 
 void fei_valarray_init(ValueArray* array)
@@ -1177,8 +1177,8 @@ Obj* fei_object_allocobject(size_t size, ObjType type)
 
 	// every time an object is allocated, insert to the list
 	// insert as the HEAD; the latest one inserted will be at the start
-	object->next = vm.objects;			// vm from virtualm.h, with extern
-	vm.objects = object;		
+	object->next = state->objects;			// vm from virtualm.h, with extern
+	state->objects = object;		
 
 #ifdef DEBUG_LOG_GC
 	printf("%p allocate %zd for %d\n", (void*)object, size, type);			// %ld prints LONG INT
@@ -1228,7 +1228,7 @@ ObjString* fei_object_allocstring(char* chars, int length, uint32_t hash)			// p
 
 	fei_vm_pushvalue(OBJ_VAL(string));		// garbage collection
 	//printf("allocate\n");
-	fei_table_set(&vm.strings, string, NULL_VAL);		// for string interning
+	fei_table_set(&state->strings, string, NULL_VAL);		// for string interning
 	fei_vm_popvalue();			// garbage collection
 
 	return string;
@@ -1272,8 +1272,6 @@ ObjNative* fei_object_makenativefunc(NativeFn function)
 	return native;
 }
 
-
-
 // hash function, the FNV-1a
 uint32_t fei_object_hashstring(const char* key, int length)
 {
@@ -1293,7 +1291,7 @@ uint32_t fei_object_hashstring(const char* key, int length)
 ObjString* fei_object_takestring(char* chars, int length)
 {
 	uint32_t hash = fei_object_hashstring(chars, length);
-	ObjString* interned = fei_table_findstring(&vm.strings, chars, length, hash);
+	ObjString* interned = fei_table_findstring(&state->strings, chars, length, hash);
 
 
 	if (interned != NULL)		// if the same string already exists
@@ -1310,10 +1308,10 @@ ObjString* fei_object_takestring(char* chars, int length)
 ObjString* fei_object_copystring(const char* chars, int length)
 {
 	uint32_t hash = fei_object_hashstring(chars, length);
-	ObjString* interned = fei_table_findstring(&vm.strings, chars, length, hash);
+	ObjString* interned = fei_table_findstring(&state->strings, chars, length, hash);
 
 	if (interned != NULL) {
-		return interned;	// if we find a string already in vm.srings, no need to copy just return the pointer
+		return interned;	// if we find a string already in state->srings, no need to copy just return the pointer
 	}
 	char* heapChars = ALLOCATE(char, length + 1);	// length +1 for null terminator
 	memcpy(heapChars, chars, length);			// copy memory from one location to another; memcpy(*to, *from, size_t (from))
@@ -2079,7 +2077,6 @@ TokenType fei_lexer_scantype()
 				{
 					switch (scanner.start[2])
 					{
-					case 'e': return fei_lexer_checkkw(3, 1, "n", TOKEN_THEN);
 					case 'i': return fei_lexer_checkkw(3, 1, "s", TOKEN_THIS);			// already matched
 					}
 				}
@@ -3308,7 +3305,6 @@ void fei_compiler_parseifstmt()
 	// after compiling expression above conditon value will be left at the top of the stack
 //	fei_compiler_consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
-	fei_compiler_consume(TOKEN_THEN, "Missing 'then' keyword after if expression.");
 
 	// gives an operand on how much to offset the ip; how many bytes of code to skip
 	// if falsey, simply adjusts the ip by that amount
@@ -3811,7 +3807,6 @@ static Value cfn_print(/*State* vm, */int argc, Value* args)
     int i;
     Obj* o;
     ObjString* os;
-    (void)vm;
     (void)argc;
     for(i=0; i<argc; i++)
     {
@@ -3860,13 +3855,6 @@ static Value cfn_println(/*State* vm, */int argc, Value* args)
     return r;
 }
 
-void fei_vm_resetstack()
-{
-	// point stackStop to the begininng of the empty array
-	vm.stackTop = vm.stack;		// stack array(vm.stack) is already indirectly declared, hence no need to allocate memory for it
-	vm.frameCount = 0;
-	vm.openUpvalues = NULL;
-}
 
 // IMPORTANT
 // variadic function ( ... ), takes a varying number of arguments
@@ -3882,9 +3870,9 @@ void fei_vm_raiseruntimeerror(const char* format, ...)
 
 	// printing the stack trace for the function
 	// print out each function that was still executing when the program died and where the execution was at the point it died
-	for (int i = vm.frameCount - 1; i >= 0; i--)
+	for (int i = state->frameCount - 1; i >= 0; i--)
 	{
-		CallFrame* frame = &vm.frames[i];
+		CallFrame* frame = &state->frames[i];
 		ObjFunction* function = frame->closure->function;
 		// - 1 because IP is sitting on the NEXT INSTRUCTION to be executed
 		size_t instruction = frame->ip - function->chunk.code - 1;
@@ -3902,7 +3890,7 @@ void fei_vm_raiseruntimeerror(const char* format, ...)
 
 
 	// tell which line the error occurred
-	CallFrame* frame = &vm.frames[vm.frameCount - 1];		// pulls from topmost CallFrame on the stack
+	CallFrame* frame = &state->frames[state->frameCount - 1];		// pulls from topmost CallFrame on the stack
 	size_t instruction = frame->ip - frame->closure->function->chunk.code - 1;	// - 1 to deal with the 1 added initially for the main() CallFrame
 	int line = frame->closure->function->chunk.lines[instruction];
 	fprintf(stderr, "Error in script at [Line %d]\n", line);
@@ -3914,58 +3902,71 @@ void fei_vm_defnative(const char* name, NativeFn function)
 {
 	fei_vm_pushvalue(OBJ_VAL(fei_object_copystring(name, (int)strlen(name))));			// strlen to get char* length
 	fei_vm_pushvalue(OBJ_VAL(fei_object_makenativefunc(function)));
-	fei_table_set(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
+	fei_table_set(&state->globals, AS_STRING(state->stack[0]), state->stack[1]);
 	fei_vm_popvalue();
 	fei_vm_popvalue();
 }
 
 
-void fei_vm_init()
+void fei_vm_resetstack()
 {
+	// point stackStop to the begininng of the empty array
+	state->stackTop = state->stack;		// stack array(state->stack) is already indirectly declared, hence no need to allocate memory for it
+	state->frameCount = 0;
+	state->openUpvalues = NULL;
+}
+
+State* fei_state_init()
+{
+    State* r;
+    r = (State*)malloc(sizeof(State));
+    state = r;
+
 	fei_vm_resetstack();			// initialiing the Value stack, also initializing the callframe count
-	vm.objects = NULL;
-	fei_table_init(&vm.globals);
-	fei_table_init(&vm.strings);
+	state->objects = NULL;
+	fei_table_init(&state->globals);
+	fei_table_init(&state->strings);
 
 	// initializing gray marked obj stack for garbage collection
-	vm.grayCapacity = 0;
-	vm.grayCount = 0;
-	vm.grayStack = NULL;
+	state->grayCapacity = 0;
+	state->grayCount = 0;
+	state->grayStack = NULL;
 
 	// self adjusting heap to control frequency of GC
-	vm.bytesAllocated = 0;
-	vm.nextGC = 1024 * 1024;
+	state->bytesAllocated = 0;
+	state->nextGC = 1024 * 1024;
 
 
 	// init initalizer string
-	vm.initString = NULL;
-	vm.initString = fei_object_copystring("init", 4);
+	state->initString = NULL;
+	state->initString = fei_object_copystring("init", 4);
 
 	fei_vm_defnative("clock", cfn_clock);
 	fei_vm_defnative("print", cfn_print);
 	fei_vm_defnative("println", cfn_println);
 
+    return r;
 }
 
-void fei_vm_destroy()
+void fei_vm_destroy(State* r)
 {
-	vm.initString = NULL;
-	fei_gcmem_freeobjects();		// free all objects, from vm.objects
-	fei_table_destroy(&vm.globals);
-	fei_table_destroy(&vm.strings);
+	state->initString = NULL;
+	fei_gcmem_freeobjects();		// free all objects, from state->objects
+	fei_table_destroy(&state->globals);
+	fei_table_destroy(&state->strings);
 }
 
 /* stack operations */
 void fei_vm_pushvalue(Value value)
 {
-	*vm.stackTop = value;		// * in front of the pointer means the rvalue itself, assign value(parameter) to it
-	vm.stackTop++;
+	*state->stackTop = value;		// * in front of the pointer means the rvalue itself, assign value(parameter) to it
+	state->stackTop++;
 }
 
 Value fei_vm_popvalue()
 {
-	vm.stackTop--;		// first move the stack BACK to get the last element(stackTop points to ONE beyond the last element)
-	return  *vm.stackTop;
+	state->stackTop--;		// first move the stack BACK to get the last element(stackTop points to ONE beyond the last element)
+	return  *state->stackTop;
 }
 /* end of stack operations */
 
@@ -3974,7 +3975,7 @@ Value fei_vm_popvalue()
 // this is a C kind of accessing arrays/pointers
 Value fei_vm_peekvalue(int distance)
 {
-	return vm.stackTop[-1 - distance];
+	return state->stackTop[-1 - distance];
 }
 
 
@@ -3989,21 +3990,21 @@ bool fei_vm_callclosure(ObjClosure* closure, int argCount)
 	}
 
 	// as CallFrame is an array, to ensure array does not overflow
-	if (vm.frameCount == FRAMES_MAX)
+	if (state->frameCount == FRAMES_MAX)
 	{
 	fei_vm_raiseruntimeerror("Stack overflow.");
 	return false;
 	}
 
 	// get pointer to next in frame array
-	CallFrame* frame = &vm.frames[vm.frameCount++];			// initializes callframe to the top of the stack
+	CallFrame* frame = &state->frames[state->frameCount++];			// initializes callframe to the top of the stack
 	frame->closure = closure;
 	frame->ip = closure->function->chunk.code;
 
 	// set up slots pointer to give frame its window into the stack
 	// ensures everyting lines up
 	// slots is the 'starting pointer' for the function cll
-	frame->slots = vm.stackTop - argCount - 1;
+	frame->slots = state->stackTop - argCount - 1;
 	return true;
 }
 
@@ -4016,19 +4017,19 @@ bool fei_vm_callvalue(Value callee, int argCount)
 		case OBJ_BOUND_METHOD:
 		{
 			ObjBoundMethod* bound = AS_BOUND_METHOD(callee);		// get ObjBoundMethod from value type(callee)
-			vm.stackTop[-argCount - 1] = bound->receiver;		// set [-] inside square brackes of top stack pointer to go down the stack
+			state->stackTop[-argCount - 1] = bound->receiver;		// set [-] inside square brackes of top stack pointer to go down the stack
 			return fei_vm_callclosure(bound->method, argCount);			//	run call to execute
 		}
 		case OBJ_CLASS:		// create class instance
 		{
 			ObjClass* kelas = AS_CLASS(callee);
 			// create new instance here
-			vm.stackTop[-argCount - 1] = OBJ_VAL(fei_object_makeinstance(kelas));		// - argcounts as above values are parameters
+			state->stackTop[-argCount - 1] = OBJ_VAL(fei_object_makeinstance(kelas));		// - argcounts as above values are parameters
 
 			// initializer
 			Value initializer;
 			// if we find one from the table
-			if (fei_table_get(&kelas->methods, vm.initString, &initializer))			// have a vm.initString as 'token', ObjString type	
+			if (fei_table_get(&kelas->methods, state->initString, &initializer))			// have a state->initString as 'token', ObjString type	
 			{
 				return fei_vm_callclosure(AS_CLOSURE(initializer), argCount);
 			}
@@ -4046,8 +4047,8 @@ bool fei_vm_callvalue(Value callee, int argCount)
 		case OBJ_NATIVE:
 		{
 			NativeFn native = AS_NATIVE(callee);
-			Value result = native(argCount, vm.stackTop - argCount);
-			vm.stackTop -= argCount + 1;				// remove call and arguments from the stack
+			Value result = native(argCount, state->stackTop - argCount);
+			state->stackTop -= argCount + 1;				// remove call and arguments from the stack
 			fei_vm_pushvalue(result);
 			return true;
 		}
@@ -4094,7 +4095,7 @@ bool fei_vm_stackinvoke(ObjString* name, int argCount)
 	Value value;
 	if (fei_table_get(&instance->fields, name, &value))
 	{
-		vm.stackTop[-argCount - 1] = value;
+		state->stackTop[-argCount - 1] = value;
 		return fei_vm_callvalue(value, argCount);
 	}
 
@@ -4128,7 +4129,7 @@ ObjUpvalue* fei_vm_captureupvalue(Value* local)
 {
 	// set up the linked list
 	ObjUpvalue* prevUpvalue = NULL;
-	ObjUpvalue* upvalue = vm.openUpvalues;		// assign at the start of the list
+	ObjUpvalue* upvalue = state->openUpvalues;		// assign at the start of the list
 
 	// look for an existing upvalue in the list
 	/*  LINKED LIST
@@ -4158,7 +4159,7 @@ ObjUpvalue* fei_vm_captureupvalue(Value* local)
 	
 	if (prevUpvalue == NULL)	// ran out of values to search
 	{
-		vm.openUpvalues = createdUpvalue;			// set pointer to the newly added upvalue
+		state->openUpvalues = createdUpvalue;			// set pointer to the newly added upvalue
 	}
 	else			// found local slot BELOW the one we are looking for
 	{
@@ -4171,12 +4172,12 @@ ObjUpvalue* fei_vm_captureupvalue(Value* local)
 // closes every upvalue it can find that points to the slot or any above the stack
 void fei_vm_closeupvalues(Value* last)			// takes pointer to stack slot
 {
-	while (vm.openUpvalues != NULL && vm.openUpvalues->location >= last)
+	while (state->openUpvalues != NULL && state->openUpvalues->location >= last)
 	{
-		ObjUpvalue* upvalue = vm.openUpvalues;	// pointer to list of openupvalues
+		ObjUpvalue* upvalue = state->openUpvalues;	// pointer to list of openupvalues
 		upvalue->closed = *upvalue->location;
 		upvalue->location = &upvalue->closed;
-		vm.openUpvalues = upvalue->next;
+		state->openUpvalues = upvalue->next;
 	}
 }
 
@@ -4247,7 +4248,7 @@ InterpretResult fei_vm_evalsource(const char* source)
 // most IMPORTANT part of the interpreter
 InterpretResult fei_vm_exec()		// static means the scope of the function is only to this file
 {
-	CallFrame* frame = &vm.frames[vm.frameCount - 1];
+	CallFrame* frame = &state->frames[state->frameCount - 1];
 
 /* info on the macros below
 Below macros are FUNCTIONSt that take ZERO arguments, and what is inside () is their return value
@@ -4306,7 +4307,7 @@ READ STRING:
 		*/
 
 		// prints every existing value in the stack
-		for (Value* slot = vm.stack; slot < vm.stackTop; slot++)
+		for (Value* slot = state->stack; slot < state->stackTop; slot++)
 		{
 			printf("[ ");
 			fei_value_printvalue(*slot);
@@ -4415,7 +4416,7 @@ READ STRING:
 			case OP_SET_LOCAL:
 			{
 				uint8_t slot = READ_BYTE();
-				// all the local var's VARIABLES are stored inside vm.stack
+				// all the local var's VARIABLES are stored inside state->stack
 				frame->slots[slot] = fei_vm_peekvalue(0);		// takes from top of the stack and stores it in the stack slot
 				break;
 			}
@@ -4423,7 +4424,7 @@ READ STRING:
 			case OP_DEFINE_GLOBAL:
 			{	
 				ObjString* name = READ_STRING();		// get name from constant table
-				fei_table_set(&vm.globals, name, fei_vm_peekvalue(0));	// take value from the top of the stack
+				fei_table_set(&state->globals, name, fei_vm_peekvalue(0));	// take value from the top of the stack
 				fei_vm_popvalue();
 				break;
 			}
@@ -4432,7 +4433,7 @@ READ STRING:
 			{
 				ObjString* name = READ_STRING();	// get the name
 				Value value;		// create new Value
-				if (!fei_table_get(&vm.globals, name, &value))	// if key not in hash table
+				if (!fei_table_get(&state->globals, name, &value))	// if key not in hash table
 				{
 					fei_vm_raiseruntimeerror("Undefined variable '%s'.", name->chars);
 					return INTERPRET_RUNTIME_ERROR;
@@ -4444,9 +4445,9 @@ READ STRING:
 			case OP_SET_GLOBAL:
 			{
 				ObjString* name = READ_STRING();
-				if (fei_table_set(&vm.globals, name, fei_vm_peekvalue(0)))	// if key not in hash table
+				if (fei_table_set(&state->globals, name, fei_vm_peekvalue(0)))	// if key not in hash table
 				{
-					fei_table_delete(&vm.globals, name);		// delete the false name 
+					fei_table_delete(&state->globals, name);		// delete the false name 
 					fei_vm_raiseruntimeerror("Undefined variable '%s'.", name->chars);
 					return INTERPRET_RUNTIME_ERROR;
 				}
@@ -4517,7 +4518,7 @@ READ STRING:
 
 			case OP_CLOSE_UPVALUE:
 			{
-				fei_vm_closeupvalues(vm.stackTop - 1);		// put address to the slot
+				fei_vm_closeupvalues(state->stackTop - 1);		// put address to the slot
 				fei_vm_popvalue();			// pop from the stack
 				break;
 			}
@@ -4574,7 +4575,7 @@ READ STRING:
 				{
 					return INTERPRET_RUNTIME_ERROR;
 				}
-				frame = &vm.frames[vm.frameCount - 1];			// to update pointer if callFrame is successful, asnew frame is added
+				frame = &state->frames[state->frameCount - 1];			// to update pointer if callFrame is successful, asnew frame is added
 				break;
 			}
 
@@ -4621,7 +4622,7 @@ READ STRING:
 				{
 					return INTERPRET_RUNTIME_ERROR;
 				}
-				frame = &vm.frames[vm.frameCount - 1];
+				frame = &state->frames[state->frameCount - 1];
 				break;
 			}
 
@@ -4662,7 +4663,7 @@ READ STRING:
 				{
 					return INTERPRET_RUNTIME_ERROR;
 				}
-				frame = &vm.frames[vm.frameCount - 1];
+				frame = &state->frames[state->frameCount - 1];
 				break;
 			}
 
@@ -4672,8 +4673,8 @@ READ STRING:
 
 				fei_vm_closeupvalues(frame->slots);   // close lingering closed values
 
-				vm.frameCount--;
-				if (vm.frameCount == 0)		// return from 'main()'/script function
+				state->frameCount--;
+				if (state->frameCount == 0)		// return from 'main()'/script function
 				{
 					fei_vm_popvalue();						// pop main script function from the stack
 					return INTERPRET_OK;
@@ -4681,10 +4682,10 @@ READ STRING:
 
 				// for a function
 				// discard all the slots the callee was using for its parameters
-				vm.stackTop = frame->slots;		// basically 're-assign'
+				state->stackTop = frame->slots;		// basically 're-assign'
 				fei_vm_pushvalue(result);		// push the return value
 
-				frame = &vm.frames[vm.frameCount - 1];		// update run function's current frame
+				frame = &state->frames[state->frameCount - 1];		// update run function's current frame
 				break;
 			}
 		}
@@ -4791,7 +4792,12 @@ void runFile(const char* path)
 
 int main(int argc, const char* argv[])		// used in the command line, argc being the amount of arguments and argv the array
 {
-	fei_vm_init();
+    State* r;
+
+    r = fei_state_init();
+
+    
+
 	// the FIRST argument will always be the name of the executable being run(e.g node, python in terminal)
 
 	if (argc == 1)		// if number of argument is one, run the repl 
