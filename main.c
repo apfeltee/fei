@@ -561,6 +561,17 @@ typedef struct
 
 struct State
 {
+
+    Scanner scanner;
+    Parser parser;
+
+    //currentClass
+    ClassCompiler* classcompiler;
+
+    //current
+    Compiler* compiler;
+
+
 	// since the whole program is one big 'main()' use callstacks
 	CallFrame frames[FRAMES_MAX];		
 	int frameCount;				// stores current height of the stack
@@ -730,7 +741,7 @@ void fei_vm_resetstack(void);
 void fei_vm_raiseruntimeerror(const char *format, ...);
 void fei_vm_defnative(const char *name, NativeFn function);
 State* fei_state_init(void);
-void fei_state_destroy(void);
+void fei_state_destroy(State* r);
 void fei_vm_pushvalue(Value value);
 Value fei_vm_popvalue(void);
 Value fei_vm_peekvalue(int distance);
@@ -757,10 +768,6 @@ static inline bool fei_object_istype(Value value, ObjType type)				// inline fun
 
 // initialize virtual machine here
 State* state;
-Scanner scanner;
-Parser parser;
-ClassCompiler* currentClass = NULL;	
-Compiler* current = NULL;
 
 
 // growth factor for garbage collection heap
@@ -1821,9 +1828,9 @@ int fei_dbgdisas_instr(Chunk* chunk, int offset)
 
 void fei_lexer_initsource(const char* source)
 {
-	scanner.start = source;			// again, pointing to a string array means pointing to the beginning
-	scanner.current = source;		
-	scanner.line = 1;
+	state->scanner.start = source;			// again, pointing to a string array means pointing to the beginning
+	state->scanner.current = source;		
+	state->scanner.line = 1;
 }
 
 // to check for identifiers(eg. for, while, print)
@@ -1842,7 +1849,7 @@ bool fei_lexutil_isdigit(char c)
 // to get EOF symbol -> '\0'
 bool fei_lexer_isatend()
 {
-	return *scanner.current == '\0';
+	return *state->scanner.current == '\0';
 }
 
 
@@ -1850,21 +1857,21 @@ bool fei_lexer_isatend()
 // goes to next char
 char fei_lexer_advance()
 {
-	scanner.current++;				// advance to next 
-	return scanner.current[-1];		// return previous one
+	state->scanner.current++;				// advance to next 
+	return state->scanner.current[-1];		// return previous one
 }
 
 // logical conditioning to check if 2nd character is embedded to first(e.g two char token)
 bool fei_lexer_match(char expected)
 {
 	if (fei_lexer_isatend()) return false;			// if already at end, error
-	if (*scanner.current != expected)
+	if (*state->scanner.current != expected)
 	{
 		//printf("no match");
 		return false;				// if current char does not equal expected char, it is false
 	}
 	//printf("match");
-	scanner.current++;		// if yes, advance to next
+	state->scanner.current++;		// if yes, advance to next
 	return true;
 }
 
@@ -1873,9 +1880,9 @@ Token fei_lexer_maketoken(TokenType type)
 {
 	Token token;
 	token.type = type;
-	token.start = scanner.start;
-	token.length = (int)(scanner.current - scanner.start);
-	token.line = scanner.line;
+	token.start = state->scanner.start;
+	token.length = (int)(state->scanner.current - state->scanner.start);
+	token.line = state->scanner.line;
 
 	return token;
 }
@@ -1887,7 +1894,7 @@ Token fei_lexer_errortoken(const char* message)
 	token.type = TOKEN_ERROR;
 	token.start = message;
 	token.length = (int)strlen(message);	// get string length and turn to int
-	token.line = scanner.line;
+	token.line = state->scanner.line;
 
 	return token;
 }
@@ -1895,14 +1902,14 @@ Token fei_lexer_errortoken(const char* message)
 // returns current character
 char fei_lexer_peekcurrent()
 {
-	return *scanner.current;
+	return *state->scanner.current;
 }
 
 // returns next character
 char fei_lexer_peeknext()
 {
 	if (fei_lexer_isatend()) return '\0';
-	return scanner.current[1];		// C syntax, basically return index 1 (or second) from the array/pointer
+	return state->scanner.current[1];		// C syntax, basically return index 1 (or second) from the array/pointer
 }
 
 // skipping white spaces, tabs, etc.
@@ -1920,7 +1927,7 @@ void fei_lexer_skipspace()
 			break;
 
 		case '\n':				// if a new line is found, also add line number
-			scanner.line++;		
+			state->scanner.line++;		
 			fei_lexer_advance();
 			break;
 
@@ -1949,7 +1956,7 @@ TokenType fei_lexer_checkkw(int start, int length, const char* rest, TokenType t
 	bascially if they are exactly the same, and compares their memory(memcmp)
 	int memcmp(const void *str1, const void *str2, size_t n) -> if it is exactly the same, then it is 0
 	*/
-	if (scanner.current - scanner.start == start + length && memcmp(scanner.start + start, rest, length) == 0)
+	if (state->scanner.current - state->scanner.start == start + length && memcmp(state->scanner.start + start, rest, length) == 0)
 	{
 		return type;
 	}
@@ -1959,14 +1966,14 @@ TokenType fei_lexer_checkkw(int start, int length, const char* rest, TokenType t
 // the 'trie' to store the set of strings
 TokenType fei_lexer_scantype()
 {
-	switch (scanner.start[0])		// start of the lexeme
+	switch (state->scanner.start[0])		// start of the lexeme
 	{
 	//case 'a': return fei_lexer_checkkw(1, 2, "nd", TOKEN_AND);
 	case 'a':
 	{
-		if (scanner.current - scanner.start > 1)
+		if (state->scanner.current - state->scanner.start > 1)
 		{
-			switch (scanner.start[1])
+			switch (state->scanner.start[1])
 			{
 			case 'n': return fei_lexer_checkkw(2, 1, "d", TOKEN_AND);
 			case 's': return fei_lexer_checkkw(2, 6, "signed", TOKEN_EQUAL);
@@ -1976,9 +1983,9 @@ TokenType fei_lexer_scantype()
 	case 'b': return fei_lexer_checkkw(1, 4, "reak", TOKEN_BREAK);
 	case 'c':
 	{
-		if (scanner.current - scanner.start > 1)
+		if (state->scanner.current - state->scanner.start > 1)
 		{
-			switch (scanner.start[1])
+			switch (state->scanner.start[1])
 			{
 			case 'a': return fei_lexer_checkkw(2, 2, "se", TOKEN_CASE);
 			case 'l': return fei_lexer_checkkw(2, 3, "ass", TOKEN_CLASS);
@@ -1988,9 +1995,9 @@ TokenType fei_lexer_scantype()
 	}
 	case 'd':
 	{
-		if (scanner.current - scanner.start > 1)
+		if (state->scanner.current - state->scanner.start > 1)
 		{
-			switch (scanner.start[1])
+			switch (state->scanner.start[1])
 			{
 			case 'e': return fei_lexer_checkkw(2, 5, "fault", TOKEN_DEFAULT);
 			case 'o': return fei_lexer_checkkw(2, 0, "", TOKEN_DO);
@@ -1998,15 +2005,15 @@ TokenType fei_lexer_scantype()
 		}
 	}
 	case 'e': 
-		if (scanner.current - scanner.start > 1)
+		if (state->scanner.current - state->scanner.start > 1)
 		{
-			switch (scanner.start[1])	// check if there is a second letter
+			switch (state->scanner.start[1])	// check if there is a second letter
 			{
 			case 'l':
 				{
-					if (scanner.current - scanner.start > 2)	// check if there is a third letter
+					if (state->scanner.current - state->scanner.start > 2)	// check if there is a third letter
 					{
-						switch (scanner.start[2])
+						switch (state->scanner.start[2])
 						{
 						case 's': return fei_lexer_checkkw(3, 1, "e", TOKEN_ELSE);
 						case 'f': return fei_lexer_checkkw(3, 0, "", TOKEN_ELF);			// already matched
@@ -2017,9 +2024,9 @@ TokenType fei_lexer_scantype()
 			}
 		}
 	case 'f':
-		if (scanner.current - scanner.start > 1)	// check if there is a second letter
+		if (state->scanner.current - state->scanner.start > 1)	// check if there is a second letter
 		{
-			switch (scanner.start[1])
+			switch (state->scanner.start[1])
 			{
 			case 'a': return fei_lexer_checkkw(2, 3, "lse", TOKEN_FALSE);	// starts from 2 not 3, as first letter is already an f
 			case 'o': return fei_lexer_checkkw(2, 1, "r", TOKEN_FOR);
@@ -2029,9 +2036,9 @@ TokenType fei_lexer_scantype()
 			}
 		}
 	case 'i':
-		if (scanner.current - scanner.start > 1)
+		if (state->scanner.current - state->scanner.start > 1)
 		{
-			switch (scanner.start[1])
+			switch (state->scanner.start[1])
 			{
 			case 'f': return fei_lexer_checkkw(2, 0, "", TOKEN_IF);
 			case 's': return fei_lexer_checkkw(2, 0, "", TOKEN_EQUAL_EQUAL);
@@ -2042,14 +2049,14 @@ TokenType fei_lexer_scantype()
 	case 'p': return fei_lexer_checkkw(1, 7, "rint__keyword", TOKEN_PRINT);
 	//case 'r': return fei_lexer_checkkw(1, 5, "eturn", TOKEN_RETURN);
 	case 'r':
-		if (scanner.current - scanner.start > 1)
+		if (state->scanner.current - state->scanner.start > 1)
 		{
-			switch (scanner.start[1])
+			switch (state->scanner.start[1])
 			{
 			case 'e':
-				if (scanner.current - scanner.start > 2)
+				if (state->scanner.current - state->scanner.start > 2)
 				{
-					switch (scanner.start[2])
+					switch (state->scanner.start[2])
 					{
 					case 't': return fei_lexer_checkkw(3, 3, "urn", TOKEN_RETURN);
 					case 'p': return fei_lexer_checkkw(3, 3, "eat", TOKEN_REPEAT);
@@ -2058,24 +2065,24 @@ TokenType fei_lexer_scantype()
 			}
 		}
 	case 's': 
-		if (scanner.current - scanner.start > 1)			// if there is a second letter
+		if (state->scanner.current - state->scanner.start > 1)			// if there is a second letter
 		{
-			switch (scanner.start[1])
+			switch (state->scanner.start[1])
 			{
 			case 'u': return fei_lexer_checkkw(2, 3, "per", TOKEN_SUPER);
 			case 'w': return fei_lexer_checkkw(2, 4, "itch", TOKEN_SWITCH);
 			}
 		}
 	case 't':
-		if (scanner.current - scanner.start > 1)
+		if (state->scanner.current - state->scanner.start > 1)
 		{
-			switch (scanner.start[1])
+			switch (state->scanner.start[1])
 			{
 			//case 'h': return fei_lexer_checkkw(2, 2, "is", TOKEN_THIS);
 			case 'h':
-				if (scanner.current - scanner.start > 2)	// check if there is a third letter
+				if (state->scanner.current - state->scanner.start > 2)	// check if there is a third letter
 				{
-					switch (scanner.start[2])
+					switch (state->scanner.start[2])
 					{
 					case 'i': return fei_lexer_checkkw(3, 1, "s", TOKEN_THIS);			// already matched
 					}
@@ -2120,7 +2127,7 @@ Token fei_lexer_scanstring()
 {
 	while (fei_lexer_peekcurrent() != '"' && !fei_lexer_isatend())
 	{
-		if (fei_lexer_peekcurrent() == '\n') scanner.line++;		// allow strings to go until next line
+		if (fei_lexer_peekcurrent() == '\n') state->scanner.line++;		// allow strings to go until next line
 		fei_lexer_advance();		// consume characters until the closing quote is reached
 	}
 
@@ -2138,7 +2145,7 @@ Token fei_lexer_scantoken()
 {
 	fei_lexer_skipspace();
 
-	scanner.start = scanner.current;		// reset the scanner to current
+	state->scanner.start = state->scanner.current;		// reset the scanner to current
 
 	if (fei_lexer_isatend()) return fei_lexer_maketoken(TOKEN_EOF);		// check if at end
 
@@ -2258,14 +2265,14 @@ ParseRule rules[] =
 
 Chunk* fei_compiler_currentchunk()
 {
-	return &current->function->chunk;
+	return &state->compiler->function->chunk;
 }
 
 // to handle syntax errors
 void fei_compiler_raiseat(Token* token, const char* message)
 {
-	if (parser.panicMode) return;		// if an error already exists, no need to run other errors
-	parser.panicMode = true;
+	if (state->parser.panicMode) return;		// if an error already exists, no need to run other errors
+	state->parser.panicMode = true;
 
 	fprintf(stderr, "Error at [Line %d]", token->line);
 
@@ -2282,20 +2289,20 @@ void fei_compiler_raiseat(Token* token, const char* message)
 	}
 
 	fprintf(stderr, ": %s\n", message);
-	parser.hadError = true;
+	state->parser.hadError = true;
 }
 
 // error from token most recently CONSUMED
 void fei_compiler_raiseerror(const char* message)
 {
-	fei_compiler_raiseat(&parser.previous, message);
+	fei_compiler_raiseat(&state->parser.previous, message);
 }
 
 
 // handling error from token, the most current one being handed, not yet consumed
 void fei_compiler_raisehere(const char* message)			// manually provide the message
 {
-	fei_compiler_raiseat(&parser.current, message);				// pass in the current parser
+	fei_compiler_raiseat(&state->parser.current, message);				// pass in the current parser
 }
 
 
@@ -2304,15 +2311,15 @@ void fei_compiler_raisehere(const char* message)			// manually provide the messa
 // pump the compiler, basically go to / 'read' the next token, a SINGLE token
 void fei_compiler_advancenext()
 {
-	parser.previous = parser.current;		//  store next parser as current
+	state->parser.previous = state->parser.current;		//  store next parser as current
 
 	for (;;)
 	{
-		parser.current = fei_lexer_scantoken();		// gets next token, stores it for later use(the next scan) 
+		state->parser.current = fei_lexer_scantoken();		// gets next token, stores it for later use(the next scan) 
 
-		if (parser.current.type != TOKEN_ERROR) break;			// if error is not found break
+		if (state->parser.current.type != TOKEN_ERROR) break;			// if error is not found break
 
-		fei_compiler_raisehere(parser.current.start);			// start is the location/pointer of the token source code
+		fei_compiler_raisehere(state->parser.current.start);			// start is the location/pointer of the token source code
 	}
 }
 
@@ -2320,18 +2327,18 @@ void fei_compiler_advancenext()
 // advance while skipping the given parameter, give none to skip nothing
 void fei_compiler_advanceskipping(TokenType type)
 {
-	parser.previous = parser.current;		//  store next parser as current
+	state->parser.previous = state->parser.current;		//  store next parser as current
 
 	for (;;)
 	{
-		parser.current = fei_lexer_scantoken();		// gets next token, stores it for later use(the next scan) 
+		state->parser.current = fei_lexer_scantoken();		// gets next token, stores it for later use(the next scan) 
 
-		if (parser.current.type == type)
+		if (state->parser.current.type == type)
 			continue;
 
-		if (parser.current.type != TOKEN_ERROR) break;			// if error is not found break
+		if (state->parser.current.type != TOKEN_ERROR) break;			// if error is not found break
 
-		fei_compiler_raisehere(parser.current.start);			// start is the location/pointer of the token source code
+		fei_compiler_raisehere(state->parser.current.start);			// start is the location/pointer of the token source code
 	}
 }
 
@@ -2340,7 +2347,7 @@ void fei_compiler_advanceskipping(TokenType type)
 // syntax error comes from here, where it is known/expected what the next token will be
 void fei_compiler_consume(TokenType type, const char* message)
 {
-	if (parser.current.type == type)			// if current token is equal to the token type being compared to
+	if (state->parser.current.type == type)			// if current token is equal to the token type being compared to
 	{
 		fei_compiler_advancenext();
 		return;
@@ -2351,7 +2358,7 @@ void fei_compiler_consume(TokenType type, const char* message)
 
 bool fei_compiler_check(TokenType type)
 {
-	return parser.current.type == type;			// check if current matches given
+	return state->parser.current.type == type;			// check if current matches given
 }
 
 
@@ -2366,7 +2373,7 @@ bool fei_compiler_match(TokenType type)
 // the fei_chunk_pushbyte for the compiler
 void fei_compiler_emitbyte(uint8_t byte)
 {
-	fei_chunk_pushbyte(fei_compiler_currentchunk(), byte, parser.previous.line);		// sends previous line so runtime errors are associated with that line
+	fei_chunk_pushbyte(fei_compiler_currentchunk(), byte, state->parser.previous.line);		// sends previous line so runtime errors are associated with that line
 }
 
 // write chunk for multiple chunks, used to write an opcode followed by an operand(eg. in constants)
@@ -2419,7 +2426,7 @@ int fei_compiler_emitjump(uint8_t instruction)
 //  emit specific return type
 void fei_compiler_emitreturn()
 {
-	if (current->type == TYPE_INITIALIZER)		// class constructor
+	if (state->compiler->type == TYPE_INITIALIZER)		// class constructor
 	{	
 		fei_compiler_emitbytes(OP_GET_LOCAL, 0);					// return the instance
 	}
@@ -2467,23 +2474,23 @@ void fei_compiler_patchjump(int offset)
 // initialize the compiler
 void fei_compiler_init(Compiler* compiler, FunctionType type)
 {
-	compiler->enclosing = current;			// the 'outer' compiler
+	compiler->enclosing = state->compiler;			// the 'outer' compiler
 	compiler->function = NULL;
 	compiler->type = type;
 	compiler->localCount = 0;
 	compiler->scopeDepth = 0;
 	compiler->function = fei_object_makefunction();
-	current = compiler;				// current is the global variable pointer for the Compiler struct, point to to the parameter
+	state->compiler = compiler;				// current is the global variable pointer for the Compiler struct, point to to the parameter
 									// basically assign the global pointer 
 
 	// for functions
 	if (type != TYPE_SCRIPT)
 	{
-		current->function->name = fei_object_copystring(parser.previous.start, parser.previous.length);		// function name handled here
+		state->compiler->function->name = fei_object_copystring(state->parser.previous.start, state->parser.previous.length);		// function name handled here
 	}
 
 	// compiler implicitly claims slot zero for local variables
-	Local* local = &current->locals[current->localCount++];
+	Local* local = &state->compiler->locals[state->compiler->localCount++];
 	local->isCaptured = false;
 	
 	// for this tags 
@@ -2510,39 +2517,39 @@ void fei_compiler_init(Compiler* compiler, FunctionType type)
 ObjFunction* fei_compiler_endcompiler()
 {
 	fei_compiler_emitreturn();
-	ObjFunction* function = current->function;
+	ObjFunction* function = state->compiler->function;
 
-	FREE(int, current->continueJumps);
+	FREE(int, state->compiler->continueJumps);
 
 
 	// for debugging
 #ifdef DEBUG_PRINT_CODE
-	if (!parser.hadError)
+	if (!state->parser.hadError)
 	{
 		fei_dbgdisas_chunk(fei_compiler_currentchunk(), function->name != NULL ? function->name->chars : "<script>");	// if name is NULL then it is the Script type(main()
 	}
 #endif
 
-	current = current->enclosing;	// return back to enclosing compiler after function
+	state->compiler = state->compiler->enclosing;	// return back to enclosing compiler after function
 	return function;			// return to free
 }
 
 void fei_compiler_beginscope()
 {
-	current->scopeDepth++;
+	state->compiler->scopeDepth++;
 }
 
 void fei_compiler_endscope()
 {
-	current->scopeDepth--;
+	state->compiler->scopeDepth--;
 
 	// remove variables out of scope
-	while (current->localCount > 0 && current->locals[current->localCount - 1].depth > current->scopeDepth)
+	while (state->compiler->localCount > 0 && state->compiler->locals[state->compiler->localCount - 1].depth > state->compiler->scopeDepth)
 	{
 		/* at the end of a block scope, when the compiler emits code to free the stack slot for the locals, 
 		tell which one to hoist to the heap
 		*/
-		if (current->locals[current->localCount - 1].isCaptured)	// if it is captured/used
+		if (state->compiler->locals[state->compiler->localCount - 1].isCaptured)	// if it is captured/used
 		{
 			fei_compiler_emitbyte(OP_CLOSE_UPVALUE);	// op code to move the upvalue to the heap
 		}
@@ -2550,36 +2557,36 @@ void fei_compiler_endscope()
 			fei_compiler_emitbyte(OP_POP);			// if not used anymore/capture simply pop the value off the stack
 		}
 
-		current->localCount--;
+		state->compiler->localCount--;
 	}
 }
 
 // loop enclosing
 void fei_compiler_beginloopscope()
 {
-	current->loopCountTop++;
+	state->compiler->loopCountTop++;
 }
 
 void fei_compiler_endloopscope()
 {
-	if (current->breakJumpCounts[current->loopCountTop] > 0)
-		current->breakJumpCounts[current->loopCountTop] = 0;
+	if (state->compiler->breakJumpCounts[state->compiler->loopCountTop] > 0)
+		state->compiler->breakJumpCounts[state->compiler->loopCountTop] = 0;
 
-	current->loopCountTop--;
+	state->compiler->loopCountTop--;
 }
 
 // mark current chunk for continue jump
 void fei_compiler_markcontinuejump()
 {
-	current->continueJumps[current->loopCountTop] = fei_compiler_currentchunk()->count;
+	state->compiler->continueJumps[state->compiler->loopCountTop] = fei_compiler_currentchunk()->count;
 }
 
 // patch available break jumps
 void fei_compiler_patchbreakjumps()
 {
-	for (int i = 0; i < current->breakJumpCounts[current->loopCountTop]; i++)
+	for (int i = 0; i < state->compiler->breakJumpCounts[state->compiler->loopCountTop]; i++)
 	{
-		fei_compiler_patchjump(current->breakPatchJumps[current->loopCountTop][i]);
+		fei_compiler_patchjump(state->compiler->breakPatchJumps[state->compiler->loopCountTop][i]);
 	}
 }
 
@@ -2675,13 +2682,13 @@ int fei_compiler_resolveupvalue(Compiler* compiler, Token* name)
 
 void fei_compiler_addlocal(Token name)
 {
-	if (current->localCount == UINT8_COUNT)
+	if (state->compiler->localCount == UINT8_COUNT)
 	{
 		fei_compiler_raiseerror("Too many local variables in block.");
 		return;
 	}
 
-	Local* local = &current->locals[current->localCount++];
+	Local* local = &state->compiler->locals[state->compiler->localCount++];
 	local->name = name;
 	local->depth = -1;			// for cases where a variable name is redefined inside another scope, using the variable itself
 	local->isCaptured = false;
@@ -2690,19 +2697,19 @@ void fei_compiler_addlocal(Token name)
 void fei_compiler_declvarfromcurrent()	// for local variables
 {
 	// global vars are implicitly declared, and are late bound, not 'initialized' here but in the VM
-	if (current->scopeDepth == 0) return;
+	if (state->compiler->scopeDepth == 0) return;
 
 
 	/* local variable declaration happens below */
-	Token* name = &parser.previous;
+	Token* name = &state->parser.previous;
 
 	// to not allow two variable declarations to have the same name
 	// loop only checks to a HIGHER SCOPE; another block overlaping/shadowing is allowed
 	// work backwards
-	for (int i = current->localCount - 1; i >= 0; i--)			
+	for (int i = state->compiler->localCount - 1; i >= 0; i--)			
 	{
-		Local* local = &current->locals[i];
-		if (local->depth != -1 && local->depth < current->scopeDepth)	// if reach beginning of array(highest scope)
+		Local* local = &state->compiler->locals[i];
+		if (local->depth != -1 && local->depth < state->compiler->scopeDepth)	// if reach beginning of array(highest scope)
 		{
 			break;
 		}
@@ -2721,24 +2728,24 @@ uint8_t fei_compiler_parsevarfromcurrent(const char* errorMessage)
 	fei_compiler_consume(TOKEN_IDENTIFIER, errorMessage);		// requires next token to be an identifier
 
 	fei_compiler_declvarfromcurrent();
-	if (current->scopeDepth > 0) return 0;			// if scopeDepth is not 0, then it is a local not global var
+	if (state->compiler->scopeDepth > 0) return 0;			// if scopeDepth is not 0, then it is a local not global var
 	// return a dummy index
 	// at runtime, locals are not looked up by name so no need to insert them to a table
 
 
-	return fei_compiler_makeidentconst(&parser.previous);	// return index from the constant table	
+	return fei_compiler_makeidentconst(&state->parser.previous);	// return index from the constant table	
 }
 
 
 void fei_compiler_markinit()
 {
-	if (current->scopeDepth == 0) return;				// if global return
-	current->locals[current->localCount - 1].depth = current->scopeDepth;
+	if (state->compiler->scopeDepth == 0) return;				// if global return
+	state->compiler->locals[state->compiler->localCount - 1].depth = state->compiler->scopeDepth;
 }
 
 void fei_compiler_defvarindex(uint8_t global)
 {
-	if (current->scopeDepth > 0)
+	if (state->compiler->scopeDepth > 0)
 	{
 		fei_compiler_markinit();
 		return;
@@ -2793,7 +2800,7 @@ static void fei_comprule_logicaland(bool canAssign)
 static void fei_comprule_binary(bool canAssign)
 {
 	// remember type of operator, already consumed
-	TokenType  operatorType = parser.previous.type;
+	TokenType  operatorType = state->parser.previous.type;
 	
 	// compile right operand
 	ParseRule* rule = fei_compiler_getrule(operatorType);		// the BIDMAS rule, operands in the right side have HIGHER PRECEDENCE
@@ -2835,7 +2842,7 @@ static void fei_comprule_call(bool canAssign)
 static void fei_comprule_dot(bool canAssign)
 {
 	fei_compiler_consume(TOKEN_IDENTIFIER, "Expect propery name after class instance.");
-	uint8_t name = fei_compiler_makeidentconst(&parser.previous);			// already consumed
+	uint8_t name = fei_compiler_makeidentconst(&state->parser.previous);			// already consumed
 
 	if (canAssign && fei_compiler_match(TOKEN_EQUAL))		// assignment
 	{	
@@ -2862,7 +2869,7 @@ static void fei_comprule_dot(bool canAssign)
 
 static void fei_comprule_literal(bool canAssign)
 {
-	switch (parser.previous.type)
+	switch (state->parser.previous.type)
 	{
 	case TOKEN_FALSE: fei_compiler_emitbyte(OP_FALSE); break;
 	case TOKEN_TRUE: fei_compiler_emitbyte(OP_TRUE); break;
@@ -2893,8 +2900,8 @@ static void fei_comprule_number(bool canAssign)
 	-> in scanner, if a digit exists after a digit, it advances() (skips) the current
 	-> hence, we get that the start points to the START of the digit, and using strtod smartly it reaches until the last digit
 	*/
-	double value = strtod(parser.previous.start, NULL);		
-	//printf("num %c\n", *parser.previous.start);
+	double value = strtod(state->parser.previous.start, NULL);		
+	//printf("num %c\n", *state->parser.previous.start);
 	fei_compiler_emitconst(NUMBER_VAL(value));
 }
 
@@ -2915,20 +2922,20 @@ static void fei_comprule_logicalor(bool canAssign)
 static void fei_comprule_string(bool canAssign)
 {
 	// in a string, eg. "hitagi", the quotation marks are trimmed
-	fei_compiler_emitconst(OBJ_VAL(fei_object_copystring(parser.previous.start + 1, parser.previous.length - 2)));
+	fei_compiler_emitconst(OBJ_VAL(fei_object_copystring(state->parser.previous.start + 1, state->parser.previous.length - 2)));
 }
 
 // declare/call variables
 void fei_compiler_declnamedvar(Token name, bool canAssign)
 {
 	uint8_t getOp, setOp;
-	int arg = fei_compiler_resolvelocal(current, &name);		// try find a local variable with a given name
+	int arg = fei_compiler_resolvelocal(state->compiler, &name);		// try find a local variable with a given name
 	if (arg != -1)
 	{
 		getOp = OP_GET_LOCAL;
 		setOp = OP_SET_LOCAL;
 	}
-	else if ((arg = fei_compiler_resolveupvalue(current, &name)) != -1)		// for upvalues
+	else if ((arg = fei_compiler_resolveupvalue(state->compiler, &name)) != -1)		// for upvalues
 	{
 		getOp = OP_GET_UPVALUE;
 		setOp = OP_SET_UPVALUE;
@@ -2958,7 +2965,7 @@ void fei_compiler_declnamedvar(Token name, bool canAssign)
 
 static void fei_comprule_variable(bool canAssign)
 {
-	fei_compiler_declnamedvar(parser.previous, canAssign);
+	fei_compiler_declnamedvar(state->parser.previous, canAssign);
 }
 
 // for super classes, token that mimics as if a user types in 'super'
@@ -2974,11 +2981,11 @@ Token fei_compiler_makesyntoken(const char* text)
 static void fei_comprule_super(bool canAssign)
 {
 	// if token is not inside a class
-	if (currentClass == NULL)
+	if (state->classcompiler == NULL)
 	{
 		fei_compiler_raiseerror("'super' can only be initialized inside a class.");
 	}
-	else if (!currentClass->hasSuperclass)		// if class has no parent class
+	else if (!state->classcompiler->hasSuperclass)		// if class has no parent class
 	{
 		fei_compiler_raiseerror("'super' cannot be used on a class with no parent class.");
 	}
@@ -2986,7 +2993,7 @@ static void fei_comprule_super(bool canAssign)
 
 	fei_compiler_consume(TOKEN_DOT, "Expect '.' after 'super'.");
 	fei_compiler_consume(TOKEN_IDENTIFIER, "Expect parent class method identifier.");
-	uint8_t name = fei_compiler_makeidentconst(&parser.previous);			// get identifier index
+	uint8_t name = fei_compiler_makeidentconst(&state->parser.previous);			// get identifier index
 
 
 	/*
@@ -3015,7 +3022,7 @@ static void fei_comprule_super(bool canAssign)
 static void fei_comprule_this(bool canAssign)
 {
 	// if not inside a class
-	if (currentClass == NULL)
+	if (state->classcompiler == NULL)
 	{
 		fei_compiler_raiseerror("Cannot use 'this' outside of class.");
 		return;
@@ -3027,7 +3034,7 @@ static void fei_comprule_this(bool canAssign)
 
 static void fei_comprule_unary(bool canAssign)
 {
-	TokenType operatorType = parser.previous.type;		// leading - token has already been consumed 
+	TokenType operatorType = state->parser.previous.type;		// leading - token has already been consumed 
 
 	// compile operand
 	fei_compiler_parseexpr();
@@ -3067,7 +3074,7 @@ void fei_compiler_parseprec(Precedence precedence)
 	*/
 	fei_compiler_advancenext();		// again, go next first then use previous type as the 'current' token
 	// the way the compiler is designed is that it has to always have a prefix
-	ParseFn prefixRule = fei_compiler_getrule(parser.previous.type)->prefix;
+	ParseFn prefixRule = fei_compiler_getrule(state->parser.previous.type)->prefix;
 
 	if (prefixRule == NULL)
 	{
@@ -3087,10 +3094,10 @@ void fei_compiler_parseprec(Precedence precedence)
 	*/
 
 	
-	while (precedence <= fei_compiler_getrule(parser.current.type)->precedence)
+	while (precedence <= fei_compiler_getrule(state->parser.current.type)->precedence)
 	{
 		fei_compiler_advancenext();
-		ParseFn infixRule = fei_compiler_getrule(parser.previous.type)->infix;
+		ParseFn infixRule = fei_compiler_getrule(state->parser.previous.type)->infix;
 		
 		infixRule(canAssign);
 	}
@@ -3139,8 +3146,8 @@ void fei_compiler_parsefuncdecl(FunctionType type)
 	if (!fei_compiler_check(TOKEN_RIGHT_PAREN))		// if end ) has not been reached
 	{
 		do {
-			current->function->arity++;		// add number of parameters
-			if (current->function->arity > 255)
+			state->compiler->function->arity++;		// add number of parameters
+			if (state->compiler->function->arity > 255)
 			{
 				fei_compiler_raisehere("Cannot have more than 255 parameters.");
 			}
@@ -3184,13 +3191,13 @@ void fei_compiler_parsefuncdecl(FunctionType type)
 void fei_compiler_parsemethoddecl()
 {
 	fei_compiler_consume(TOKEN_IDENTIFIER, "Expect method name.");
-	uint8_t constant = fei_compiler_makeidentconst(&parser.previous);	// get method name
+	uint8_t constant = fei_compiler_makeidentconst(&state->parser.previous);	// get method name
 	
 	// method body
 	FunctionType type = TYPE_METHOD;
 
 	// if initializer 
-	if (parser.previous.length == 4 && memcmp(parser.previous.start, "init", 4) == 0)
+	if (state->parser.previous.length == 4 && memcmp(state->parser.previous.start, "init", 4) == 0)
 	{
 		type = TYPE_INITIALIZER;
 	}
@@ -3204,8 +3211,8 @@ void fei_compiler_parsemethoddecl()
 void fei_compiler_parseclassdecl()
 {
 	fei_compiler_consume(TOKEN_IDENTIFIER, "Expect class name.");
-	Token className = parser.previous;					// get class name
-	uint8_t nameConstant = fei_compiler_makeidentconst(&parser.previous);		// add to constant table as a string, return its index
+	Token className = state->parser.previous;					// get class name
+	uint8_t nameConstant = fei_compiler_makeidentconst(&state->parser.previous);		// add to constant table as a string, return its index
 	fei_compiler_declvarfromcurrent();						// declare that name variable
 
 	fei_compiler_emitbytes(OP_CLASS, nameConstant);			// takes opcode and takes the constant table index
@@ -3213,10 +3220,10 @@ void fei_compiler_parseclassdecl()
 
 	// handle class enclosing for 'this'
 	ClassCompiler classCompiler;
-	classCompiler.name = parser.previous;
+	classCompiler.name = state->parser.previous;
 	classCompiler.hasSuperclass = false;
-	classCompiler.enclosing = currentClass;
-	currentClass = &classCompiler;			// set new class as current
+	classCompiler.enclosing = state->classcompiler;
+	state->classcompiler = &classCompiler;			// set new class as current
 
 	// class inheritance
 	if (fei_compiler_match(TOKEN_FROM))
@@ -3225,7 +3232,7 @@ void fei_compiler_parseclassdecl()
 		fei_comprule_variable(false);			// get the class variable, looks up the parent class by name and push it to the stack
 		
 		// check that the class names must be different
-		if (fei_compiler_identsequal(&className, &parser.previous))
+		if (fei_compiler_identsequal(&className, &state->parser.previous))
 		{
 			fei_compiler_raiseerror("Cannot inherit class from itself");
 		}
@@ -3261,7 +3268,7 @@ void fei_compiler_parseclassdecl()
 		fei_compiler_endscope();
 	}
 
-	currentClass = currentClass->enclosing;		// go back to enclosing/main() class
+	state->classcompiler = state->classcompiler->enclosing;		// go back to enclosing/main() class
 }
 
 
@@ -3423,7 +3430,7 @@ void fei_compiler_parseprintstmt()
 
 void fei_compiler_parsereturnstmt()
 {
-	if (current->type == TYPE_SCRIPT)
+	if (state->compiler->type == TYPE_SCRIPT)
 	{
 		fei_compiler_raiseerror("Cannot return from top-level code.");
 	}
@@ -3434,7 +3441,7 @@ void fei_compiler_parsereturnstmt()
 	else
 	{
 		// error in returning from an initializer
-		if (current->type == TYPE_INITIALIZER)
+		if (state->compiler->type == TYPE_INITIALIZER)
 		{
 			fei_compiler_raiseerror("Cannot return a value from an initializer");
 		}
@@ -3565,22 +3572,22 @@ void fei_compiler_parsewhilestmt()
 
 void fei_compiler_parsebreakstmt()
 {
-	if (current->loopCountTop < 0)
+	if (state->compiler->loopCountTop < 0)
 	{
 		fei_compiler_raiseerror("Break statement must be enclosed in a loop");
 		return;
 	}
 
-	if (++current->breakJumpCounts[current->loopCountTop] > UINT8_COUNT)
+	if (++state->compiler->breakJumpCounts[state->compiler->loopCountTop] > UINT8_COUNT)
 	{
 		fei_compiler_raiseerror("Too many break statments in one loop");
 		return;
 	}
 
 	int breakJump = fei_compiler_emitjump(OP_JUMP);
-	int loopDepth = current->loopCountTop;
-	int breakAmount = current->breakJumpCounts[loopDepth];
-	current->breakPatchJumps[current->loopCountTop][breakAmount - 1] = breakJump;
+	int loopDepth = state->compiler->loopCountTop;
+	int breakAmount = state->compiler->breakJumpCounts[loopDepth];
+	state->compiler->breakPatchJumps[state->compiler->loopCountTop][breakAmount - 1] = breakJump;
 
 	fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after break.");
 }
@@ -3588,20 +3595,20 @@ void fei_compiler_parsebreakstmt()
 
 void fei_compiler_parsecontinuestmt()
 {
-	if (current->loopCountTop < 0)
+	if (state->compiler->loopCountTop < 0)
 	{
 		fei_compiler_raiseerror("Continue statement must be enclosed in a loop");
 		return;
 	}
 
-	if (current->loopCountTop == current->continueJumpCapacity)
+	if (state->compiler->loopCountTop == state->compiler->continueJumpCapacity)
 	{
-		int oldCapacity = current->continueJumpCapacity;
-		current->continueJumpCapacity = GROW_CAPACITY(oldCapacity);
-		current->continueJumps = GROW_ARRAY(int, current->continueJumps, oldCapacity, current->continueJumpCapacity);
+		int oldCapacity = state->compiler->continueJumpCapacity;
+		state->compiler->continueJumpCapacity = GROW_CAPACITY(oldCapacity);
+		state->compiler->continueJumps = GROW_ARRAY(int, state->compiler->continueJumps, oldCapacity, state->compiler->continueJumpCapacity);
 	}
 
-	fei_compiler_emitloop(current->continueJumps[current->loopCountTop]);
+	fei_compiler_emitloop(state->compiler->continueJumps[state->compiler->loopCountTop]);
 
 	fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after continue.");
 }
@@ -3657,17 +3664,17 @@ void fei_compiler_parsedowhilestmt()
 
 void fei_compiler_synchronize()
 {
-	parser.panicMode = false;
+	state->parser.panicMode = false;
 
 	//printf("panic mode");
 
 	// basically turn off the 'error' mode and skips token until something that looks like a statement boundary is found
 	// skips tokens indiscriminately until somehing that looks like a statement boundary(eg. semicolon) is found
-	while (parser.current.type != TOKEN_EOF)
+	while (state->parser.current.type != TOKEN_EOF)
 	{
-		if (parser.previous.type == TOKEN_SEMICOLON) return;
+		if (state->parser.previous.type == TOKEN_SEMICOLON) return;
 
-		switch (parser.current.type)
+		switch (state->parser.current.type)
 		{
 		case TOKEN_CLASS:
 		case TOKEN_FUN:
@@ -3704,7 +3711,7 @@ void fei_compiler_parsedeclaration()
 	{
 		fei_compiler_parsestatement();
 	}
-	if (parser.panicMode) fei_compiler_synchronize();		// for errors
+	if (state->parser.panicMode) fei_compiler_synchronize();		// for errors
 }
 
 void fei_compiler_parsestatement()					// either an expression or a print
@@ -3768,8 +3775,8 @@ ObjFunction* fei_compiler_compilesource(const char* source)
 	Compiler compiler;
 	fei_compiler_init(&compiler, TYPE_SCRIPT);
 
-	parser.hadError = false;
-	parser.panicMode = false;
+	state->parser.hadError = false;
+	state->parser.panicMode = false;
 
 	fei_compiler_advancenext();						// call to advance once to 'pump' the scanner
 	
@@ -3780,14 +3787,14 @@ ObjFunction* fei_compiler_compilesource(const char* source)
 
 	
 	ObjFunction* function = fei_compiler_endcompiler();					// ends the expression with a return type
-	return parser.hadError ? NULL : function;		// if no error return true
+	return state->parser.hadError ? NULL : function;		// if no error return true
 }
 
 
 // marking compiler roots, for garbage collection
 void fei_compiler_markroots()
 {
-	Compiler* compiler = current;
+	Compiler* compiler = state->compiler;
 	while (compiler != NULL)
 	{
 		fei_gcmem_markobject((Obj*)compiler->function);
@@ -3921,7 +3928,8 @@ State* fei_state_init()
     State* r;
     r = (State*)malloc(sizeof(State));
     state = r;
-
+    r->compiler = NULL;
+    r->classcompiler = NULL;
 	fei_vm_resetstack();			// initialiing the Value stack, also initializing the callframe count
 	state->objects = NULL;
 	fei_table_init(&state->globals);
@@ -3948,12 +3956,13 @@ State* fei_state_init()
     return r;
 }
 
-void fei_vm_destroy(State* r)
+void fei_state_destroy(State* r)
 {
-	state->initString = NULL;
+	r->initString = NULL;
 	fei_gcmem_freeobjects();		// free all objects, from state->objects
-	fei_table_destroy(&state->globals);
-	fei_table_destroy(&state->strings);
+	fei_table_destroy(&r->globals);
+	fei_table_destroy(&r->strings);
+    free(r);
 }
 
 /* stack operations */
@@ -4815,7 +4824,7 @@ int main(int argc, const char* argv[])		// used in the command line, argc being 
 		exit(64);
 	}
 
-	fei_vm_destroy();
+	fei_state_destroy(r);
 	return 0;
 }
 
