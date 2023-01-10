@@ -57,7 +57,7 @@ IMPORTANT = these macros give a 'tag' to each respective values
 #define BOOL_VAL(value) ((Value){ VAL_BOOL, { .boolean = value } })
 #define NULL_VAL ((Value){ VAL_NULL, { .number = 0 } })
 #define NUMBER_VAL(value) ((Value){ VAL_NUMBER, { .number = value } })
-#define OBJ_VAL(object) ((Value){ VAL_OBJ, { .obj = (Obj*)object } })// pass in as a pointer to the object, receives the actual object
+#define OBJ_VAL(object) ((Value){ VAL_OBJ, { .obj = (Object*)object } })// pass in as a pointer to the object, receives the actual object
 
 
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)// extracts the tag
@@ -68,7 +68,7 @@ IMPORTANT = these macros give a 'tag' to each respective values
 #define IS_FUNCTION(value) fei_object_istype(value, OBJ_FUNCTION)
 #define IS_INSTANCE(value) fei_object_istype(value, OBJ_INSTANCE)
 #define IS_NATIVE(value) fei_object_istype(value, OBJ_NATIVE)
-#define IS_STRING(value) fei_object_istype(value, OBJ_STRING)// takes in raw Value, not raw Obj*
+#define IS_STRING(value) fei_object_istype(value, OBJ_STRING)// takes in raw Value, not raw Object*
 #define IS_CLOSURE(value) fei_object_istype(value, OBJ_CLOSURE)
 
 // macros to tell that it is safe when creating a tag, by returning the requested type
@@ -315,16 +315,38 @@ we use a TAGGED UNION, a value containg a TYPE TAG, and the PAYLOd / ACTUAL VALU
 typedef enum TokenType TokenType;
 typedef enum ValueType ValueType;
 typedef struct /**/ Value Value;
-typedef struct /**/ Obj Obj;
+typedef struct /**/ Object Object;
 typedef struct /**/ ObjString ObjString;
 typedef struct /**/ ObjFunction ObjFunction;
+typedef struct /**/ ObjClass ObjClass;
+typedef struct /**/ ObjInstance ObjInstance;
+typedef struct /**/ ObjBoundMethod ObjBoundMethod;
+typedef struct /**/ ObjUpvalue ObjUpvalue;
+typedef struct /**/ ObjClosure ObjClosure;
+typedef struct /**/ ObjNative ObjNative;
 typedef struct /**/ Local Local;
 typedef struct /**/ Upvalue Upvalue;
 typedef struct /**/ State State;
-typedef struct ObjClass ObjClass;
-typedef struct ObjInstance ObjInstance;
-typedef struct ObjBoundMethod ObjBoundMethod;
-typedef struct CallFrame CallFrame;
+typedef struct /**/ CallFrame CallFrame;
+typedef struct /**/ Token Token;
+typedef struct /**/ Scanner Scanner;
+typedef struct /**/ Parser Parser;
+typedef struct /**/ ParseRule ParseRule;
+typedef struct /**/ Compiler Compiler;
+typedef struct /**/ ClassCompiler ClassCompiler;
+typedef struct /**/ ValArray ValArray;
+typedef struct /**/ Chunk Chunk;
+typedef struct /**/ TabEntry TabEntry;
+typedef struct /**/ Table Table;
+
+// simple typdef function type with no arguments and returns nothing
+// acts like a "virtual" function , a void function that cam be overidden; actually a void but override it with ParseFn
+typedef void (*ParseFn)(State*, bool);
+
+
+/*  NATIVE FUNCTIONS(file systems, user input etc.)
+-> native functions reference a call to native C code insted of bytecode */
+typedef Value (*NativeFn)(State*, int, Value*);// rename Value to NativeFn
 
 
 /* IMPORTANT 
@@ -340,39 +362,32 @@ struct Value
     {
         bool boolean;
         double number;
-        Obj* obj;// pointer to the heap, the payload for bigger types of data
+        Object* obj;// pointer to the heap, the payload for bigger types of data
     } as;// can use . to represent this union
 };
 
-typedef struct
+struct Token
 {
     TokenType type;// identifier to type of token, eg. number, + operator, identifier
     const char* start;
     int length;
     int line;
-} Token;
+};
 
-// scanner to run through the source code
-typedef struct
+struct Scanner
 {
     const char* start;// marks the beginning of the current lexeme('word', you can say_
     const char* current;// points to the character being looked at
     int line;// int to tell the current line being looked at
-} Scanner;
+};
 
-// to store current and previous tokens
-typedef struct
+struct Parser
 {
     Token current;
     Token previous;
     bool hadError;// flag to tell whether the code has a syntax error or no
     bool panicMode;// flag for error cascades/multiple errors so the parser does not get confused, only returns the first
-} Parser;
-
-
-// simple typdef function type with no arguments and returns nothing
-// acts like a "virtual" function , a void function that cam be overidden; actually a void but override it with ParseFn
-typedef void (*ParseFn)(State*, bool);
+};
 
 
 /*	parse rule, what is needed:
@@ -380,12 +395,12 @@ typedef void (*ParseFn)(State*, bool);
 -> a function to cimpile an INFIX expression whose left operand is followed by a token of that type
 -> precedence of an infix expression with the tokenas an operator
 */
-typedef struct
+struct ParseRule
 {
     ParseFn prefix;
     ParseFn infix;
     Precedence precedence;
-} ParseRule;
+};
 
 struct Local
 {
@@ -400,10 +415,9 @@ struct Upvalue
     int index;// matches the index of the local variable in ObjClosure
 };
 
-// stack for local variables
-typedef struct Compiler// give name to struct itself(the name comes after), only used below in enclosing
+struct Compiler
 {
-    struct Compiler* enclosing;// pointer to the 'outer'/enclosing compiler, to return to after function
+    Compiler* enclosing;// pointer to the 'outer'/enclosing compiler, to return to after function
 
     // wrapping the whole program into one big main() function
     ObjFunction* function;
@@ -423,65 +437,48 @@ typedef struct Compiler// give name to struct itself(the name comes after), only
     int breakPatchJumps[UINT8_COUNT][UINT8_COUNT];
     int breakJumpCounts[UINT8_COUNT];
 
-} Compiler;
+};
 
-
-// for 'this' tokens, a main() for class
-typedef struct ClassCompiler
+struct ClassCompiler
 {
-    struct ClassCompiler* enclosing;
+    ClassCompiler* enclosing;
     Token name;
     bool hasSuperclass;// to end scope in superclass declaration
-} ClassCompiler;
+};
 
-
-// the constant pool is array of values
-typedef struct
+struct ValArray
 {
     int capacity;
     int count;
     Value* values;
-} ValueArray;
+};
 
-
-/* dynamic array for bytecode */
-// btyecode is a series of instructions, this is a struct to hold instructions
-// create own dynamic array
-typedef struct
+struct Chunk
 {
     int count;// current size
     int capacity;// max array size
     uint8_t* code;// 1 byte unsigned int, to store the CODESTREAM
     int* lines;// array of integers that parallels the bytecode/codestream, to get where each location of the bytecode is
-    ValueArray constants;// store double value literals
-} Chunk;
+    ValArray constants;// store double value literals
+};
 
-
-/* the top two are simply wrapper around bytes */
-
-
-// in terms of the language's bytecode datatypes (eg. Value, objString)
-// hash function is in object.c, applied to every string for cache
-
-typedef struct
+struct TabEntry
 {
     ObjString* key;// use ObjString pointer as key
     Value value;// the value/data type
-} Entry;
+};
 
-// the table, an array of entries
-typedef struct
+struct Table
 {
     int count;
     int capacity;
-    Entry* entries;
-} Table;
+    TabEntry* entries;
+};
 
-
-struct Obj// as no typedef is used, 'struct' itself will always havae to be typed
+struct Object// as no typedef is used, 'struct' itself will always havae to be typed
 {
     ObjType type;
-    struct Obj* next;// linked list or intrusive list, to avoid memory leaks, obj itself as a node
+    Object* next;// linked list or intrusive list, to avoid memory leaks, obj itself as a node
     // traverse the list to find every object that has been allocated on the heap
 
     // for mark-sweep garbage collection
@@ -491,17 +488,16 @@ struct Obj// as no typedef is used, 'struct' itself will always havae to be type
 // for functions and calls
 struct ObjFunction
 {
-    Obj obj;
+    Object obj;
     int arity;// store number of parameters
     int upvalueCount;// to track upValues
     Chunk chunk;// to store the function information
     ObjString* name;
 };
 
-
-typedef struct ObjUpvalue// define ObjUpvalue here to use them inside the struct
+struct ObjUpvalue
 {
-    Obj obj;
+    Object obj;
     Value* location;// pointer to value in the enclosing ObjClosure
 
     Value closed;// to store closed upvalue
@@ -509,35 +505,28 @@ typedef struct ObjUpvalue// define ObjUpvalue here to use them inside the struct
     // intrusive/linked list to track sorted openvalues
     // ordered by the stack slot they point to
     struct ObjUpvalue* next;
-} ObjUpvalue;
+};
 
-// for closures
-typedef struct
+
+struct ObjClosure
 {
-    // points to an ObjFunction and Obj header
-    Obj obj;// Obj header
+    Object obj;
     ObjFunction* function;
 
     // for upvalues
     ObjUpvalue** upvalues;// array of upvalue pointers
     int upvalueCount;
-} ObjClosure;
+};
 
-
-/*  NATIVE FUNCTIONS(file systems, user input etc.)
--> native functions reference a call to native C code insted of bytecode */
-typedef Value (*NativeFn)(State*, int, Value*);// rename Value to NativeFn
-
-typedef struct
+struct ObjNative
 {
-    Obj obj;
+    Object obj;
     NativeFn function;
-} ObjNative;
-
+};
 
 struct ObjString// using struct inheritance
 {
-    Obj obj;
+    Object obj;
     int length;
     char* chars;
     uint32_t hash;// for hash table, for cache(temporary storage area); each ObjString has a hash code for itself
@@ -546,14 +535,14 @@ struct ObjString// using struct inheritance
 // class object type
 struct ObjClass
 {
-    Obj obj;
+    Object obj;
     ObjString* name;// not needed for uer's program, but helps the dev in debugging
     Table methods;// hash table for storing methods
 };
 
 struct ObjInstance
 {
-    Obj obj;// inherits from object, the "object" tag
+    Object obj;
     ObjClass* kelas;// pointer to class types
     Table fields;// use a hash table to store fields
 };
@@ -562,7 +551,7 @@ struct ObjInstance
 // struct for class methods
 struct ObjBoundMethod
 {
-    Obj obj;
+    Object obj;
     Value receiver;// wraps receiver and function/method/closure together, receiver is the ObjInstance / lcass type
     ObjClosure* method;
 };
@@ -604,13 +593,13 @@ struct State
 
     ObjUpvalue* openUpvalues;// track all upvalues; points to the first node of the linked list
 
-    Obj* objects;// pointer to the header of the Obj itself/node, start of the list
+    Object* objects;// pointer to the header of the Object itself/node, start of the list
     // nicely used in GARBAGE COLLECTION, where objects are nicely erased in the middle
 
     // stack to store gray marked Objects for garbage collection
     int grayCapacity;
     int grayCount;
-    Obj** grayStack;// array of pointers pointing to a particular subgraph
+    Object** grayStack;// array of pointers pointing to a particular subgraph
 
     // self-adjusting-g-heap, to control frequency of GC, bytesAllocated is the running total
     size_t bytesAllocated;// size_t is a 32 bit(integer/4bytes), represents size of an object in bytes
@@ -619,22 +608,22 @@ struct State
 
 
 void *fei_gcmem_reallocate(State *state, void *pointer, size_t oldSize, size_t newSize);
-void fei_gcmem_freeobject(State *state, Obj *object);
-void fei_gcmem_markobject(State *state, Obj *object);
+void fei_gcmem_freeobject(State *state, Object *object);
+void fei_gcmem_markobject(State *state, Object *object);
 void fei_gcmem_markvalue(State *state, Value value);
-void fei_gcmem_markarray(State *state, ValueArray *array);
+void fei_gcmem_markarray(State *state, ValArray *array);
 void fei_gcmem_markroots(State *state);
-void fei_gcmem_blackenobject(State *state, Obj *object);
+void fei_gcmem_blackenobject(State *state, Object *object);
 void fei_gcmem_tracerefs(State *state);
 void fei_gcmem_sweep(State *state);
 void fei_gcmem_collectgarbage(State *state);
 void fei_gcmem_freeobjects(State *state);
-void fei_valarray_init(State *state, ValueArray *array);
-void fei_valarray_push(State *state, ValueArray *array, Value value);
-void fei_valarray_destroy(State *state, ValueArray *array);
+void fei_valarray_init(State *state, ValArray *array);
+void fei_valarray_push(State *state, ValArray *array, Value value);
+void fei_valarray_destroy(State *state, ValArray *array);
 void fei_value_printvalue(State *state, Value value);
 bool fei_value_compare(State *state, Value a, Value b);
-Obj *fei_object_allocobject(State *state, size_t size, ObjType type);
+Object *fei_object_allocobject(State *state, size_t size, ObjType type);
 ObjBoundMethod *fei_object_makeboundmethod(State *state, Value receiver, ObjClosure *method);
 ObjClosure *fei_object_makeclosure(State *state, ObjFunction *function);
 ObjString *fei_object_allocstring(State *state, char *chars, int length, uint32_t hash);
@@ -650,7 +639,7 @@ void fei_object_printfunc(State *state, ObjFunction *function);
 void fei_object_printobject(State *state, Value value);
 void fei_table_init(State *state, Table *table);
 void fei_table_destroy(State *state, Table *table);
-Entry *fei_table_findentry(State *state, Entry *entries, int capacity, ObjString *key);
+TabEntry *fei_table_findentry(State *state, TabEntry *entries, int capacity, ObjString *key);
 bool fei_table_get(State *state, Table *table, ObjString *key, Value *value);
 void fei_table_adjustcapacity(State *state, Table *table, int capacity);
 bool fei_table_set(State *state, Table *table, ObjString *key, Value value);
@@ -836,8 +825,8 @@ void* fei_gcmem_reallocate(State* state, void* pointer, size_t oldSize, size_t n
 }
 
 
-// you can pass in a'lower' struct pointer, in this case Obj*, and get the higher level which is ObjFunction
-void fei_gcmem_freeobject(State* state, Obj* object)// to handle different types
+// you can pass in a'lower' struct pointer, in this case Object*, and get the higher level which is ObjFunction
+void fei_gcmem_freeobject(State* state, Object* object)// to handle different types
 {
 #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
     printf("%p free type %d\n", (void*)object, object->type);
@@ -902,7 +891,7 @@ void fei_gcmem_freeobject(State* state, Obj* object)// to handle different types
 
 /*		garbage collection		 */
 
-void fei_gcmem_markobject(State* state, Obj* object)
+void fei_gcmem_markobject(State* state, Object* object)
 {
     if(object == NULL)
         return;// in some places the pointer is empty
@@ -915,7 +904,7 @@ void fei_gcmem_markobject(State* state, Obj* object)
     if(state->grayCapacity < state->grayCount + 1)// if need more space, allocate
     {
         state->grayCapacity = GROW_CAPACITY(state->grayCapacity);
-        state->grayStack = realloc(state->grayStack, sizeof(Obj*) * state->grayCapacity);// use native realloc here
+        state->grayStack = realloc(state->grayStack, sizeof(Object*) * state->grayCapacity);// use native realloc here
     }
 
     if(state->grayStack == NULL)
@@ -940,7 +929,7 @@ void fei_gcmem_markvalue(State* state, Value value)
 
 
 // marking array of values/constants of a function, used in fei_gcmem_blackenobject, case OBJ_FUNCTION
-void fei_gcmem_markarray(State* state, ValueArray* array)
+void fei_gcmem_markarray(State* state, ValArray* array)
 {
     for(int i = 0; i < array->count; i++)
     {
@@ -960,13 +949,13 @@ void fei_gcmem_markroots(State* state)
     // mark closures
     for(int i = 0; i < state->frameCount; i++)
     {
-        fei_gcmem_markobject(state, (Obj*)state->frames[i].closure);// mark ObjClosure  type
+        fei_gcmem_markobject(state, (Object*)state->frames[i].closure);// mark ObjClosure  type
     }
 
     // mark upvalues, walk through the linked list of upvalues
     for(ObjUpvalue* upvalue = state->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
     {
-        fei_gcmem_markobject(state, (Obj*)upvalue);
+        fei_gcmem_markobject(state, (Object*)upvalue);
     }
 
 
@@ -975,12 +964,12 @@ void fei_gcmem_markroots(State* state)
     // compiler also grabs memory; special function only for 'backend' processes
     fei_compiler_markroots(state);// declared in compiler.h
 
-    fei_gcmem_markobject(state, (Obj*)state->initString);// mark objstring for init
+    fei_gcmem_markobject(state, (Object*)state->initString);// mark objstring for init
 }
 
 
 // actual tracing of each gray object and marking it black
-void fei_gcmem_blackenobject(State* state, Obj* object)
+void fei_gcmem_blackenobject(State* state, Object* object)
 {
 #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
     printf("%p blackened ", (void*)object);
@@ -995,7 +984,7 @@ void fei_gcmem_blackenobject(State* state, Obj* object)
         {
             ObjBoundMethod* bound = (ObjBoundMethod*)object;
             fei_gcmem_markvalue(state, bound->receiver);
-            fei_gcmem_markobject(state, (Obj*)bound->method);
+            fei_gcmem_markobject(state, (Object*)bound->method);
             break;
         }
 
@@ -1007,7 +996,7 @@ void fei_gcmem_blackenobject(State* state, Obj* object)
         {
             // you can get the coressponding 'higher' object type from a lower derivation struct in C using (higher*)lower
             ObjFunction* function = (ObjFunction*)object;
-            fei_gcmem_markobject(state, (Obj*)function->name);// mark its name, an ObjString type
+            fei_gcmem_markobject(state, (Object*)function->name);// mark its name, an ObjString type
             fei_gcmem_markarray(state, &function->chunk.constants);// mark value array of chunk constants, pass it in AS A POINTER using &
             break;
         }
@@ -1015,10 +1004,10 @@ void fei_gcmem_blackenobject(State* state, Obj* object)
         case OBJ_CLOSURE:// mark the function and all of the closure's upvalues
         {
             ObjClosure* closure = (ObjClosure*)object;
-            fei_gcmem_markobject(state, (Obj*)closure->function);
+            fei_gcmem_markobject(state, (Object*)closure->function);
             for(int i = 0; i < closure->upvalueCount; i++)
             {
-                fei_gcmem_markobject(state, (Obj*)closure->upvalues[i]);
+                fei_gcmem_markobject(state, (Object*)closure->upvalues[i]);
             }
             break;
         }
@@ -1026,7 +1015,7 @@ void fei_gcmem_blackenobject(State* state, Obj* object)
         case OBJ_CLASS:
         {
             ObjClass* kelas = (ObjClass*)object;
-            fei_gcmem_markobject(state, (Obj*)kelas->name);
+            fei_gcmem_markobject(state, (Object*)kelas->name);
             fei_table_mark(state, &kelas->methods);
             break;
         }
@@ -1034,7 +1023,7 @@ void fei_gcmem_blackenobject(State* state, Obj* object)
         case OBJ_INSTANCE:
         {
             ObjInstance* instance = (ObjInstance*)object;
-            fei_gcmem_markobject(state, (Obj*)instance->kelas);
+            fei_gcmem_markobject(state, (Object*)instance->kelas);
             fei_table_mark(state, &instance->fields);
             break;
         }
@@ -1051,10 +1040,10 @@ void fei_gcmem_tracerefs(State* state)
 {
     while(state->grayCount > 0)
     {
-        // pop Obj* (pointer) from the stack
+        // pop Object* (pointer) from the stack
         // note how -- is the prefix; subtract first then use it as an index
         // --state->grayCount already decreases its count, hence everything is already 'popped'
-        Obj* object = state->grayStack[--state->grayCount];
+        Object* object = state->grayStack[--state->grayCount];
         fei_gcmem_blackenobject(state, object);
     }
 }
@@ -1063,8 +1052,8 @@ void fei_gcmem_tracerefs(State* state)
 // sweeping all unreachable values
 void fei_gcmem_sweep(State* state)
 {
-    Obj* previous = NULL;
-    Obj* object = state->objects;// linked intrusive list of Objects in the VM
+    Object* previous = NULL;
+    Object* object = state->objects;// linked intrusive list of Objects in the VM
 
     while(object != NULL)
     {
@@ -1076,7 +1065,7 @@ void fei_gcmem_sweep(State* state)
         }
         else// free the unreachable object
         {
-            Obj* unreached = object;
+            Object* unreached = object;
             object = object->next;
 
             if(previous != NULL)// link to previous object if previous not null
@@ -1124,11 +1113,11 @@ void fei_gcmem_collectgarbage(State* state)
 
 void fei_gcmem_freeobjects(State* state)// free from VM
 {
-    Obj* object = state->objects;
+    Object* object = state->objects;
     // free from the whole list
     while(object != NULL)
     {
-        Obj* next = object->next;
+        Object* next = object->next;
         fei_gcmem_freeobject(state, object);
         object = next;
     }
@@ -1136,14 +1125,14 @@ void fei_gcmem_freeobjects(State* state)// free from VM
     free(state->grayStack);// free gray marked obj stack used for garbage collection
 }
 
-void fei_valarray_init(State* state, ValueArray* array)
+void fei_valarray_init(State* state, ValArray* array)
 {
     array->count = 0;
     array->capacity = 0;
     array->values = NULL;
 }
 
-void fei_valarray_push(State* state, ValueArray* array, Value value)
+void fei_valarray_push(State* state, ValArray* array, Value value)
 {
     if(array->capacity < array->count + 1)
     {
@@ -1156,7 +1145,7 @@ void fei_valarray_push(State* state, ValueArray* array, Value value)
     array->count++;
 }
 
-void fei_valarray_destroy(State* state, ValueArray* array)
+void fei_valarray_destroy(State* state, ValArray* array)
 {
     FREE_ARRAY(state, Value, array->values, array->capacity);
     fei_valarray_init(state, array);
@@ -1212,9 +1201,9 @@ bool fei_value_compare(State* state, Value a, Value b)
 // macro to avoid redundantly cast void* back to desired type
 #define ALLOCATE_OBJ(type, objectType) (type*)fei_object_allocobject(state, sizeof(type), objectType)
 
-Obj* fei_object_allocobject(State* state, size_t size, ObjType type)
+Object* fei_object_allocobject(State* state, size_t size, ObjType type)
 {
-    Obj* object = (Obj*)fei_gcmem_reallocate(state, NULL, 0, size);// allocate memory for obj
+    Object* object = (Object*)fei_gcmem_reallocate(state, NULL, 0, size);// allocate memory for obj
     object->type = type;
     object->isMarked = false;
 
@@ -1430,18 +1419,18 @@ void fei_table_init(State* state, Table* table)
 
 void fei_table_destroy(State* state, Table* table)
 {
-    FREE_ARRAY(state, Entry, table->entries, table->capacity);
+    FREE_ARRAY(state, TabEntry, table->entries, table->capacity);
     fei_table_init(state, table);
 }
 
-Entry* fei_table_findentry(State* state, Entry* entries, int capacity, ObjString* key)
+TabEntry* fei_table_findentry(State* state, TabEntry* entries, int capacity, ObjString* key)
 {
     uint32_t index = key->hash % capacity;// use modulo to map the key's hash to the code index
-    Entry* tombstone = NULL;
+    TabEntry* tombstone = NULL;
 
     for(;;)
     {
-        Entry* entry = &entries[index];// index is 'inserted' here
+        TabEntry* entry = &entries[index];// index is 'inserted' here
 
         if(entry->key == NULL)
         {
@@ -1470,7 +1459,7 @@ bool fei_table_get(State* state, Table* table, ObjString* key, Value* value)
     if(table->count == 0)
         return false;
 
-    Entry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
+    TabEntry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
     if(entry->key == NULL)
         return false;
 
@@ -1481,7 +1470,7 @@ bool fei_table_get(State* state, Table* table, ObjString* key, Value* value)
 
 void fei_table_adjustcapacity(State* state, Table* table, int capacity)
 {
-    Entry* entries = ALLOCATE(state, Entry, capacity);// create a bucket with capacity entries, new array
+    TabEntry* entries = ALLOCATE(state, TabEntry, capacity);// create a bucket with capacity entries, new array
     for(int i = 0; i < capacity; i++)// initialize every element
     {
         entries[i].key = NULL;
@@ -1493,18 +1482,18 @@ void fei_table_adjustcapacity(State* state, Table* table, int capacity)
     // with the same hash as it is divided by the modulo; loop below recalculates everything
     for(int i = 0; i < table->capacity; i++)// travers through old array
     {
-        Entry* entry = &table->entries[i];
+        TabEntry* entry = &table->entries[i];
         if(entry->key == NULL)
             continue;
 
         // insert into new array
-        Entry* dest = fei_table_findentry(state, entries, capacity, entry->key);// pass in new array
+        TabEntry* dest = fei_table_findentry(state, entries, capacity, entry->key);// pass in new array
         dest->key = entry->key;// match old array to new array
         dest->value = entry->value;
         table->count++;// recound the number of entries
     }
 
-    FREE_ARRAY(state, Entry, table->entries, table->capacity);
+    FREE_ARRAY(state, TabEntry, table->entries, table->capacity);
     table->entries = entries;
     table->capacity = capacity;
 }
@@ -1520,7 +1509,7 @@ bool fei_table_set(State* state, Table* table, ObjString* key, Value value)
     }
 
 
-    Entry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
+    TabEntry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
 
     bool isNewKey = entry->key == NULL;
     if(isNewKey && IS_NULL(entry->value))
@@ -1539,7 +1528,7 @@ bool fei_table_delete(State* state, Table* table, ObjString* key)
         return false;
 
     // find entry
-    Entry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
+    TabEntry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
     if(entry->key == NULL)
         return false;
 
@@ -1554,7 +1543,7 @@ void fei_table_mergefrom(State* state, Table* from, Table* to)
 {
     for(int i = 0; i < from->capacity; i++)
     {
-        Entry* entry = &from->entries[i];
+        TabEntry* entry = &from->entries[i];
         if(entry->key != NULL)
         {
             fei_table_set(state, to, entry->key, entry->value);
@@ -1572,7 +1561,7 @@ ObjString* fei_table_findstring(State* state, Table* table, const char* chars, i
 
     for(;;)
     {
-        Entry* entry = &table->entries[index];// get entry pointer
+        TabEntry* entry = &table->entries[index];// get entry pointer
         if(entry->key == NULL)
         {
             // stop if found empty non-tombstone entry
@@ -1593,7 +1582,7 @@ void fei_table_removeunreachable(State* state, Table* table)
 {
     for(int i = 0; i < table->capacity; i++)
     {
-        Entry* entry = &table->entries[i];
+        TabEntry* entry = &table->entries[i];
         if(entry->key != NULL && !entry->key->obj.isMarked)// remove not marked (string) object pointers
         {
             fei_table_delete(state, table, entry->key);
@@ -1607,9 +1596,9 @@ void fei_table_mark(State* state, Table* table)
 {
     for(int i = 0; i < table->capacity; i++)
     {
-        Entry* entry = &table->entries[i];
+        TabEntry* entry = &table->entries[i];
         // need to mark both the STRING KEYS and the actual value/obj itself
-        fei_gcmem_markobject(state, (Obj*)entry->key);// mark the string key(ObjString type)
+        fei_gcmem_markobject(state, (Object*)entry->key);// mark the string key(ObjString type)
         fei_gcmem_markvalue(state, entry->value);// mark the actual avlue
     }
 }
@@ -1732,7 +1721,7 @@ int fei_dbgdisas_instr(State* state, Chunk* chunk, int offset)
     switch(instruction)
     {
         case OP_CONSTANT:
-            return fei_dbgutil_printconstir(state, "OP_CONSTANT", chunk, offset);// pass in chunk to get ValueArray element
+            return fei_dbgutil_printconstir(state, "OP_CONSTANT", chunk, offset);// pass in chunk to get ValArray element
 
         // literals
         case OP_NULL:
@@ -4103,7 +4092,7 @@ void fei_compiler_markroots(State* state)
     Compiler* compiler = state->compiler;
     while(compiler != NULL)
     {
-        fei_gcmem_markobject(state, (Obj*)compiler->function);
+        fei_gcmem_markobject(state, (Object*)compiler->function);
         compiler = compiler->enclosing;
     }
 }
@@ -4119,7 +4108,7 @@ static Value cfn_clock(State* state, int argCount, Value* args)
 static Value cfn_print(State* state, int argc, Value* args)
 {
     int i;
-    Obj* o;
+    Object* o;
     ObjString* os;
     (void)argc;
     for(i = 0; i < argc; i++)
