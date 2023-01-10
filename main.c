@@ -378,6 +378,7 @@ struct Scanner
 {
     const char* start;// marks the beginning of the current lexeme('word', you can say_
     const char* current;// points to the character being looked at
+    size_t length;
     int line;// int to tell the current line being looked at
 };
 
@@ -504,7 +505,7 @@ struct ObjUpvalue
 
     // intrusive/linked list to track sorted openvalues
     // ordered by the stack slot they point to
-    struct ObjUpvalue* next;
+    ObjUpvalue* next;
 };
 
 
@@ -659,7 +660,7 @@ int fei_dbgutil_printinvokeir(State *state, const char *name, Chunk *chunk, int 
 int fei_dbgutil_printjumpir(State *state, const char *name, int sign, Chunk *chunk, int offset);
 void fei_dbgdisas_chunk(State *state, Chunk *chunk, const char *name);
 int fei_dbgdisas_instr(State *state, Chunk *chunk, int offset);
-void fei_lexer_initsource(State *state, const char *source);
+void fei_lexer_initsource(State *state, const char *source, size_t len);
 bool fei_lexutil_isalpha(State *state, char c);
 bool fei_lexutil_isdigit(State *state, char c);
 bool fei_lexer_isatend(State *state);
@@ -751,7 +752,7 @@ void fei_compiler_parsedowhilestmt(State *state);
 void fei_compiler_synchronize(State *state);
 void fei_compiler_parsedeclaration(State *state);
 void fei_compiler_parsestatement(State *state);
-ObjFunction *fei_compiler_compilesource(State *state, const char *source);
+ObjFunction *fei_compiler_compilesource(State *state, const char *source, size_t len);
 void fei_compiler_markroots(State *state);
 void fei_vm_raiseruntimeerror(State *state, const char *format, ...);
 void fei_vm_defnative(State *state, const char *name, NativeFn function);
@@ -771,7 +772,7 @@ void fei_vm_closeupvalues(State *state, Value *last);
 void fei_vm_stackdefmethod(State *state, ObjString *name);
 bool fei_value_isfalsey(State *state, Value value);
 void fei_vmdo_strconcat(State *state);
-InterpretResult fei_vm_evalsource(State *state, const char *source);
+InterpretResult fei_vm_evalsource(State *state, const char *source, size_t len);
 InterpretResult fei_vm_exec(State *state);
 void repl(State *state);
 char *readFile(const char *path);
@@ -1856,10 +1857,12 @@ int fei_dbgdisas_instr(State* state, Chunk* chunk, int offset)
 }
 
 
-void fei_lexer_initsource(State* state, const char* source)
+void fei_lexer_initsource(State* state, const char* source, size_t len)
 {
+    memset(&state->scanner, 0, sizeof(Scanner));
     state->scanner.start = source;// again, pointing to a string array means pointing to the beginning
     state->scanner.current = source;
+    state->scanner.length = len;
     state->scanner.line = 1;
 }
 
@@ -2723,25 +2726,26 @@ void fei_compiler_patchjump(State* state, int offset)
 // initialize the compiler
 void fei_compiler_init(State* state, Compiler* compiler, FunctionType type)
 {
+    size_t i;
+    Local* local;
     compiler->enclosing = state->compiler;// the 'outer' compiler
     compiler->function = NULL;
     compiler->type = type;
     compiler->localCount = 0;
     compiler->scopeDepth = 0;
     compiler->function = fei_object_makefunction(state);
-    state->compiler = compiler;// current is the global variable pointer for the Compiler struct, point to to the parameter
-    // basically assign the global pointer
-
-    // for functions
+    state->compiler = compiler;
     if(type != TYPE_SCRIPT)
     {
         state->compiler->function->name = fei_object_copystring(state, state->parser.previous.start, state->parser.previous.length);// function name handled here
     }
-
+    for(i=0; i<UINT8_COUNT; i++)
+    {
+        memset(&state->compiler->locals[i], 0, sizeof(Local));
+    }
     // compiler implicitly claims slot zero for local variables
-    Local* local = &state->compiler->locals[state->compiler->localCount++];
+    local = &state->compiler->locals[state->compiler->localCount++];
     local->isCaptured = false;
-
     // for this tags
     if(type != TYPE_FUNCTION)// for none function types, for class methods
     {
@@ -2753,12 +2757,10 @@ void fei_compiler_init(State* state, Compiler* compiler, FunctionType type)
         local->name.start = "";
         local->name.length = 0;
     }
-
     // for loop scopes, for break and continue statements
     compiler->loopCountTop = -1;
     compiler->continueJumpCapacity = 4;
     compiler->continueJumps = ALLOCATE(state, int, 4);
-
     // use memset to initialize array to 0
     memset(compiler->breakJumpCounts, 0, UINT8_COUNT * sizeof(compiler->breakJumpCounts[0]));
 }
@@ -3430,7 +3432,7 @@ void fei_compiler_parsefuncdecl(State* state, FunctionType type)
 {
     // create separate Compiler for each function
     Compiler compiler;
-    fei_compiler_init(state, &compiler, type);// set new compiler(function) as the current one
+    fei_compiler_init(state, &compiler, type);
     fei_compiler_beginscope(state);
 
     // compile parameters
@@ -4064,24 +4066,21 @@ void fei_compiler_parsestatement(State* state)// either an expression or a print
     }
 }
 
-ObjFunction* fei_compiler_compilesource(State* state, const char* source)
+ObjFunction* fei_compiler_compilesource(State* state, const char* source, size_t len)
 {
-    fei_lexer_initsource(state, source);// start scan/lexing
     Compiler compiler;
+    ObjFunction* function;
+    fei_lexer_initsource(state, source, len);// start scan/lexing
+    memset(&compiler, 0, sizeof(compiler));
     fei_compiler_init(state, &compiler, TYPE_SCRIPT);
-
     state->parser.hadError = false;
     state->parser.panicMode = false;
-
     fei_compiler_advancenext(state);// call to advance once to 'pump' the scanner
-
     while(!fei_compiler_match(state, TOKEN_EOF))/// while EOF token is not met
     {
         fei_compiler_parsedeclaration(state);
     }
-
-
-    ObjFunction* function = fei_compiler_endcompiler(state);// ends the expression with a return type
+    function = fei_compiler_endcompiler(state);// ends the expression with a return type
     return state->parser.hadError ? NULL : function;// if no error return true
 }
 
@@ -4159,6 +4158,19 @@ static Value cfn_println(State* state, int argc, Value* args)
 }
 
 
+static Value cfn_chr(State* state, int argc, Value* args)
+{
+    char ch;
+    if(!IS_NUMBER(args[0]))
+    {
+        fei_vm_raiseruntimeerror(state, "chr() expects a number");
+        return NULL_VAL;
+    }
+    ch = AS_NUMBER(args[0]);
+    return OBJ_VAL(fei_object_copystring(state, &ch, 1));
+}
+
+
 // IMPORTANT
 // variadic function ( ... ), takes a varying number of arguments
 void fei_vm_raiseruntimeerror(State* state, const char* format, ...)
@@ -4221,6 +4233,7 @@ State* fei_state_init()
 {
     State* state;
     state = (State*)malloc(sizeof(State));
+    memset(state, 0, sizeof(State));
     state->compiler = NULL;
     state->classcompiler = NULL;
     fei_vm_resetstack(state);// initialiing the Value stack, also initializing the callframe count
@@ -4242,6 +4255,7 @@ State* fei_state_init()
     state->initString = fei_object_copystring(state, "init", 4);
 
     fei_vm_defnative(state, "clock", cfn_clock);
+    fei_vm_defnative(state, "chr", cfn_chr);
     fei_vm_defnative(state, "print", cfn_print);
     fei_vm_defnative(state, "println", cfn_println);
     return state;
@@ -4498,43 +4512,47 @@ bool fei_value_isfalsey(State* state, Value value)
 // string concatenation
 void fei_vmdo_strconcat(State* state)
 {
-    ObjString* second = AS_STRING(fei_vm_peekvalue(state, 0));// peek, so we do not pop it off if calling a GC is needed
-    ObjString* first = AS_STRING(fei_vm_peekvalue(state, 1));
-
-    int length = first->length + second->length;
-    char* chars = ALLOCATE(state, char, length + 1);// dynamically allocate memory for the char, chars is now a NULL string
-
-    /* NOTE ON C STRINGS, NULL VS EMPTY
-	-> null string has no elements, it is an empty charray, ONLY DECLARED
-	-> an empty string has the null character '/0'
-	*/
-
+    int length;
+    char* chars;
+    ObjString* first;
+    ObjString* second;
+    ObjString* result;
+    // peek, so we do not pop it off if calling a GC is needed
+    second = AS_STRING(fei_vm_peekvalue(state, 0));
+    first = AS_STRING(fei_vm_peekvalue(state, 1));
+    length = first->length + second->length;
+    // dynamically allocate memory for the char, chars is now a NULL string
+    chars = ALLOCATE(state, char, length + 1);
     // IMPORTANt -> use memcpy when assinging to a char* pointer
-    memcpy(chars, first->chars, first->length);// memcpy function, copy to chars, from first->chars, with second->length number of bits
-    memcpy(chars + first->length, second->chars, second->length);// remember to add the first length of bits to chars again, so it will START AFTER the given offset
-    chars[length] = '\0';// IMPORTANT-> terminating character for Cstring, if not put will get n2222
-
-    ObjString* result = fei_object_takestring(state, chars, length);// declare new ObjString ptr
-    fei_vm_popvalue(state);// pop the two strings, garbage collection
+    // memcpy function, copy to chars, from first->chars, with second->length number of bits
+    memcpy(chars, first->chars, first->length);
+    // remember to add the first length of bits to chars again, so it will START AFTER the given offset
+    memcpy(chars + first->length, second->chars, second->length);
+    chars[length] = '\0';
+    result = fei_object_takestring(state, chars, length);
+    // pop the two strings, garbage collection
+    fei_vm_popvalue(state);
     fei_vm_popvalue(state);
     fei_vm_pushvalue(state, OBJ_VAL(result));
 }
 
 
 /* starting point of the compiler */
-InterpretResult fei_vm_evalsource(State* state, const char* source)
+InterpretResult fei_vm_evalsource(State* state, const char* source, size_t len)
 {
-    ObjFunction* function = fei_compiler_compilesource(state, source);
+    ObjClosure* closure;
+    ObjFunction* function;
+    function = fei_compiler_compilesource(state, source, len);
     if(function == NULL)
+    {
         return INTERPRET_COMPILE_ERROR;// NULL gets passed from compiler
-
+    }
     fei_vm_pushvalue(state, OBJ_VAL(function));
-    ObjClosure* closure = fei_object_makeclosure(state, function);
+    closure = fei_object_makeclosure(state, function);
     fei_vm_popvalue(state);
     fei_vm_pushvalue(state, OBJ_VAL(closure));
-    fei_vm_callvalue(state, OBJ_VAL(closure), 0);// 0 params for main()
-
-
+    // 0 params for main()
+    fei_vm_callvalue(state, OBJ_VAL(closure), 0);
     return fei_vm_exec(state);
 }
 
@@ -5012,6 +5030,70 @@ READ STRING:
 #undef BINARY_OP
 }
 
+char* readhandle(FILE* hnd, size_t* dlen)
+{
+    long rawtold;
+    /*
+    * the value returned by ftell() may not necessarily be the same as
+    * the amount that can be read.
+    * since we only ever read a maximum of $toldlen, there will
+    * be no memory trashing.
+    */
+    size_t toldlen;
+    size_t actuallen;
+    char* buf;
+    if(fseek(hnd, 0, SEEK_END) == -1)
+    {
+        return NULL;
+    }
+    if((rawtold = ftell(hnd)) == -1)
+    {
+        return NULL;
+    }
+    toldlen = rawtold;
+    if(fseek(hnd, 0, SEEK_SET) == -1)
+    {
+        return NULL;
+    }
+    buf = (char*)malloc(toldlen + 1);
+    memset(buf, 0, toldlen+1);
+    if(buf != NULL)
+    {
+        actuallen = fread(buf, sizeof(char), toldlen, hnd);
+        /*
+        // optionally, read remainder:
+        size_t tmplen;
+        if(actuallen < toldlen)
+        {
+            tmplen = actuallen;
+            actuallen += fread(buf+tmplen, sizeof(char), actuallen-toldlen, hnd);
+            ...
+        }
+        // unlikely to be necessary, so not implemented.
+        */
+        if(dlen != NULL)
+        {
+            *dlen = actuallen;
+        }
+        return buf;
+    }
+    return NULL;
+}
+
+char* readfile(const char* filename, size_t* dlen)
+{
+    char* b;
+    FILE* fh;
+    if((fh = fopen(filename, "rb")) == NULL)
+    {
+        return NULL;
+    }
+    b = readhandle(fh, dlen);
+    fclose(fh);
+    return b;
+}
+
+
 // for REPL, the print eval read loop
 void repl(State* state)
 {
@@ -5033,69 +5115,18 @@ void repl(State* state)
             break;
         }
 
-        fei_vm_evalsource(state, line);
+        fei_vm_evalsource(state, line, strlen(line));
     }
 }
 
-// get raw source code from file
-char* readFile(const char* path)
-{
-    /*	Reading files in C
-	FILE* file = fopen(const char *file_name, const char *mode_of_operation
-	r(read) = searches file, and sets up a pointer to the first character. If not found returns null
-	w(write)
-	a(read, set to last pointer)
-	rb(special read to open non-text files, a binary file)
-	*/
-    FILE* file = fopen(path, "rb");
-    if(file == NULL)// if file does not exist or user does not have access
-    {
-        fprintf(stderr, "Could not open file \"%s\".\n", path);
-        exit(74);
-    }
-
-    // fseek - move file pointer to a specific position, offset is number of byte to offset form POSITION(last parameter)
-    // int fseek(file pointer, long int offset, int position)
-    // SEEK_END, SEEK_SET(start), SEEK_CUR
-    // basically set pointer to end of file
-    // 0l = 0 long
-    fseek(file, 0L, SEEK_END);
-    size_t fileSize = ftell(file);// ftell is used to find position of file pointer, used to denote size
-    // top two lines used to get file size
-    rewind(file);// sets file pointer to the beginning of the file
-
-    char* buffer = (char*)malloc(fileSize + 1);// allocate a char*(string) to the size of the file
-    if(buffer == NULL)
-    {
-        fprintf(stderr, "Not enough memory to read \"%s\".\n", path);
-        exit(74);
-    }
-
-    size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);// read the file
-    /* notes on fread in C
-	size_t fread(void * buffer, size_t size, size_t count, FILE * stream)
-	buffer =  a pointer to the block of memoery with a least (size*count) byte
-	size = size of the result type
-	count = number of elements/ file size
-	*/
-
-    if(bytesRead < fileSize)// if read size less than file size
-    {
-        fprintf(stderr, "Could not read \"%s\".\n", path);
-        exit(74);
-    }
-
-    buffer[bytesRead] = '\0';// mark the last character as '\0', the end of file symbol
-
-    fclose(file);
-    return buffer;
-}
 
 // function for loading scripts
 void runFile(State* state, const char* path)
 {
-    char* source = readFile(path);// get raw source code from the file
-    InterpretResult result = fei_vm_evalsource(state, source);// get enum type result from VM
+    size_t len;
+    char* source;
+    source = readfile(path, &len);// get raw source code from the file
+    InterpretResult result = fei_vm_evalsource(state, source, len);// get enum type result from VM
     free(source);// free the source code
 
     if(result == INTERPRET_COMPILE_ERROR)
