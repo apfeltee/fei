@@ -8,22 +8,26 @@
 #include <stdarg.h>
 #include <time.h>
 
+// max frames is fixed
+//#define FRAMES_MAX 64
+#define FRAMES_MAX 1024
+//#define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
+#define STACK_MAX (256*4)
 
 // local variables array in compiler, max of 1 byte is 255
 #define UINT8_COUNT (UINT8_MAX + 1)
 
-
 // track the compiler
-#define DEBUG_PRINT_CODE
+#define DEBUG_PRINT_CODE 0
 
 // execution tracing of the VM
-//#define DEBUG_TRACE_EXECUTION
+#define DEBUG_TRACE_EXECUTION 0
 
 
 // diagnostic tools for garbage collector
 // 'stress' mode; if this is on, GC runs as often as it possibly can
-//#define DEBUG_STRESS_GC
-//#define DEBUG_LOG_GC
+#define DEBUG_STRESS_GC 0
+#define DEBUG_LOG_GC 0
 
 
 // for heap-allocated data, for large data types like strings, functinons, instances
@@ -82,11 +86,11 @@ IMPORTANT = these macros give a 'tag' to each respective values
 
 // macro to allocate memory, usedin obj/heap
 // use fei_gcmem_reallocate as malloc here; start from null pointer, old size is 0, and new size is count
-#define ALLOCATE(type, count) (type*)fei_gcmem_reallocate(NULL, 0, sizeof(type) * (count))
+#define ALLOCATE(state, type, count) (type*)fei_gcmem_reallocate(state, NULL, 0, sizeof(type) * (count))
 
 
 // free memory, pass in new size as 0 to free
-#define FREE(type, pointer) fei_gcmem_reallocate(pointer, sizeof(type), 0)
+#define FREE(state, type, pointer) fei_gcmem_reallocate(state, pointer, sizeof(type), 0)
 
 
 // C macros
@@ -97,17 +101,12 @@ IMPORTANT = these macros give a 'tag' to each respective values
 // macro to grow array
 // make own fei_gcmem_reallocate function
 // basically declare our return type here with (type*)
-#define GROW_ARRAY(type, pointer, oldCount, newCount) (type*)fei_gcmem_reallocate(pointer, sizeof(type) * (oldCount), sizeof(type) * (newCount))
+#define GROW_ARRAY(state, type, pointer, oldCount, newCount) (type*)fei_gcmem_reallocate(state, pointer, sizeof(type) * (oldCount), sizeof(type) * (newCount))
 
 // no (type*) because function does not return a type
 // 0 is the new capacity
 // used to free eg. char arrays
-#define FREE_ARRAY(type, pointer, oldCount) fei_gcmem_reallocate(pointer, sizeof(type) * (oldCount), 0)
-
-// max frames is fixed
-//#define FRAMES_MAX 64
-#define FRAMES_MAX 1024
-#define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
+#define FREE_ARRAY(state, type, pointer, oldCount) fei_gcmem_reallocate(state, pointer, sizeof(type) * (oldCount), 0)
 
 
 enum TokenType
@@ -322,6 +321,10 @@ typedef struct /**/ ObjFunction ObjFunction;
 typedef struct /**/ Local Local;
 typedef struct /**/ Upvalue Upvalue;
 typedef struct /**/ State State;
+typedef struct ObjClass ObjClass;
+typedef struct ObjInstance ObjInstance;
+typedef struct ObjBoundMethod ObjBoundMethod;
+typedef struct CallFrame CallFrame;
 
 
 /* IMPORTANT 
@@ -369,7 +372,7 @@ typedef struct
 
 // simple typdef function type with no arguments and returns nothing
 // acts like a "virtual" function , a void function that cam be overidden; actually a void but override it with ParseFn
-typedef void (*ParseFn)(bool);
+typedef void (*ParseFn)(State*, bool);
 
 
 /*	parse rule, what is needed:
@@ -523,7 +526,7 @@ typedef struct
 
 /*  NATIVE FUNCTIONS(file systems, user input etc.)
 -> native functions reference a call to native C code insted of bytecode */
-typedef Value (*NativeFn)(int argCount, Value* args);// rename Value to NativeFn
+typedef Value (*NativeFn)(State*, int, Value*);// rename Value to NativeFn
 
 typedef struct
 {
@@ -540,41 +543,40 @@ struct ObjString// using struct inheritance
     uint32_t hash;// for hash table, for cache(temporary storage area); each ObjString has a hash code for itself
 };
 
-
 // class object type
-typedef struct
+struct ObjClass
 {
     Obj obj;
     ObjString* name;// not needed for uer's program, but helps the dev in debugging
     Table methods;// hash table for storing methods
-} ObjClass;
+};
 
-typedef struct
+struct ObjInstance
 {
     Obj obj;// inherits from object, the "object" tag
     ObjClass* kelas;// pointer to class types
     Table fields;// use a hash table to store fields
-} ObjInstance;
+};
 
 
 // struct for class methods
-typedef struct
+struct ObjBoundMethod
 {
     Obj obj;
     Value receiver;// wraps receiver and function/method/closure together, receiver is the ObjInstance / lcass type
     ObjClosure* method;
-} ObjBoundMethod;
+};
 
 // the call stack
 // keep track where on the stack a function's local begin, where the caller should resume, etc.
 // a call frame represents a single ongoing function call
 // each time a function is called, create this struct
-typedef struct
+struct CallFrame
 {
     ObjClosure* closure;
     uint8_t* ip;// store ip on where in the VM the function is
     Value* slots;// this points into the VM's value stack at the first slot the function can use
-} CallFrame;
+};
 
 struct State
 {
@@ -616,171 +618,182 @@ struct State
 };
 
 
-/* main.c */
-void* fei_gcmem_reallocate(void* pointer, size_t oldSize, size_t newSize);
-void fei_gcmem_freeobject(Obj* object);
-void fei_gcmem_markobject(Obj* object);
-void fei_gcmem_markvalue(Value value);
-void fei_gcmem_markarray(ValueArray* array);
-void fei_gcmem_markroots(void);
-void fei_gcmem_blackenobject(Obj* object);
-void fei_gcmem_tracerefs(void);
-void fei_gcmem_sweep(void);
-void fei_gcmem_collectgarbage(void);
-void fei_gcmem_freeobjects(void);
-void fei_valarray_init(ValueArray* array);
-void fei_valarray_push(ValueArray* array, Value value);
-void fei_valarray_destroy(ValueArray* array);
-void fei_value_printvalue(Value value);
-bool fei_value_compare(Value a, Value b);
-Obj* fei_object_allocobject(size_t size, ObjType type);
-ObjBoundMethod* fei_object_makeboundmethod(Value receiver, ObjClosure* method);
-ObjClosure* fei_object_makeclosure(ObjFunction* function);
-ObjString* fei_object_allocstring(char* chars, int length, uint32_t hash);
-ObjClass* fei_object_makeclass(ObjString* name);
-ObjInstance* fei_object_makeinstance(ObjClass* kelas);
-ObjFunction* fei_object_makefunction(void);
-ObjNative* fei_object_makenativefunc(NativeFn function);
-uint32_t fei_object_hashstring(const char* key, int length);
-ObjString* fei_object_takestring(char* chars, int length);
-ObjString* fei_object_copystring(const char* chars, int length);
-ObjUpvalue* fei_object_makeupvalue(Value* slot);
-void fei_object_printfunc(ObjFunction* function);
-void fei_object_printobject(Value value);
-void fei_table_init(Table* table);
-void fei_table_destroy(Table* table);
-Entry* fei_table_findentry(Entry* entries, int capacity, ObjString* key);
-bool fei_table_get(Table* table, ObjString* key, Value* value);
-void fei_table_adjustcapacity(Table* table, int capacity);
-bool fei_table_set(Table* table, ObjString* key, Value value);
-bool fei_table_delete(Table* table, ObjString* key);
-void fei_table_mergefrom(Table* from, Table* to);
-ObjString* fei_table_findstring(Table* table, const char* chars, int length, uint32_t hash);
-void fei_table_removeunreachable(Table* table);
-void fei_table_mark(Table* table);
-void fei_chunk_init(Chunk* chunk);
-void fei_chunk_pushbyte(Chunk* chunk, uint8_t byte, int line);
-void fei_chunk_destroy(Chunk* chunk);
-int fei_chunk_pushconst(Chunk* chunk, Value value);
-int fei_dbgutil_printsimpleir(const char* name, int offset);
-int fei_dbgutil_printbyteir(const char* name, Chunk* chunk, int offset);
-int fei_dbgutil_printconstir(const char* name, Chunk* chunk, int offset);
-int fei_dbgutil_printinvokeir(const char* name, Chunk* chunk, int offset);
-int fei_dbgutil_printjumpir(const char* name, int sign, Chunk* chunk, int offset);
-void fei_dbgdisas_chunk(Chunk* chunk, const char* name);
-int fei_dbgdisas_instr(Chunk* chunk, int offset);
-void fei_lexer_initsource(const char* source);
-bool fei_lexutil_isalpha(char c);
-bool fei_lexutil_isdigit(char c);
-bool fei_lexer_isatend(void);
-char fei_lexer_advance(void);
-bool fei_lexer_match(char expected);
-Token fei_lexer_maketoken(TokenType type);
-Token fei_lexer_errortoken(const char* message);
-char fei_lexer_peekcurrent(void);
-char fei_lexer_peeknext(void);
-void fei_lexer_skipspace(void);
-TokenType fei_lexer_checkkw(int start, int length, const char* rest, TokenType type);
-TokenType fei_lexer_scantype(void);
-Token fei_lexer_scanident(void);
-Token fei_lexer_scannumber(void);
-Token fei_lexer_scanstring(void);
-Token fei_lexer_scantoken(void);
-Chunk* fei_compiler_currentchunk(void);
-void fei_compiler_raiseat(Token* token, const char* message);
-void fei_compiler_raiseerror(const char* message);
-void fei_compiler_raisehere(const char* message);
-void fei_compiler_advancenext(void);
-void fei_compiler_advanceskipping(TokenType type);
-void fei_compiler_consume(TokenType type, const char* message);
-bool fei_compiler_check(TokenType type);
-bool fei_compiler_match(TokenType type);
-void fei_compiler_emitbyte(uint8_t byte);
-void fei_compiler_emitbytes(uint8_t byte1, uint8_t byte2);
-void fei_compiler_emitloop(int loopStart);
-void fei_compiler_emitcondloop(int loopStart, bool state);
-int fei_compiler_emitjump(uint8_t instruction);
-void fei_compiler_emitreturn(void);
-uint8_t fei_compiler_makeconst(Value value);
-void fei_compiler_emitconst(Value value);
-void fei_compiler_patchjump(int offset);
-void fei_compiler_init(Compiler* compiler, FunctionType type);
-ObjFunction* fei_compiler_endcompiler(void);
-void fei_compiler_beginscope(void);
-void fei_compiler_endscope(void);
-void fei_compiler_beginloopscope(void);
-void fei_compiler_endloopscope(void);
-void fei_compiler_markcontinuejump(void);
-void fei_compiler_patchbreakjumps(void);
-uint8_t fei_compiler_makeidentconst(Token* name);
-bool fei_compiler_identsequal(Token* a, Token* b);
-int fei_compiler_resolvelocal(Compiler* compiler, Token* name);
-int fei_compiler_addupvalue(Compiler* compiler, uint8_t index, bool isLocal);
-int fei_compiler_resolveupvalue(Compiler* compiler, Token* name);
-void fei_compiler_addlocal(Token name);
-void fei_compiler_declvarfromcurrent(void);
-uint8_t fei_compiler_parsevarfromcurrent(const char* errorMessage);
-void fei_compiler_markinit(void);
-void fei_compiler_defvarindex(uint8_t global);
-uint8_t fei_compiler_parsearglist(void);
-void fei_compiler_declnamedvar(Token name, bool canassign);
-Token fei_compiler_makesyntoken(const char* text);
-void fei_compiler_parseprec(Precedence precedence);
-ParseRule* fei_compiler_getrule(TokenType type);
-void fei_compiler_parseexpr(void);
-void fei_compiler_parseblock(void);
-void fei_compiler_parsefuncdecl(FunctionType type);
-void fei_compiler_parsemethoddecl(void);
-void fei_compiler_parseclassdecl(void);
-void fei_compiler_parseclassfuncdecl(void);
-void fei_compiler_parsevardecl(void);
-void fei_compiler_parseexprstmt(void);
-void fei_compiler_parseifstmt(void);
-void fei_compiler_parseswitchstmt(void);
-void fei_compiler_parseprintstmt(void);
-void fei_compiler_parsereturnstmt(void);
-void fei_compiler_parseforstmt(void);
-void fei_compiler_parsewhilestmt(void);
-void fei_compiler_parsebreakstmt(void);
-void fei_compiler_parsecontinuestmt(void);
-void fei_compiler_parserepeatuntilstmt(void);
-void fei_compiler_parsedowhilestmt(void);
-void fei_compiler_synchronize(void);
-void fei_compiler_parsedeclaration(void);
-void fei_compiler_parsestatement(void);
-ObjFunction* fei_compiler_compilesource(const char* source);
-void fei_compiler_markroots(void);
-void fei_vm_resetstack(void);
-void fei_vm_raiseruntimeerror(const char* format, ...);
-void fei_vm_defnative(const char* name, NativeFn function);
-State* fei_state_init(void);
-void fei_state_destroy(State* r);
-void fei_vm_pushvalue(Value value);
-Value fei_vm_popvalue(void);
-Value fei_vm_peekvalue(int distance);
-bool fei_vm_callclosure(ObjClosure* closure, int argCount);
-bool fei_vm_callvalue(Value callee, int argCount);
-bool fei_class_invokemethod(ObjClass* kelas, ObjString* name, int argCount);
-bool fei_vm_stackinvoke(ObjString* name, int argCount);
-bool fei_class_bindmethod(ObjClass* kelas, ObjString* name);
-ObjUpvalue* fei_vm_captureupvalue(Value* local);
-void fei_vm_closeupvalues(Value* last);
-void fei_vm_stackdefmethod(ObjString* name);
-bool fei_value_isfalsey(Value value);
-void fei_vmdo_strconcat(void);
-InterpretResult fei_vm_evalsource(const char* source);
-InterpretResult fei_vm_exec(void);
-void repl(void);
-char* readFile(const char* path);
-void runFile(const char* path);
+void *fei_gcmem_reallocate(State *state, void *pointer, size_t oldSize, size_t newSize);
+void fei_gcmem_freeobject(State *state, Obj *object);
+void fei_gcmem_markobject(State *state, Obj *object);
+void fei_gcmem_markvalue(State *state, Value value);
+void fei_gcmem_markarray(State *state, ValueArray *array);
+void fei_gcmem_markroots(State *state);
+void fei_gcmem_blackenobject(State *state, Obj *object);
+void fei_gcmem_tracerefs(State *state);
+void fei_gcmem_sweep(State *state);
+void fei_gcmem_collectgarbage(State *state);
+void fei_gcmem_freeobjects(State *state);
+void fei_valarray_init(State *state, ValueArray *array);
+void fei_valarray_push(State *state, ValueArray *array, Value value);
+void fei_valarray_destroy(State *state, ValueArray *array);
+void fei_value_printvalue(State *state, Value value);
+bool fei_value_compare(State *state, Value a, Value b);
+Obj *fei_object_allocobject(State *state, size_t size, ObjType type);
+ObjBoundMethod *fei_object_makeboundmethod(State *state, Value receiver, ObjClosure *method);
+ObjClosure *fei_object_makeclosure(State *state, ObjFunction *function);
+ObjString *fei_object_allocstring(State *state, char *chars, int length, uint32_t hash);
+ObjClass *fei_object_makeclass(State *state, ObjString *name);
+ObjInstance *fei_object_makeinstance(State *state, ObjClass *kelas);
+ObjFunction *fei_object_makefunction(State *state);
+ObjNative *fei_object_makenativefunc(State *state, NativeFn function);
+uint32_t fei_object_hashstring(State *state, const char *key, int length);
+ObjString *fei_object_takestring(State *state, char *chars, int length);
+ObjString *fei_object_copystring(State *state, const char *chars, int length);
+ObjUpvalue *fei_object_makeupvalue(State *state, Value *slot);
+void fei_object_printfunc(State *state, ObjFunction *function);
+void fei_object_printobject(State *state, Value value);
+void fei_table_init(State *state, Table *table);
+void fei_table_destroy(State *state, Table *table);
+Entry *fei_table_findentry(State *state, Entry *entries, int capacity, ObjString *key);
+bool fei_table_get(State *state, Table *table, ObjString *key, Value *value);
+void fei_table_adjustcapacity(State *state, Table *table, int capacity);
+bool fei_table_set(State *state, Table *table, ObjString *key, Value value);
+bool fei_table_delete(State *state, Table *table, ObjString *key);
+void fei_table_mergefrom(State *state, Table *from, Table *to);
+ObjString *fei_table_findstring(State *state, Table *table, const char *chars, int length, uint32_t hash);
+void fei_table_removeunreachable(State *state, Table *table);
+void fei_table_mark(State *state, Table *table);
+void fei_chunk_init(State *state, Chunk *chunk);
+void fei_chunk_pushbyte(State *state, Chunk *chunk, uint8_t byte, int line);
+void fei_chunk_destroy(State *state, Chunk *chunk);
+int fei_chunk_pushconst(State *state, Chunk *chunk, Value value);
+int fei_dbgutil_printsimpleir(State *state, const char *name, int offset);
+int fei_dbgutil_printbyteir(State *state, const char *name, Chunk *chunk, int offset);
+int fei_dbgutil_printconstir(State *state, const char *name, Chunk *chunk, int offset);
+int fei_dbgutil_printinvokeir(State *state, const char *name, Chunk *chunk, int offset);
+int fei_dbgutil_printjumpir(State *state, const char *name, int sign, Chunk *chunk, int offset);
+void fei_dbgdisas_chunk(State *state, Chunk *chunk, const char *name);
+int fei_dbgdisas_instr(State *state, Chunk *chunk, int offset);
+void fei_lexer_initsource(State *state, const char *source);
+bool fei_lexutil_isalpha(State *state, char c);
+bool fei_lexutil_isdigit(State *state, char c);
+bool fei_lexer_isatend(State *state);
+char fei_lexer_advance(State *state);
+bool fei_lexer_match(State *state, char expected);
+Token fei_lexer_maketoken(State *state, TokenType type);
+Token fei_lexer_errortoken(State *state, const char *message);
+char fei_lexer_peekcurrent(State *state);
+char fei_lexer_peeknext(State *state);
+void fei_lexer_skipspace(State *state);
+TokenType fei_lexer_checkkw(State *state, int start, int length, const char *rest, TokenType type);
+TokenType fei_lexer_scantype(State *state);
+Token fei_lexer_scanident(State *state);
+Token fei_lexer_scannumber(State *state);
+Token fei_lexer_scanstring(State *state);
+Token fei_lexer_scantoken(State *state);
+Chunk *fei_compiler_currentchunk(State *state);
+void fei_compiler_raiseat(State *state, Token *token, const char *message);
+void fei_compiler_raiseerror(State *state, const char *message);
+void fei_compiler_raisehere(State *state, const char *message);
+void fei_compiler_advancenext(State *state);
+void fei_compiler_advanceskipping(State *state, TokenType type);
+void fei_compiler_consume(State *state, TokenType type, const char *message);
+bool fei_compiler_check(State *state, TokenType type);
+bool fei_compiler_match(State *state, TokenType type);
+void fei_compiler_emitbyte(State *state, uint8_t byte);
+void fei_compiler_emitbytes(State *state, uint8_t byte1, uint8_t byte2);
+void fei_compiler_emitloop(State *state, int loopStart);
+void fei_compiler_emitcondloop(State *state, int loopStart, bool condstate);
+int fei_compiler_emitjump(State *state, uint8_t instruction);
+void fei_compiler_emitreturn(State *state);
+uint8_t fei_compiler_makeconst(State *state, Value value);
+void fei_compiler_emitconst(State *state, Value value);
+void fei_compiler_patchjump(State *state, int offset);
+void fei_compiler_init(State *state, Compiler *compiler, FunctionType type);
+ObjFunction *fei_compiler_endcompiler(State *state);
+void fei_compiler_beginscope(State *state);
+void fei_compiler_endscope(State *state);
+void fei_compiler_beginloopscope(State *state);
+void fei_compiler_endloopscope(State *state);
+void fei_compiler_markcontinuejump(State *state);
+void fei_compiler_patchbreakjumps(State *state);
+uint8_t fei_compiler_makeidentconst(State *state, Token *name);
+bool fei_compiler_identsequal(State *state, Token *a, Token *b);
+int fei_compiler_resolvelocal(State *state, Compiler *compiler, Token *name);
+int fei_compiler_addupvalue(State *state, Compiler *compiler, uint8_t index, bool isLocal);
+int fei_compiler_resolveupvalue(State *state, Compiler *compiler, Token *name);
+void fei_compiler_addlocal(State *state, Token name);
+void fei_compiler_declvarfromcurrent(State *state);
+uint8_t fei_compiler_parsevarfromcurrent(State *state, const char *errorMessage);
+void fei_compiler_markinit(State *state);
+void fei_compiler_defvarindex(State *state, uint8_t global);
+uint8_t fei_compiler_parsearglist(State *state);
+static void fei_comprule_logicaland(State *state, bool canassign);
+static void fei_comprule_binary(State *state, bool canassign);
+static void fei_comprule_call(State *state, bool canassign);
+static void fei_comprule_dot(State *state, bool canassign);
+static void fei_comprule_literal(State *state, bool canassign);
+static void fei_comprule_grouping(State *state, bool canassign);
+static void fei_comprule_number(State *state, bool canassign);
+static void fei_comprule_logicalor(State *state, bool canassign);
+static void fei_comprule_string(State *state, bool canassign);
+void fei_compiler_declnamedvar(State *state, Token name, bool canassign);
+static void fei_comprule_variable(State *state, bool canassign);
+Token fei_compiler_makesyntoken(State *state, const char *text);
+static void fei_comprule_super(State *state, bool canassign);
+static void fei_comprule_this(State *state, bool canassign);
+static void fei_comprule_unary(State *state, bool canassign);
+void fei_compiler_parseprec(State *state, Precedence precedence);
+ParseRule *fei_compiler_getrule(State *state, TokenType type);
+void fei_compiler_parseexpr(State *state);
+void fei_compiler_parseblock(State *state);
+void fei_compiler_parsefuncdecl(State *state, FunctionType type);
+void fei_compiler_parsemethoddecl(State *state);
+void fei_compiler_parseclassdecl(State *state);
+void fei_compiler_parseclassfuncdecl(State *state);
+void fei_compiler_parsevardecl(State *state);
+void fei_compiler_parseexprstmt(State *state);
+void fei_compiler_parseifstmt(State *state);
+void fei_compiler_parseswitchstmt(State *state);
+void fei_compiler_parseprintstmt(State *state);
+void fei_compiler_parsereturnstmt(State *state);
+void fei_compiler_parseforstmt(State *state);
+void fei_compiler_parsewhilestmt(State *state);
+void fei_compiler_parsebreakstmt(State *state);
+void fei_compiler_parsecontinuestmt(State *state);
+void fei_compiler_parserepeatuntilstmt(State *state);
+void fei_compiler_parsedowhilestmt(State *state);
+void fei_compiler_synchronize(State *state);
+void fei_compiler_parsedeclaration(State *state);
+void fei_compiler_parsestatement(State *state);
+ObjFunction *fei_compiler_compilesource(State *state, const char *source);
+void fei_compiler_markroots(State *state);
+void fei_vm_raiseruntimeerror(State *state, const char *format, ...);
+void fei_vm_defnative(State *state, const char *name, NativeFn function);
+void fei_vm_resetstack(State *state);
+State *fei_state_init(void);
+void fei_state_destroy(State *state);
+void fei_vm_pushvalue(State *state, Value value);
+Value fei_vm_popvalue(State *state);
+Value fei_vm_peekvalue(State *state, int distance);
+bool fei_vm_callclosure(State *state, ObjClosure *closure, int argCount);
+bool fei_vm_callvalue(State *state, Value callee, int argCount);
+bool fei_class_invokemethod(State *state, ObjClass *kelas, ObjString *name, int argCount);
+bool fei_vm_stackinvoke(State *state, ObjString *name, int argCount);
+bool fei_class_bindmethod(State *state, ObjClass *kelas, ObjString *name);
+ObjUpvalue *fei_vm_captureupvalue(State *state, Value *local);
+void fei_vm_closeupvalues(State *state, Value *last);
+void fei_vm_stackdefmethod(State *state, ObjString *name);
+bool fei_value_isfalsey(State *state, Value value);
+void fei_vmdo_strconcat(State *state);
+InterpretResult fei_vm_evalsource(State *state, const char *source);
+InterpretResult fei_vm_exec(State *state);
+void repl(State *state);
+char *readFile(const char *path);
+void runFile(State *state, const char *path);
+int main(int argc, const char *argv[]);
+
 
 static inline bool fei_object_istype(Value value, ObjType type)// inline function, initialized in .h file
 {
     return IS_OBJ(value) && AS_OBJ(value)->type == type;
 }
-
-// initialize virtual machine here
-State* state;
 
 
 // growth factor for garbage collection heap
@@ -789,20 +802,20 @@ State* state;
 
 // A void pointer is a pointer that has no associated data type with it.
 // A void pointer can hold address of any type and can be typcasted to any type.
-void* fei_gcmem_reallocate(void* pointer, size_t oldSize, size_t newSize)
+void* fei_gcmem_reallocate(State* state, void* pointer, size_t oldSize, size_t newSize)
 {
     state->bytesAllocated += newSize - oldSize;// self adjusting heap for garbage collection
 
     if(newSize > oldSize)// when allocating NEW memory, not when freeing as collecGarbage will cal void* reallocate itself
     {
-#ifdef DEBUG_STRESS_GC
-        fei_gcmem_collectgarbage();
+#if defined(DEBUG_STRESS_GC) && (DEBUG_STRESS_GC == 1)
+        fei_gcmem_collectgarbage(state);
 #endif
 
         // run collecter if bytesAllocated is above threshold
         if(state->bytesAllocated > state->nextGC)
         {
-            fei_gcmem_collectgarbage();
+            fei_gcmem_collectgarbage(state);
         }
     }
 
@@ -824,64 +837,64 @@ void* fei_gcmem_reallocate(void* pointer, size_t oldSize, size_t newSize)
 
 
 // you can pass in a'lower' struct pointer, in this case Obj*, and get the higher level which is ObjFunction
-void fei_gcmem_freeobject(Obj* object)// to handle different types
+void fei_gcmem_freeobject(State* state, Obj* object)// to handle different types
 {
-#ifdef DEBUG_LOG_GC
+#if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
     printf("%p free type %d\n", (void*)object, object->type);
 #endif
 
     switch(object->type)
     {
         case OBJ_BOUND_METHOD:
-            FREE(ObjBoundMethod, object);
+            FREE(state, ObjBoundMethod, object);
             break;
 
         case OBJ_CLASS:
         {
             // free class type
             ObjClass* kelas = (ObjClass*)object;
-            fei_table_destroy(&kelas->methods);
-            FREE(ObjClass, object);
+            fei_table_destroy(state, &kelas->methods);
+            FREE(state, ObjClass, object);
             break;
         }
         case OBJ_INSTANCE:
         {
             ObjInstance* instance = (ObjInstance*)object;
-            fei_table_destroy(&instance->fields);
-            FREE(ObjInstance, object);
+            fei_table_destroy(state, &instance->fields);
+            FREE(state, ObjInstance, object);
             break;
         }
         case OBJ_CLOSURE:
         {
             // free upvalues
             ObjClosure* closure = (ObjClosure*)object;
-            FREE_ARRAY(ObjUpvalue*, closure->upvalues, closure->upvalueCount);
+            FREE_ARRAY(state, ObjUpvalue*, closure->upvalues, closure->upvalueCount);
 
-            FREE(ObjClosure, object);// only free the closure, not the function itself
+            FREE(state, ObjClosure, object);// only free the closure, not the function itself
             break;
         }
         case OBJ_FUNCTION:// return bits(chunk) borrowed to the operating syste,
         {
             ObjFunction* function = (ObjFunction*)object;
-            fei_chunk_destroy(&function->chunk);
-            FREE(ObjFunction, object);
+            fei_chunk_destroy(state, &function->chunk);
+            FREE(state, ObjFunction, object);
             break;
         }
         case OBJ_NATIVE:
         {
-            FREE(ObjNative, object);
+            FREE(state, ObjNative, object);
             break;
         }
         case OBJ_STRING:
         {
             ObjString* string = (ObjString*)object;
-            FREE_ARRAY(char, string->chars, string->length + 1);
-            FREE(ObjString, object);
+            FREE_ARRAY(state, char, string->chars, string->length + 1);
+            FREE(state, ObjString, object);
             break;
         }
         case OBJ_UPVALUE:
         {
-            FREE(ObjUpvalue, object);
+            FREE(state, ObjUpvalue, object);
             break;
         }
     }
@@ -889,7 +902,7 @@ void fei_gcmem_freeobject(Obj* object)// to handle different types
 
 /*		garbage collection		 */
 
-void fei_gcmem_markobject(Obj* object)
+void fei_gcmem_markobject(State* state, Obj* object)
 {
     if(object == NULL)
         return;// in some places the pointer is empty
@@ -911,67 +924,67 @@ void fei_gcmem_markobject(Obj* object)
     // add the 'gray' object to the working list
     state->grayStack[state->grayCount++] = object;
 
-#ifdef DEBUG_LOG_GC
+#if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
     printf("%p marked ", (void*)object);
-    fei_value_printvalue(OBJ_VAL(object));// you cant print first class objects, like how you would print in the actual repl
+    fei_value_printvalue(state, OBJ_VAL(object));// you cant print first class objects, like how you would print in the actual repl
     printf("\n");
 #endif
 }
 
-void fei_gcmem_markvalue(Value value)
+void fei_gcmem_markvalue(State* state, Value value)
 {
     if(!IS_OBJ(value))
         return;// if value is not first class Objtype return
-    fei_gcmem_markobject(AS_OBJ(value));
+    fei_gcmem_markobject(state, AS_OBJ(value));
 }
 
 
 // marking array of values/constants of a function, used in fei_gcmem_blackenobject, case OBJ_FUNCTION
-void fei_gcmem_markarray(ValueArray* array)
+void fei_gcmem_markarray(State* state, ValueArray* array)
 {
     for(int i = 0; i < array->count; i++)
     {
-        fei_gcmem_markvalue(array->values[i]);// mark each Value in the array
+        fei_gcmem_markvalue(state, array->values[i]);// mark each Value in the array
     }
 }
 
 
-void fei_gcmem_markroots()
+void fei_gcmem_markroots(State* state)
 {
     // assiging a pointer to a full array means assigning the pointer to the FIRST element of that array
     for(Value* slot = state->stack; slot < state->stackTop; slot++)// walk through all values/slots in the Value* array
     {
-        fei_gcmem_markvalue(*slot);
+        fei_gcmem_markvalue(state, *slot);
     }
 
     // mark closures
     for(int i = 0; i < state->frameCount; i++)
     {
-        fei_gcmem_markobject((Obj*)state->frames[i].closure);// mark ObjClosure  type
+        fei_gcmem_markobject(state, (Obj*)state->frames[i].closure);// mark ObjClosure  type
     }
 
     // mark upvalues, walk through the linked list of upvalues
     for(ObjUpvalue* upvalue = state->openUpvalues; upvalue != NULL; upvalue = upvalue->next)
     {
-        fei_gcmem_markobject((Obj*)upvalue);
+        fei_gcmem_markobject(state, (Obj*)upvalue);
     }
 
 
-    fei_table_mark(&state->globals);// mark global variables, belongs in the VM/hashtable
+    fei_table_mark(state, &state->globals);// mark global variables, belongs in the VM/hashtable
 
     // compiler also grabs memory; special function only for 'backend' processes
-    fei_compiler_markroots();// declared in compiler.h
+    fei_compiler_markroots(state);// declared in compiler.h
 
-    fei_gcmem_markobject((Obj*)state->initString);// mark objstring for init
+    fei_gcmem_markobject(state, (Obj*)state->initString);// mark objstring for init
 }
 
 
 // actual tracing of each gray object and marking it black
-void fei_gcmem_blackenobject(Obj* object)
+void fei_gcmem_blackenobject(State* state, Obj* object)
 {
-#ifdef DEBUG_LOG_GC
+#if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
     printf("%p blackened ", (void*)object);
-    fei_value_printvalue(OBJ_VAL(object));
+    fei_value_printvalue(state, OBJ_VAL(object));
     printf("\n");
 #endif
 
@@ -981,31 +994,31 @@ void fei_gcmem_blackenobject(Obj* object)
         case OBJ_BOUND_METHOD:
         {
             ObjBoundMethod* bound = (ObjBoundMethod*)object;
-            fei_gcmem_markvalue(bound->receiver);
-            fei_gcmem_markobject((Obj*)bound->method);
+            fei_gcmem_markvalue(state, bound->receiver);
+            fei_gcmem_markobject(state, (Obj*)bound->method);
             break;
         }
 
         case OBJ_UPVALUE:// simply mark the closed value
-            fei_gcmem_markvalue(((ObjUpvalue*)object)->closed);
+            fei_gcmem_markvalue(state, ((ObjUpvalue*)object)->closed);
             break;
 
         case OBJ_FUNCTION:// mark the name and its value array of constants
         {
             // you can get the coressponding 'higher' object type from a lower derivation struct in C using (higher*)lower
             ObjFunction* function = (ObjFunction*)object;
-            fei_gcmem_markobject((Obj*)function->name);// mark its name, an ObjString type
-            fei_gcmem_markarray(&function->chunk.constants);// mark value array of chunk constants, pass it in AS A POINTER using &
+            fei_gcmem_markobject(state, (Obj*)function->name);// mark its name, an ObjString type
+            fei_gcmem_markarray(state, &function->chunk.constants);// mark value array of chunk constants, pass it in AS A POINTER using &
             break;
         }
 
         case OBJ_CLOSURE:// mark the function and all of the closure's upvalues
         {
             ObjClosure* closure = (ObjClosure*)object;
-            fei_gcmem_markobject((Obj*)closure->function);
+            fei_gcmem_markobject(state, (Obj*)closure->function);
             for(int i = 0; i < closure->upvalueCount; i++)
             {
-                fei_gcmem_markobject((Obj*)closure->upvalues[i]);
+                fei_gcmem_markobject(state, (Obj*)closure->upvalues[i]);
             }
             break;
         }
@@ -1013,16 +1026,16 @@ void fei_gcmem_blackenobject(Obj* object)
         case OBJ_CLASS:
         {
             ObjClass* kelas = (ObjClass*)object;
-            fei_gcmem_markobject((Obj*)kelas->name);
-            fei_table_mark(&kelas->methods);
+            fei_gcmem_markobject(state, (Obj*)kelas->name);
+            fei_table_mark(state, &kelas->methods);
             break;
         }
 
         case OBJ_INSTANCE:
         {
             ObjInstance* instance = (ObjInstance*)object;
-            fei_gcmem_markobject((Obj*)instance->kelas);
-            fei_table_mark(&instance->fields);
+            fei_gcmem_markobject(state, (Obj*)instance->kelas);
+            fei_table_mark(state, &instance->fields);
             break;
         }
             // these two objects contain NO OUTGOING REFERENCES there is nothing to traverse
@@ -1034,7 +1047,7 @@ void fei_gcmem_blackenobject(Obj* object)
 
 
 // traversing the gray stack work list
-void fei_gcmem_tracerefs()
+void fei_gcmem_tracerefs(State* state)
 {
     while(state->grayCount > 0)
     {
@@ -1042,13 +1055,13 @@ void fei_gcmem_tracerefs()
         // note how -- is the prefix; subtract first then use it as an index
         // --state->grayCount already decreases its count, hence everything is already 'popped'
         Obj* object = state->grayStack[--state->grayCount];
-        fei_gcmem_blackenobject(object);
+        fei_gcmem_blackenobject(state, object);
     }
 }
 
 
 // sweeping all unreachable values
-void fei_gcmem_sweep()
+void fei_gcmem_sweep(State* state)
 {
     Obj* previous = NULL;
     Obj* object = state->objects;// linked intrusive list of Objects in the VM
@@ -1075,31 +1088,31 @@ void fei_gcmem_sweep()
                 state->objects = object;
             }
 
-            fei_gcmem_freeobject(unreached);// method that actually frees the object
+            fei_gcmem_freeobject(state, unreached);// method that actually frees the object
         }
     }
 }
 
-void fei_gcmem_collectgarbage()
+void fei_gcmem_collectgarbage(State* state)
 {
-#ifdef DEBUG_LOG_GC
+#if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
     printf("--Garbage Collection Begin\n");
     size_t before = state->bytesAllocated;
 #endif
 
-    fei_gcmem_markroots();// function to start traversing the graph, from the root and marking them
-    fei_gcmem_tracerefs();// tracing each gray marked object
+    fei_gcmem_markroots(state);// function to start traversing the graph, from the root and marking them
+    fei_gcmem_tracerefs(state);// tracing each gray marked object
 
     // removing intern strings, BEFORE the sweep so the pointers can still access its memory
     // function defined in hahst.c
-    fei_table_removeunreachable(&state->strings);
+    fei_table_removeunreachable(state, &state->strings);
 
-    fei_gcmem_sweep();// free all unreachable roots
+    fei_gcmem_sweep(state);// free all unreachable roots
 
     // adjust size of threshold
     state->nextGC = state->bytesAllocated * GC_HEAP_GROW_FACTOR;
 
-#ifdef DEBUG_LOG_GC
+#if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
     printf("--Garbage Collection End\n");
     printf("	collected %zd bytes (from %zd to %zd) next at %zd\n", before - state->bytesAllocated, before, state->bytesAllocated, state->nextGC);
 #endif
@@ -1109,48 +1122,48 @@ void fei_gcmem_collectgarbage()
 /*		end of garbage collection		 */
 
 
-void fei_gcmem_freeobjects()// free from VM
+void fei_gcmem_freeobjects(State* state)// free from VM
 {
     Obj* object = state->objects;
     // free from the whole list
     while(object != NULL)
     {
         Obj* next = object->next;
-        fei_gcmem_freeobject(object);
+        fei_gcmem_freeobject(state, object);
         object = next;
     }
 
     free(state->grayStack);// free gray marked obj stack used for garbage collection
 }
 
-void fei_valarray_init(ValueArray* array)
+void fei_valarray_init(State* state, ValueArray* array)
 {
     array->count = 0;
     array->capacity = 0;
     array->values = NULL;
 }
 
-void fei_valarray_push(ValueArray* array, Value value)
+void fei_valarray_push(State* state, ValueArray* array, Value value)
 {
     if(array->capacity < array->count + 1)
     {
         int oldCapacity = array->capacity;
         array->capacity = GROW_CAPACITY(oldCapacity);
-        array->values = GROW_ARRAY(Value, array->values, oldCapacity, array->capacity);
+        array->values = GROW_ARRAY(state, Value, array->values, oldCapacity, array->capacity);
     }
 
     array->values[array->count] = value;
     array->count++;
 }
 
-void fei_valarray_destroy(ValueArray* array)
+void fei_valarray_destroy(State* state, ValueArray* array)
 {
-    FREE_ARRAY(Value, array->values, array->capacity);
-    fei_valarray_init(array);
+    FREE_ARRAY(state, Value, array->values, array->capacity);
+    fei_valarray_init(state, array);
 }
 
 // actual printing on the virtual machine is done here
-void fei_value_printvalue(Value value)
+void fei_value_printvalue(State* state, Value value)
 {
     switch(value.type)
     {
@@ -1164,14 +1177,14 @@ void fei_value_printvalue(Value value)
             printf("%g", AS_NUMBER(value));
             break;
         case VAL_OBJ:
-            fei_object_printobject(value);
+            fei_object_printobject(state, value);
             break;// print heap allocated value, from object.h
     }
 }
 
 // comparison function used in VM run()
 // used in ALL types of data(num, string, bools)
-bool fei_value_compare(Value a, Value b)
+bool fei_value_compare(State* state, Value a, Value b)
 {
     if(a.type != b.type)
         return false;// if type is different return false
@@ -1197,11 +1210,11 @@ bool fei_value_compare(Value a, Value b)
 */
 
 // macro to avoid redundantly cast void* back to desired type
-#define ALLOCATE_OBJ(type, objectType) (type*)fei_object_allocobject(sizeof(type), objectType)
+#define ALLOCATE_OBJ(type, objectType) (type*)fei_object_allocobject(state, sizeof(type), objectType)
 
-Obj* fei_object_allocobject(size_t size, ObjType type)
+Obj* fei_object_allocobject(State* state, size_t size, ObjType type)
 {
-    Obj* object = (Obj*)fei_gcmem_reallocate(NULL, 0, size);// allocate memory for obj
+    Obj* object = (Obj*)fei_gcmem_reallocate(state, NULL, 0, size);// allocate memory for obj
     object->type = type;
     object->isMarked = false;
 
@@ -1210,7 +1223,7 @@ Obj* fei_object_allocobject(size_t size, ObjType type)
     object->next = state->objects;// vm from virtualm.h, with extern
     state->objects = object;
 
-#ifdef DEBUG_LOG_GC
+#if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
     printf("%p allocate %zd for %d\n", (void*)object, size, type);// %ld prints LONG INT
     // (void*) for 'native pointer type'
 #endif
@@ -1220,7 +1233,7 @@ Obj* fei_object_allocobject(size_t size, ObjType type)
 }
 
 // new bound method for classes
-ObjBoundMethod* fei_object_makeboundmethod(Value receiver, ObjClosure* method)
+ObjBoundMethod* fei_object_makeboundmethod(State* state, Value receiver, ObjClosure* method)
 {
     ObjBoundMethod* bound = ALLOCATE_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
     bound->receiver = receiver;
@@ -1230,11 +1243,11 @@ ObjBoundMethod* fei_object_makeboundmethod(Value receiver, ObjClosure* method)
 
 
 // create new closure
-ObjClosure* fei_object_makeclosure(ObjFunction* function)
+ObjClosure* fei_object_makeclosure(State* state, ObjFunction* function)
 {
     // initialize array of upvalue pointers
     // upvalues carry over
-    ObjUpvalue** upvalues = ALLOCATE(ObjUpvalue*, function->upvalueCount);
+    ObjUpvalue** upvalues = ALLOCATE(state, ObjUpvalue*, function->upvalueCount);
 
     for(int i = 0; i < function->upvalueCount; i++)
     {
@@ -1249,53 +1262,53 @@ ObjClosure* fei_object_makeclosure(ObjFunction* function)
     return closure;
 }
 
-ObjString* fei_object_allocstring(char* chars, int length, uint32_t hash)// pass in hash
+ObjString* fei_object_allocstring(State* state, char* chars, int length, uint32_t hash)// pass in hash
 {
     ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
     string->length = length;
     string->chars = chars;
     string->hash = hash;
 
-    fei_vm_pushvalue(OBJ_VAL(string));// garbage collection
+    fei_vm_pushvalue(state, OBJ_VAL(string));// garbage collection
     //printf("allocate\n");
-    fei_table_set(&state->strings, string, NULL_VAL);// for string interning
-    fei_vm_popvalue();// garbage collection
+    fei_table_set(state, &state->strings, string, NULL_VAL);// for string interning
+    fei_vm_popvalue(state);// garbage collection
 
     return string;
 }
 
-ObjClass* fei_object_makeclass(ObjString* name)
+ObjClass* fei_object_makeclass(State* state, ObjString* name)
 {
     ObjClass* kelas = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);// kelas not class for compiling in c++
     kelas->name = name;
-    fei_table_init(&kelas->methods);
+    fei_table_init(state, &kelas->methods);
     return kelas;
 }
 
 
 // create new class instance
-ObjInstance* fei_object_makeinstance(ObjClass* kelas)
+ObjInstance* fei_object_makeinstance(State* state, ObjClass* kelas)
 {
     ObjInstance* instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
     instance->kelas = kelas;
-    fei_table_init(&instance->fields);// memory address of the fields
+    fei_table_init(state, &instance->fields);// memory address of the fields
     return instance;
 }
 
 
-ObjFunction* fei_object_makefunction()
+ObjFunction* fei_object_makefunction(State* state)
 {
     ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
 
     function->arity = 0;
     function->upvalueCount = 0;
     function->name = NULL;
-    fei_chunk_init(&function->chunk);
+    fei_chunk_init(state, &function->chunk);
     return function;
 }
 
 // new native function
-ObjNative* fei_object_makenativefunc(NativeFn function)
+ObjNative* fei_object_makenativefunc(State* state, NativeFn function)
 {
     ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
     native->function = function;
@@ -1303,7 +1316,7 @@ ObjNative* fei_object_makenativefunc(NativeFn function)
 }
 
 // hash function, the FNV-1a
-uint32_t fei_object_hashstring(const char* key, int length)
+uint32_t fei_object_hashstring(State* state, const char* key, int length)
 {
     uint32_t hash = 2116136261u;// initial hash value, u at end means unsigned
 
@@ -1318,41 +1331,41 @@ uint32_t fei_object_hashstring(const char* key, int length)
 
 
 // shorten than fei_object_copystring because owernship of the char* itself is declared in concatenate(), hence no need to declare memory again
-ObjString* fei_object_takestring(char* chars, int length)
+ObjString* fei_object_takestring(State* state, char* chars, int length)
 {
-    uint32_t hash = fei_object_hashstring(chars, length);
-    ObjString* interned = fei_table_findstring(&state->strings, chars, length, hash);
+    uint32_t hash = fei_object_hashstring(state, chars, length);
+    ObjString* interned = fei_table_findstring(state, &state->strings, chars, length, hash);
 
 
     if(interned != NULL)// if the same string already exists
     {
-        FREE_ARRAY(char, chars, length + 1);// free the memory for use
+        FREE_ARRAY(state, char, chars, length + 1);// free the memory for use
         return interned;
     }
 
 
-    return fei_object_allocstring(chars, length, hash);
+    return fei_object_allocstring(state, chars, length, hash);
 }
 
 // copy string from source code to memory
-ObjString* fei_object_copystring(const char* chars, int length)
+ObjString* fei_object_copystring(State* state, const char* chars, int length)
 {
-    uint32_t hash = fei_object_hashstring(chars, length);
-    ObjString* interned = fei_table_findstring(&state->strings, chars, length, hash);
+    uint32_t hash = fei_object_hashstring(state, chars, length);
+    ObjString* interned = fei_table_findstring(state, &state->strings, chars, length, hash);
 
     if(interned != NULL)
     {
         return interned;// if we find a string already in state->srings, no need to copy just return the pointer
     }
-    char* heapChars = ALLOCATE(char, length + 1);// length +1 for null terminator
+    char* heapChars = ALLOCATE(state, char, length + 1);// length +1 for null terminator
     memcpy(heapChars, chars, length);// copy memory from one location to another; memcpy(*to, *from, size_t (from))
     heapChars[length] = '\0';// '\0', a null terminator used to signify the end of the string, placed at the end
 
-    return fei_object_allocstring(heapChars, length, hash);
+    return fei_object_allocstring(state, heapChars, length, hash);
 }
 
 
-ObjUpvalue* fei_object_makeupvalue(Value* slot)
+ObjUpvalue* fei_object_makeupvalue(State* state, Value* slot)
 {
     ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
     upvalue->location = slot;
@@ -1361,7 +1374,7 @@ ObjUpvalue* fei_object_makeupvalue(Value* slot)
     return upvalue;
 }
 
-void fei_object_printfunc(ObjFunction* function)
+void fei_object_printfunc(State* state, ObjFunction* function)
 {
     if(function->name == NULL)
     {
@@ -1371,13 +1384,13 @@ void fei_object_printfunc(ObjFunction* function)
     printf("fun %s(%d params)", function->name->chars, function->arity);// print name and number of parameters
 }
 
-void fei_object_printobject(Value value)
+void fei_object_printobject(State* state, Value value)
 {
     // first class objects can be printed; string and functions
     switch(OBJ_TYPE(value))
     {
         case OBJ_BOUND_METHOD:
-            fei_object_printfunc(AS_BOUND_METHOD(value)->method->function);
+            fei_object_printfunc(state, AS_BOUND_METHOD(value)->method->function);
             break;
         case OBJ_CLASS:
             printf("%s", AS_CLASS(value)->name->chars);
@@ -1386,10 +1399,10 @@ void fei_object_printobject(Value value)
             printf("%s instance", AS_INSTANCE(value)->kelas->name->chars);
             break;
         case OBJ_CLOSURE:
-            fei_object_printfunc(AS_CLOSURE(value)->function);
+            fei_object_printfunc(state, AS_CLOSURE(value)->function);
             break;
         case OBJ_FUNCTION:
-            fei_object_printfunc(AS_FUNCTION(value));
+            fei_object_printfunc(state, AS_FUNCTION(value));
             break;
         case OBJ_NATIVE:
             printf("<native fun>");
@@ -1408,20 +1421,20 @@ void fei_object_printobject(Value value)
 // the hash table can only be 75% full
 #define TABLE_MAX_LOAD 0.75
 
-void fei_table_init(Table* table)
+void fei_table_init(State* state, Table* table)
 {
     table->count = 0;
     table->capacity = 0;
     table->entries = NULL;
 }
 
-void fei_table_destroy(Table* table)
+void fei_table_destroy(State* state, Table* table)
 {
-    FREE_ARRAY(Entry, table->entries, table->capacity);
-    fei_table_init(table);
+    FREE_ARRAY(state, Entry, table->entries, table->capacity);
+    fei_table_init(state, table);
 }
 
-Entry* fei_table_findentry(Entry* entries, int capacity, ObjString* key)
+Entry* fei_table_findentry(State* state, Entry* entries, int capacity, ObjString* key)
 {
     uint32_t index = key->hash % capacity;// use modulo to map the key's hash to the code index
     Entry* tombstone = NULL;
@@ -1452,12 +1465,12 @@ Entry* fei_table_findentry(Entry* entries, int capacity, ObjString* key)
     }
 }
 
-bool fei_table_get(Table* table, ObjString* key, Value* value)
+bool fei_table_get(State* state, Table* table, ObjString* key, Value* value)
 {
     if(table->count == 0)
         return false;
 
-    Entry* entry = fei_table_findentry(table->entries, table->capacity, key);
+    Entry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
     if(entry->key == NULL)
         return false;
 
@@ -1466,9 +1479,9 @@ bool fei_table_get(Table* table, ObjString* key, Value* value)
 }
 
 
-void fei_table_adjustcapacity(Table* table, int capacity)
+void fei_table_adjustcapacity(State* state, Table* table, int capacity)
 {
-    Entry* entries = ALLOCATE(Entry, capacity);// create a bucket with capacity entries, new array
+    Entry* entries = ALLOCATE(state, Entry, capacity);// create a bucket with capacity entries, new array
     for(int i = 0; i < capacity; i++)// initialize every element
     {
         entries[i].key = NULL;
@@ -1485,29 +1498,29 @@ void fei_table_adjustcapacity(Table* table, int capacity)
             continue;
 
         // insert into new array
-        Entry* dest = fei_table_findentry(entries, capacity, entry->key);// pass in new array
+        Entry* dest = fei_table_findentry(state, entries, capacity, entry->key);// pass in new array
         dest->key = entry->key;// match old array to new array
         dest->value = entry->value;
         table->count++;// recound the number of entries
     }
 
-    FREE_ARRAY(Entry, table->entries, table->capacity);
+    FREE_ARRAY(state, Entry, table->entries, table->capacity);
     table->entries = entries;
     table->capacity = capacity;
 }
 
 // inserting into the table, return false if collision
-bool fei_table_set(Table* table, ObjString* key, Value value)
+bool fei_table_set(State* state, Table* table, ObjString* key, Value value)
 {
     // make sure array is big enough
     if(table->count + 1 > table->capacity * TABLE_MAX_LOAD)
     {
         int capacity = GROW_CAPACITY(table->capacity);
-        fei_table_adjustcapacity(table, capacity);
+        fei_table_adjustcapacity(state, table, capacity);
     }
 
 
-    Entry* entry = fei_table_findentry(table->entries, table->capacity, key);
+    Entry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
 
     bool isNewKey = entry->key == NULL;
     if(isNewKey && IS_NULL(entry->value))
@@ -1520,13 +1533,13 @@ bool fei_table_set(Table* table, ObjString* key, Value value)
 }
 
 
-bool fei_table_delete(Table* table, ObjString* key)
+bool fei_table_delete(State* state, Table* table, ObjString* key)
 {
     if(table->count == 0)
         return false;
 
     // find entry
-    Entry* entry = fei_table_findentry(table->entries, table->capacity, key);
+    Entry* entry = fei_table_findentry(state, table->entries, table->capacity, key);
     if(entry->key == NULL)
         return false;
 
@@ -1537,20 +1550,20 @@ bool fei_table_delete(Table* table, ObjString* key)
     return true;
 }
 
-void fei_table_mergefrom(Table* from, Table* to)
+void fei_table_mergefrom(State* state, Table* from, Table* to)
 {
     for(int i = 0; i < from->capacity; i++)
     {
         Entry* entry = &from->entries[i];
         if(entry->key != NULL)
         {
-            fei_table_set(to, entry->key, entry->value);
+            fei_table_set(state, to, entry->key, entry->value);
         }
     }
 }
 
 // used in VM to find the string
-ObjString* fei_table_findstring(Table* table, const char* chars, int length, uint32_t hash)// pass in raw character array
+ObjString* fei_table_findstring(State* state, Table* table, const char* chars, int length, uint32_t hash)// pass in raw character array
 {
     if(table->count == 0)
         return NULL;
@@ -1576,48 +1589,48 @@ ObjString* fei_table_findstring(Table* table, const char* chars, int length, uin
 }
 
 // removing unreachable pointers, used to remove string interns in garbage collection
-void fei_table_removeunreachable(Table* table)
+void fei_table_removeunreachable(State* state, Table* table)
 {
     for(int i = 0; i < table->capacity; i++)
     {
         Entry* entry = &table->entries[i];
         if(entry->key != NULL && !entry->key->obj.isMarked)// remove not marked (string) object pointers
         {
-            fei_table_delete(table, entry->key);
+            fei_table_delete(state, table, entry->key);
         }
     }
 }
 
 
 // mark global variables, used in VM for garbage collection
-void fei_table_mark(Table* table)
+void fei_table_mark(State* state, Table* table)
 {
     for(int i = 0; i < table->capacity; i++)
     {
         Entry* entry = &table->entries[i];
         // need to mark both the STRING KEYS and the actual value/obj itself
-        fei_gcmem_markobject((Obj*)entry->key);// mark the string key(ObjString type)
-        fei_gcmem_markvalue(entry->value);// mark the actual avlue
+        fei_gcmem_markobject(state, (Obj*)entry->key);// mark the string key(ObjString type)
+        fei_gcmem_markvalue(state, entry->value);// mark the actual avlue
     }
 }
 
-void fei_chunk_init(Chunk* chunk)
+void fei_chunk_init(State* state, Chunk* chunk)
 {
     chunk->count = 0;
     chunk->capacity = 0;
     chunk->code = NULL;// dynamic array starts off completely empty
     chunk->lines = NULL;// to store current line of code
-    fei_valarray_init(&chunk->constants);// initialize constant list
+    fei_valarray_init(state, &chunk->constants);// initialize constant list
 }
 
-void fei_chunk_pushbyte(Chunk* chunk, uint8_t byte, int line)
+void fei_chunk_pushbyte(State* state, Chunk* chunk, uint8_t byte, int line)
 {
     if(chunk->capacity < chunk->count + 1)// check if chunk is full
     {
         int oldCapacity = chunk->capacity;
         chunk->capacity = GROW_CAPACITY(oldCapacity);// get size of new capacity
-        chunk->code = GROW_ARRAY(uint8_t, chunk->code, oldCapacity, chunk->capacity);// reallocate memory and grow array
-        chunk->lines = GROW_ARRAY(int, chunk->lines, oldCapacity, chunk->capacity);
+        chunk->code = GROW_ARRAY(state, uint8_t, chunk->code, oldCapacity, chunk->capacity);// reallocate memory and grow array
+        chunk->lines = GROW_ARRAY(state, int, chunk->lines, oldCapacity, chunk->capacity);
     }
 
     chunk->code[chunk->count] = byte;// code is an array, [] is just the index number
@@ -1626,56 +1639,56 @@ void fei_chunk_pushbyte(Chunk* chunk, uint8_t byte, int line)
 }
 
 
-void fei_chunk_destroy(Chunk* chunk)
+void fei_chunk_destroy(State* state, Chunk* chunk)
 {
-    FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);// chunk->code is the pointer to the array, capacity is the size
-    FREE_ARRAY(int, chunk->lines, chunk->capacity);
-    fei_valarray_destroy(&chunk->constants);
-    fei_chunk_init(chunk);
+    FREE_ARRAY(state, uint8_t, chunk->code, chunk->capacity);// chunk->code is the pointer to the array, capacity is the size
+    FREE_ARRAY(state, int, chunk->lines, chunk->capacity);
+    fei_valarray_destroy(state, &chunk->constants);
+    fei_chunk_init(state, chunk);
 }
 
-int fei_chunk_pushconst(Chunk* chunk, Value value)
+int fei_chunk_pushconst(State* state, Chunk* chunk, Value value)
 {
-    fei_vm_pushvalue(value);// garbage collection
-    fei_valarray_push(&chunk->constants, value);
-    fei_vm_popvalue();// garbage collection
+    fei_vm_pushvalue(state, value);// garbage collection
+    fei_valarray_push(state, &chunk->constants, value);
+    fei_vm_popvalue(state);// garbage collection
     return chunk->constants.count - 1;// return index of the newly added constant
 }
 
 
-int fei_dbgutil_printsimpleir(const char* name, int offset)
+int fei_dbgutil_printsimpleir(State* state, const char* name, int offset)
 {
     printf("%s\n", name);// print as a string, or char*
     return offset + 1;
 }
 
-int fei_dbgutil_printbyteir(const char* name, Chunk* chunk, int offset)
+int fei_dbgutil_printbyteir(State* state, const char* name, Chunk* chunk, int offset)
 {
     uint8_t slot = chunk->code[offset + 1];
     printf("%-16s %4d\n", name, slot);
     return offset + 2;
 }
 
-int fei_dbgutil_printconstir(const char* name, Chunk* chunk, int offset)
+int fei_dbgutil_printconstir(State* state, const char* name, Chunk* chunk, int offset)
 {
     uint8_t constant = chunk->code[offset + 1];// pullout the constant index from the subsequent byte in the chunk
     printf("%-16s %4d '", name, constant);// print out name of the opcode, then the constant index
-    fei_value_printvalue(chunk->constants.values[constant]);//	display the value of the constant,  user defined function
+    fei_value_printvalue(state, chunk->constants.values[constant]);//	display the value of the constant,  user defined function
     printf("'\n");
     return offset + 2;//OP_RETURN is a single byte, and the other byte is the operand, hence offsets by 2
 }
 
-int fei_dbgutil_printinvokeir(const char* name, Chunk* chunk, int offset)
+int fei_dbgutil_printinvokeir(State* state, const char* name, Chunk* chunk, int offset)
 {
     uint8_t constant = chunk->code[offset + 1];// get index of the name first
     uint8_t argCount = chunk->code[offset + 2];// then get number of arguments
     printf("%-16s (%d args) %4d", name, argCount, constant);
-    fei_value_printvalue(chunk->constants.values[constant]);// print the method
+    fei_value_printvalue(state, chunk->constants.values[constant]);// print the method
     printf("\n");
     return offset + 3;
 }
 
-int fei_dbgutil_printjumpir(const char* name, int sign, Chunk* chunk, int offset)
+int fei_dbgutil_printjumpir(State* state, const char* name, int sign, Chunk* chunk, int offset)
 {
     uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);// get jump
     jump |= chunk->code[offset + 2];
@@ -1683,17 +1696,17 @@ int fei_dbgutil_printjumpir(const char* name, int sign, Chunk* chunk, int offset
     return offset + 3;
 }
 
-void fei_dbgdisas_chunk(Chunk* chunk, const char* name)
+void fei_dbgdisas_chunk(State* state, Chunk* chunk, const char* name)
 {
     printf("== %s ==\n", name);// print a little header for debugging
 
     for(int offset = 0; offset < chunk->count;)// for every existing instruction in the chunk
     {
-        offset = fei_dbgdisas_instr(chunk, offset);// disassemble individually, offset will be controlled from this function
+        offset = fei_dbgdisas_instr(state, chunk, offset);// disassemble individually, offset will be controlled from this function
     }
 }
 
-int fei_dbgdisas_instr(Chunk* chunk, int offset)
+int fei_dbgdisas_instr(State* state, Chunk* chunk, int offset)
 {
     printf("%04d ", offset);// print byte offset of the given instruction, or the index
     /* quick note on C placeholders
@@ -1719,88 +1732,88 @@ int fei_dbgdisas_instr(Chunk* chunk, int offset)
     switch(instruction)
     {
         case OP_CONSTANT:
-            return fei_dbgutil_printconstir("OP_CONSTANT", chunk, offset);// pass in chunk to get ValueArray element
+            return fei_dbgutil_printconstir(state, "OP_CONSTANT", chunk, offset);// pass in chunk to get ValueArray element
 
         // literals
         case OP_NULL:
-            return fei_dbgutil_printsimpleir("OP_NULL", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_NULL", offset);
         case OP_TRUE:
-            return fei_dbgutil_printsimpleir("OP_TRUE", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_TRUE", offset);
         case OP_FALSE:
-            return fei_dbgutil_printsimpleir("OP_FALSE", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_FALSE", offset);
 
         case OP_EQUAL:
-            return fei_dbgutil_printsimpleir("OP_EQUAL", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_EQUAL", offset);
         case OP_GREATER:
-            return fei_dbgutil_printsimpleir("OP_GREATER", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_GREATER", offset);
         case OP_LESS:
-            return fei_dbgutil_printsimpleir("OP+LESS", offset);
+            return fei_dbgutil_printsimpleir(state, "OP+LESS", offset);
 
         // unary
         case OP_NEGATE:
-            return fei_dbgutil_printsimpleir("OP_NEGATE", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_NEGATE", offset);
 
         // binary
         case OP_ADD:
-            return fei_dbgutil_printsimpleir("OP_ADD", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_ADD", offset);
         case OP_SUBTRACT:
-            return fei_dbgutil_printsimpleir("OP_MINUS", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_MINUS", offset);
         case OP_MULTIPLY:
-            return fei_dbgutil_printsimpleir("OP_MULTIPLY", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_MULTIPLY", offset);
         case OP_DIVIDE:
-            return fei_dbgutil_printsimpleir("OP_DIVIDE", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_DIVIDE", offset);
         case OP_MODULO:
-            return fei_dbgutil_printsimpleir("OP_MODULO", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_MODULO", offset);
 
         case OP_NOT:
-            return fei_dbgutil_printsimpleir("OP_NOT", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_NOT", offset);
 
         case OP_POP:
-            return fei_dbgutil_printsimpleir("OP_POP", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_POP", offset);
 
         // names for local variables do not get carried over, hence only the slot number is shown
         case OP_GET_LOCAL:
-            return fei_dbgutil_printbyteir("OP_GET_LOCAL", chunk, offset);
+            return fei_dbgutil_printbyteir(state, "OP_GET_LOCAL", chunk, offset);
         case OP_SET_LOCAL:
-            return fei_dbgutil_printbyteir("OP_SET_LOCAL", chunk, offset);
+            return fei_dbgutil_printbyteir(state, "OP_SET_LOCAL", chunk, offset);
 
         case OP_GET_UPVALUE:
-            return fei_dbgutil_printbyteir("OP_GET_UPVALUE", chunk, offset);
+            return fei_dbgutil_printbyteir(state, "OP_GET_UPVALUE", chunk, offset);
         case OP_SET_UPVALUE:
-            return fei_dbgutil_printbyteir("OP_SET_UPVALUE", chunk, offset);
+            return fei_dbgutil_printbyteir(state, "OP_SET_UPVALUE", chunk, offset);
         case OP_GET_PROPERTY:
-            return fei_dbgutil_printconstir("OP_GET_PROPERTY", chunk, offset);
+            return fei_dbgutil_printconstir(state, "OP_GET_PROPERTY", chunk, offset);
         case OP_SET_PROPERTY:
-            return fei_dbgutil_printconstir("OP_SET_PROPERTY", chunk, offset);
+            return fei_dbgutil_printconstir(state, "OP_SET_PROPERTY", chunk, offset);
 
         case OP_CLOSE_UPVALUE:
-            return fei_dbgutil_printsimpleir("OP_CLOSE_VALUE", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_CLOSE_VALUE", offset);
 
         case OP_DEFINE_GLOBAL:
-            return fei_dbgutil_printsimpleir("OP_DEFINE_GLOBAL", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_DEFINE_GLOBAL", offset);
         case OP_GET_GLOBAL:
-            return fei_dbgutil_printsimpleir("OP_GET_GLOBAL", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_GET_GLOBAL", offset);
         case OP_SET_GLOBAL:
-            return fei_dbgutil_printsimpleir("OP_SET_GLOBAL", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_SET_GLOBAL", offset);
         case OP_PRINT:
-            return fei_dbgutil_printsimpleir("OP_PRINT", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_PRINT", offset);
 
         case OP_SWITCH_EQUAL:
-            return fei_dbgutil_printsimpleir("OP_SWITCH_EQUAL", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_SWITCH_EQUAL", offset);
 
         case OP_JUMP:
-            return fei_dbgutil_printjumpir("OP_JUMP", 1, chunk, offset);
+            return fei_dbgutil_printjumpir(state, "OP_JUMP", 1, chunk, offset);
         case OP_JUMP_IF_FALSE:
-            return fei_dbgutil_printjumpir("OP_JUMP_IF_FALSE", 1, chunk, offset);
+            return fei_dbgutil_printjumpir(state, "OP_JUMP_IF_FALSE", 1, chunk, offset);
 
         case OP_CALL:
-            return fei_dbgutil_printbyteir("OP_CALL", chunk, offset);
+            return fei_dbgutil_printbyteir(state, "OP_CALL", chunk, offset);
 
         case OP_METHOD:
-            return fei_dbgutil_printconstir("OP_METHOD", chunk, offset);
+            return fei_dbgutil_printconstir(state, "OP_METHOD", chunk, offset);
 
         case OP_INVOKE:
-            return fei_dbgutil_printinvokeir("OP_INVOKE", chunk, offset);
+            return fei_dbgutil_printinvokeir(state, "OP_INVOKE", chunk, offset);
 
 
         case OP_CLOSURE:
@@ -1808,7 +1821,7 @@ int fei_dbgdisas_instr(Chunk* chunk, int offset)
             offset++;
             uint8_t constant = chunk->code[offset++];// index for Value
             printf("%-16s %4d ", "OP_CLOSURE", constant);
-            fei_value_printvalue(chunk->constants.values[constant]);// accessing the value using the index
+            fei_value_printvalue(state, chunk->constants.values[constant]);// accessing the value using the index
             printf("\n");
 
             ObjFunction* function = AS_FUNCTION(chunk->constants.values[constant]);
@@ -1823,29 +1836,29 @@ int fei_dbgdisas_instr(Chunk* chunk, int offset)
         }
 
         case OP_CLASS:
-            return fei_dbgutil_printconstir("OP_CLASS", chunk, offset);
+            return fei_dbgutil_printconstir(state, "OP_CLASS", chunk, offset);
 
         case OP_INHERIT:
-            return fei_dbgutil_printsimpleir("OP_INEHEIRT", offset);
+            return fei_dbgutil_printsimpleir(state, "OP_INEHEIRT", offset);
 
 
         case OP_GET_SUPER:// class inheritance
-            return fei_dbgutil_printconstir("OP_GET_SUPER", chunk, offset);
+            return fei_dbgutil_printconstir(state, "OP_GET_SUPER", chunk, offset);
 
         case OP_SUPER_INVOKE:
-            return fei_dbgutil_printinvokeir("OP_SUPER_INVOKE", chunk, offset);
+            return fei_dbgutil_printinvokeir(state, "OP_SUPER_INVOKE", chunk, offset);
 
         case OP_RETURN:
-            return fei_dbgutil_printsimpleir("OP_RETURN", offset);// dispatch to a utility function to display it
+            return fei_dbgutil_printsimpleir(state, "OP_RETURN", offset);// dispatch to a utility function to display it
 
         case OP_LOOP:
-            return fei_dbgutil_printjumpir("OP_LOOP", -1, chunk, offset);
+            return fei_dbgutil_printjumpir(state, "OP_LOOP", -1, chunk, offset);
 
         case OP_LOOP_IF_TRUE:
-            return fei_dbgutil_printjumpir("OP_LOOP_IF_TRUE", -1, chunk, offset);
+            return fei_dbgutil_printjumpir(state, "OP_LOOP_IF_TRUE", -1, chunk, offset);
 
         case OP_LOOP_IF_FALSE:
-            return fei_dbgutil_printjumpir("OP_LOOP_IF_FALSE", -1, chunk, offset);
+            return fei_dbgutil_printjumpir(state, "OP_LOOP_IF_FALSE", -1, chunk, offset);
 
         default:
             printf("Unknown opcode %d\n", instruction);
@@ -1854,7 +1867,7 @@ int fei_dbgdisas_instr(Chunk* chunk, int offset)
 }
 
 
-void fei_lexer_initsource(const char* source)
+void fei_lexer_initsource(State* state, const char* source)
 {
     state->scanner.start = source;// again, pointing to a string array means pointing to the beginning
     state->scanner.current = source;
@@ -1862,34 +1875,34 @@ void fei_lexer_initsource(const char* source)
 }
 
 // to check for identifiers(eg. for, while, print)
-bool fei_lexutil_isalpha(char c)
+bool fei_lexutil_isalpha(State* state, char c)
 {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-bool fei_lexutil_isdigit(char c)
+bool fei_lexutil_isdigit(State* state, char c)
 {
     return c >= '0' && c <= '9';// let string comparison handle it
 }
 
 // to get EOF symbol -> '\0'
-bool fei_lexer_isatend()
+bool fei_lexer_isatend(State* state)
 {
     return *state->scanner.current == '\0';
 }
 
 
 // goes to next char
-char fei_lexer_advance()
+char fei_lexer_advance(State* state)
 {
     state->scanner.current++;// advance to next
     return state->scanner.current[-1];// return previous one
 }
 
 // logical conditioning to check if 2nd character is embedded to first(e.g two char token)
-bool fei_lexer_match(char expected)
+bool fei_lexer_match(State* state, char expected)
 {
-    if(fei_lexer_isatend())
+    if(fei_lexer_isatend(state))
         return false;// if already at end, error
     if(*state->scanner.current != expected)
     {
@@ -1902,7 +1915,7 @@ bool fei_lexer_match(char expected)
 }
 
 // make a token, uses the scanner's start and current to capture the lexeme and its size
-Token fei_lexer_maketoken(TokenType type)
+Token fei_lexer_maketoken(State* state, TokenType type)
 {
     Token token;
     token.type = type;
@@ -1914,7 +1927,7 @@ Token fei_lexer_maketoken(TokenType type)
 }
 
 // similar to fei_lexer_maketoken, but the "lexeme" points to the error message string instead of the scanner's current and start pointers
-Token fei_lexer_errortoken(const char* message)
+Token fei_lexer_errortoken(State* state, const char* message)
 {
     Token token;
     token.type = TOKEN_ERROR;
@@ -1926,45 +1939,45 @@ Token fei_lexer_errortoken(const char* message)
 }
 
 // returns current character
-char fei_lexer_peekcurrent()
+char fei_lexer_peekcurrent(State* state)
 {
     return *state->scanner.current;
 }
 
 // returns next character
-char fei_lexer_peeknext()
+char fei_lexer_peeknext(State* state)
 {
-    if(fei_lexer_isatend())
+    if(fei_lexer_isatend(state))
         return '\0';
     return state->scanner.current[1];// C syntax, basically return index 1 (or second) from the array/pointer
 }
 
 // skipping white spaces, tabs, etc.
-void fei_lexer_skipspace()
+void fei_lexer_skipspace(State* state)
 {
     for(;;)
     {
-        char c = fei_lexer_peekcurrent();
+        char c = fei_lexer_peekcurrent(state);
         switch(c)
         {
             case ' ':
             case '\r':
             case '\t':
-                fei_lexer_advance();
+                fei_lexer_advance(state);
                 break;
 
             case '\n':// if a new line is found, also add line number
                 state->scanner.line++;
-                fei_lexer_advance();
+                fei_lexer_advance(state);
                 break;
 
             // for comments
             case '/':
-                if(fei_lexer_peeknext() == '/')
+                if(fei_lexer_peeknext(state) == '/')
                 {
                     // comment goes until end of line
-                    while(fei_lexer_peekcurrent() != '\n' && !fei_lexer_isatend())
-                        fei_lexer_advance();// if not new line or not end, treat as whitespace and advance
+                    while(fei_lexer_peekcurrent(state) != '\n' && !fei_lexer_isatend(state))
+                        fei_lexer_advance(state);// if not new line or not end, treat as whitespace and advance
                 }
                 else
                 {
@@ -1979,7 +1992,7 @@ void fei_lexer_skipspace()
 
 
 // to check for identifiers, if they are keyword or not. rest means the rest of the letter
-TokenType fei_lexer_checkkw(int start, int length, const char* rest, TokenType type)
+TokenType fei_lexer_checkkw(State* state, int start, int length, const char* rest, TokenType type)
 {
     /* hard expression here
 	bascially if they are exactly the same, and compares their memory(memcmp)
@@ -1993,7 +2006,7 @@ TokenType fei_lexer_checkkw(int start, int length, const char* rest, TokenType t
     return TOKEN_IDENTIFIER;
 }
 // the 'trie' to store the set of strings
-TokenType fei_lexer_scantype()
+TokenType fei_lexer_scantype(State* state)
 {
     /*
     static struct
@@ -2042,7 +2055,7 @@ TokenType fei_lexer_scantype()
 
     switch(state->scanner.start[0])// start of the lexeme
     {
-        //case 'a': return fei_lexer_checkkw(1, 2, "nd", TOKEN_AND);
+        //case 'a': return fei_lexer_checkkw(state, 1, 2, "nd", TOKEN_AND);
         case 'a':
             {
                 if(state->scanner.current - state->scanner.start > 1)
@@ -2051,12 +2064,12 @@ TokenType fei_lexer_scantype()
                     {
                         case 'n':
                             {
-                                return fei_lexer_checkkw(2, 1, "d", TOKEN_AND);
+                                return fei_lexer_checkkw(state, 2, 1, "d", TOKEN_AND);
                             }
                             break;
                         case 's':
                             {
-                                return fei_lexer_checkkw(2, 6, "signed", TOKEN_EQUAL);
+                                return fei_lexer_checkkw(state, 2, 6, "signed", TOKEN_EQUAL);
                             }
                             break;
                     }
@@ -2065,7 +2078,7 @@ TokenType fei_lexer_scantype()
             break;
         case 'b':
             {
-                return fei_lexer_checkkw(1, 4, "reak", TOKEN_BREAK);
+                return fei_lexer_checkkw(state, 1, 4, "reak", TOKEN_BREAK);
             }
             break;
         case 'c':
@@ -2076,17 +2089,17 @@ TokenType fei_lexer_scantype()
                     {
                         case 'a':
                             {
-                                return fei_lexer_checkkw(2, 2, "se", TOKEN_CASE);
+                                return fei_lexer_checkkw(state, 2, 2, "se", TOKEN_CASE);
                             }
                             break;
                         case 'l':
                             {
-                                return fei_lexer_checkkw(2, 3, "ass", TOKEN_CLASS);
+                                return fei_lexer_checkkw(state, 2, 3, "ass", TOKEN_CLASS);
                             }
                             break;
                         case 'o':
                             {
-                                return fei_lexer_checkkw(2, 6, "ntinue", TOKEN_CONTINUE);
+                                return fei_lexer_checkkw(state, 2, 6, "ntinue", TOKEN_CONTINUE);
                             }
                             break;
                     }
@@ -2101,12 +2114,12 @@ TokenType fei_lexer_scantype()
                     {
                         case 'e':
                             {
-                                return fei_lexer_checkkw(2, 5, "fault", TOKEN_DEFAULT);
+                                return fei_lexer_checkkw(state, 2, 5, "fault", TOKEN_DEFAULT);
                             }
                             break;
                         case 'o':
                             {
-                                return fei_lexer_checkkw(2, 0, "", TOKEN_DO);
+                                return fei_lexer_checkkw(state, 2, 0, "", TOKEN_DO);
                             }
                             break;
                     }
@@ -2127,12 +2140,12 @@ TokenType fei_lexer_scantype()
                                     {
                                         case 's':
                                             {
-                                                return fei_lexer_checkkw(3, 1, "e", TOKEN_ELSE);
+                                                return fei_lexer_checkkw(state, 3, 1, "e", TOKEN_ELSE);
                                             }
                                             break;
                                         case 'f':
                                             {
-                                                return fei_lexer_checkkw(3, 0, "", TOKEN_ELF);// already matched
+                                                return fei_lexer_checkkw(state, 3, 0, "", TOKEN_ELF);// already matched
                                             }
                                             break;
                                     }
@@ -2141,7 +2154,7 @@ TokenType fei_lexer_scantype()
                             break;
                         case 'q':
                             {
-                                return fei_lexer_checkkw(2, 4, "uals", TOKEN_EQUAL_EQUAL);
+                                return fei_lexer_checkkw(state, 2, 4, "uals", TOKEN_EQUAL_EQUAL);
                             }
                             break;
                     }
@@ -2156,27 +2169,27 @@ TokenType fei_lexer_scantype()
                     {
                         case 'a':
                             {
-                                return fei_lexer_checkkw(2, 3, "lse", TOKEN_FALSE);// starts from 2 not 3, as first letter is already an f
+                                return fei_lexer_checkkw(state, 2, 3, "lse", TOKEN_FALSE);// starts from 2 not 3, as first letter is already an f
                             }
                             break;
                         case 'o':
                             {
-                                return fei_lexer_checkkw(2, 1, "r", TOKEN_FOR);
+                                return fei_lexer_checkkw(state, 2, 1, "r", TOKEN_FOR);
                             }
                             break;
                         case 'r':
                             {
-                                return fei_lexer_checkkw(2, 2, "om", TOKEN_FROM);
+                                return fei_lexer_checkkw(state, 2, 2, "om", TOKEN_FROM);
                             }
                             break;
                         case 'n':
                             {
-                                return fei_lexer_checkkw(2, 0, "", TOKEN_FUN);
+                                return fei_lexer_checkkw(state, 2, 0, "", TOKEN_FUN);
                             }
                             break;
                         case 'u':
                             {
-                                return fei_lexer_checkkw(2, 6, "nction", TOKEN_FUN);
+                                return fei_lexer_checkkw(state, 2, 6, "nction", TOKEN_FUN);
                             }
                             break;
                     }
@@ -2191,12 +2204,12 @@ TokenType fei_lexer_scantype()
                     {
                         case 'f':
                             {
-                                return fei_lexer_checkkw(2, 0, "", TOKEN_IF);
+                                return fei_lexer_checkkw(state, 2, 0, "", TOKEN_IF);
                             }
                             break;
                         case 's':
                             {
-                                return fei_lexer_checkkw(2, 0, "", TOKEN_EQUAL_EQUAL);
+                                return fei_lexer_checkkw(state, 2, 0, "", TOKEN_EQUAL_EQUAL);
                             }
                             break;
                     }
@@ -2205,20 +2218,20 @@ TokenType fei_lexer_scantype()
             break;
         case 'n':
             {
-                return fei_lexer_checkkw(1, 3, "ull", TOKEN_NULL);
+                return fei_lexer_checkkw(state, 1, 3, "ull", TOKEN_NULL);
             }
             break;
         case 'o':
             {
-                return fei_lexer_checkkw(1, 1, "r", TOKEN_OR);
+                return fei_lexer_checkkw(state, 1, 1, "r", TOKEN_OR);
             }
             break;
         case 'p':
             {
-                return fei_lexer_checkkw(1, 7, "rint__keyword", TOKEN_PRINT);
+                return fei_lexer_checkkw(state, 1, 7, "rint__keyword", TOKEN_PRINT);
             }
             break;
-        //case 'r': return fei_lexer_checkkw(1, 5, "eturn", TOKEN_RETURN);
+        //case 'r': return fei_lexer_checkkw(state, 1, 5, "eturn", TOKEN_RETURN);
         case 'r':
             {
                 if(state->scanner.current - state->scanner.start > 1)
@@ -2233,12 +2246,12 @@ TokenType fei_lexer_scantype()
                                     {
                                         case 't':
                                             {
-                                                return fei_lexer_checkkw(3, 3, "urn", TOKEN_RETURN);
+                                                return fei_lexer_checkkw(state, 3, 3, "urn", TOKEN_RETURN);
                                             }
                                             break;
                                         case 'p':
                                             {
-                                                return fei_lexer_checkkw(3, 3, "eat", TOKEN_REPEAT);
+                                                return fei_lexer_checkkw(state, 3, 3, "eat", TOKEN_REPEAT);
                                             }
                                             break;
                                     }
@@ -2257,12 +2270,12 @@ TokenType fei_lexer_scantype()
                     {
                         case 'u':
                             {
-                                return fei_lexer_checkkw(2, 3, "per", TOKEN_SUPER);
+                                return fei_lexer_checkkw(state, 2, 3, "per", TOKEN_SUPER);
                             }
                             break;
                         case 'w':
                             {
-                                return fei_lexer_checkkw(2, 4, "itch", TOKEN_SWITCH);
+                                return fei_lexer_checkkw(state, 2, 4, "itch", TOKEN_SWITCH);
                             }
                             break;
                     }
@@ -2275,7 +2288,7 @@ TokenType fei_lexer_scantype()
                 {
                     switch(state->scanner.start[1])
                     {
-                        //case 'h': return fei_lexer_checkkw(2, 2, "is", TOKEN_THIS);
+                        //case 'h': return fei_lexer_checkkw(state, 2, 2, "is", TOKEN_THIS);
                         case 'h':
                             {
                                 if(state->scanner.current - state->scanner.start > 2)// check if there is a third letter
@@ -2284,7 +2297,7 @@ TokenType fei_lexer_scantype()
                                     {
                                         case 'i':
                                             {
-                                                return fei_lexer_checkkw(3, 1, "s", TOKEN_THIS);// already matched
+                                                return fei_lexer_checkkw(state, 3, 1, "s", TOKEN_THIS);// already matched
                                             }
                                             break;
                                     }
@@ -2293,7 +2306,7 @@ TokenType fei_lexer_scantype()
                             break;
                         case 'r':
                             {
-                                return fei_lexer_checkkw(2, 2, "ue", TOKEN_TRUE);
+                                return fei_lexer_checkkw(state, 2, 2, "ue", TOKEN_TRUE);
                             }
                             break;
                     }
@@ -2302,17 +2315,17 @@ TokenType fei_lexer_scantype()
             break;
         case 'u':
             {
-                return fei_lexer_checkkw(1, 4, "ntil", TOKEN_UNTIL);
+                return fei_lexer_checkkw(state, 1, 4, "ntil", TOKEN_UNTIL);
             }
             break;
         case 'v':
             {
-                return fei_lexer_checkkw(1, 2, "ar", TOKEN_VAR);
+                return fei_lexer_checkkw(state, 1, 2, "ar", TOKEN_VAR);
             }
             break;
         case 'w':
             {
-                return fei_lexer_checkkw(1, 4, "hile", TOKEN_WHILE);
+                return fei_lexer_checkkw(state, 1, 4, "hile", TOKEN_WHILE);
             }
             break;
     }
@@ -2321,68 +2334,68 @@ TokenType fei_lexer_scantype()
     return TOKEN_IDENTIFIER;
 }
 
-Token fei_lexer_scanident()
+Token fei_lexer_scanident(State* state)
 {
-    while(fei_lexutil_isalpha(fei_lexer_peekcurrent()) || fei_lexutil_isdigit(fei_lexer_peekcurrent()))
-        fei_lexer_advance();// skip if still letters or digits
-    return fei_lexer_maketoken(fei_lexer_scantype());
+    while(fei_lexutil_isalpha(state, fei_lexer_peekcurrent(state)) || fei_lexutil_isdigit(state, fei_lexer_peekcurrent(state)))
+        fei_lexer_advance(state);// skip if still letters or digits
+    return fei_lexer_maketoken(state, fei_lexer_scantype(state));
 }
 
-Token fei_lexer_scannumber()
+Token fei_lexer_scannumber(State* state)
 {
-    while(fei_lexutil_isdigit(fei_lexer_peekcurrent()))
-        fei_lexer_advance();// while next is still a digit advance
+    while(fei_lexutil_isdigit(state, fei_lexer_peekcurrent(state)))
+        fei_lexer_advance(state);// while next is still a digit advance
 
     // look for fractional part
-    if(fei_lexer_peekcurrent() == '.' && fei_lexutil_isdigit(fei_lexer_peeknext()))// if there is a . and next is still digit
+    if(fei_lexer_peekcurrent(state) == '.' && fei_lexutil_isdigit(state, fei_lexer_peeknext(state)))// if there is a . and next is still digit
     {
         // consume '.'
-        fei_lexer_advance();
+        fei_lexer_advance(state);
 
-        while(fei_lexutil_isdigit(fei_lexer_peekcurrent()))
-            fei_lexer_advance();
+        while(fei_lexutil_isdigit(state, fei_lexer_peekcurrent(state)))
+            fei_lexer_advance(state);
     }
 
-    return fei_lexer_maketoken(TOKEN_NUMBER);
+    return fei_lexer_maketoken(state, TOKEN_NUMBER);
 }
 
 // for string tokens
-Token fei_lexer_scanstring()
+Token fei_lexer_scanstring(State* state)
 {
-    while(fei_lexer_peekcurrent() != '"' && !fei_lexer_isatend())
+    while(fei_lexer_peekcurrent(state) != '"' && !fei_lexer_isatend(state))
     {
-        if(fei_lexer_peekcurrent() == '\n')
+        if(fei_lexer_peekcurrent(state) == '\n')
             state->scanner.line++;// allow strings to go until next line
-        fei_lexer_advance();// consume characters until the closing quote is reached
+        fei_lexer_advance(state);// consume characters until the closing quote is reached
     }
 
-    if(fei_lexer_isatend())
-        return fei_lexer_errortoken("Unterminated string.");
+    if(fei_lexer_isatend(state))
+        return fei_lexer_errortoken(state, "Unterminated string.");
 
     // closing quote
-    fei_lexer_advance();
-    return fei_lexer_maketoken(TOKEN_STRING);
+    fei_lexer_advance(state);
+    return fei_lexer_maketoken(state, TOKEN_STRING);
 
     // convert lexeme to runtime value later
 }
 
 // reading the char, and return a token
-Token fei_lexer_scantoken()
+Token fei_lexer_scantoken(State* state)
 {
-    fei_lexer_skipspace();
+    fei_lexer_skipspace(state);
 
     state->scanner.start = state->scanner.current;// reset the scanner to current
 
-    if(fei_lexer_isatend())
-        return fei_lexer_maketoken(TOKEN_EOF);// check if at end
+    if(fei_lexer_isatend(state))
+        return fei_lexer_maketoken(state, TOKEN_EOF);// check if at end
 
     // if not end of file
-    char c = fei_lexer_advance();
+    char c = fei_lexer_advance(state);
 
-    if(fei_lexutil_isalpha(c))
-        return fei_lexer_scanident();
-    if(fei_lexutil_isdigit(c))
-        return fei_lexer_scannumber();// fei_lexer_scannumber() is a TOKEN_NUMBER
+    if(fei_lexutil_isalpha(state, c))
+        return fei_lexer_scanident(state);
+    if(fei_lexutil_isdigit(state, c))
+        return fei_lexer_scannumber(state);// fei_lexer_scannumber() is a TOKEN_NUMBER
 
 
     // lexical grammar for the language
@@ -2390,65 +2403,65 @@ Token fei_lexer_scantoken()
     {
             // for single characters
         case '(':
-            return fei_lexer_maketoken(TOKEN_LEFT_PAREN);
+            return fei_lexer_maketoken(state, TOKEN_LEFT_PAREN);
         case ')':
-            return fei_lexer_maketoken(TOKEN_RIGHT_PAREN);
+            return fei_lexer_maketoken(state, TOKEN_RIGHT_PAREN);
         case '{':
-            return fei_lexer_maketoken(TOKEN_LEFT_BRACE);
+            return fei_lexer_maketoken(state, TOKEN_LEFT_BRACE);
         case '}':
-            return fei_lexer_maketoken(TOKEN_RIGHT_BRACE);
+            return fei_lexer_maketoken(state, TOKEN_RIGHT_BRACE);
         case ';':
-            return fei_lexer_maketoken(TOKEN_SEMICOLON);
+            return fei_lexer_maketoken(state, TOKEN_SEMICOLON);
         case ':':
-            return fei_lexer_maketoken(TOKEN_COLON);
+            return fei_lexer_maketoken(state, TOKEN_COLON);
         case ',':
-            return fei_lexer_maketoken(TOKEN_COMMA);
+            return fei_lexer_maketoken(state, TOKEN_COMMA);
         case '.':
-            return fei_lexer_maketoken(TOKEN_DOT);
+            return fei_lexer_maketoken(state, TOKEN_DOT);
         case '-':
-            return fei_lexer_maketoken(TOKEN_MINUS);
+            return fei_lexer_maketoken(state, TOKEN_MINUS);
         case '+':
-            return fei_lexer_maketoken(TOKEN_PLUS);
+            return fei_lexer_maketoken(state, TOKEN_PLUS);
         case '*':
-            return fei_lexer_maketoken(TOKEN_STAR);
+            return fei_lexer_maketoken(state, TOKEN_STAR);
         case '/':
-            return fei_lexer_maketoken(TOKEN_SLASH);
+            return fei_lexer_maketoken(state, TOKEN_SLASH);
         case '%':
-            return fei_lexer_maketoken(TOKEN_MODULO);
+            return fei_lexer_maketoken(state, TOKEN_MODULO);
 
             // for two characters
         case '!':
-            return fei_lexer_maketoken(fei_lexer_match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
+            return fei_lexer_maketoken(state, fei_lexer_match(state, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
         case '=':
-            return fei_lexer_maketoken(fei_lexer_match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
+            return fei_lexer_maketoken(state, fei_lexer_match(state, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
         case '>':
-            return fei_lexer_maketoken(fei_lexer_match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
+            return fei_lexer_maketoken(state, fei_lexer_match(state, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
         case '<':
-            return fei_lexer_maketoken(fei_lexer_match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
+            return fei_lexer_maketoken(state, fei_lexer_match(state, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
 
             // literal tokens
         case '"':
-            return fei_lexer_scanstring();// string token
+            return fei_lexer_scanstring(state);// string token
     }
 
 
-    return fei_lexer_errortoken("Unexpected character.");
+    return fei_lexer_errortoken(state, "Unexpected character.");
 }
 
 
-static void fei_comprule_logicaland(bool canassign);
-static void fei_comprule_binary(bool canassign);
-static void fei_comprule_call(bool canassign);
-static void fei_comprule_dot(bool canassign);
-static void fei_comprule_literal(bool canassign);
-static void fei_comprule_grouping(bool canassign);
-static void fei_comprule_number(bool canassign);
-static void fei_comprule_logicalor(bool canassign);
-static void fei_comprule_string(bool canassign);
-static void fei_comprule_variable(bool canassign);
-static void fei_comprule_super(bool canassign);
-static void fei_comprule_this(bool canassign);
-static void fei_comprule_unary(bool canassign);
+static void fei_comprule_logicaland(State* state, bool canassign);
+static void fei_comprule_binary(State* state, bool canassign);
+static void fei_comprule_call(State* state, bool canassign);
+static void fei_comprule_dot(State* state, bool canassign);
+static void fei_comprule_literal(State* state, bool canassign);
+static void fei_comprule_grouping(State* state, bool canassign);
+static void fei_comprule_number(State* state, bool canassign);
+static void fei_comprule_logicalor(State* state, bool canassign);
+static void fei_comprule_string(State* state, bool canassign);
+static void fei_comprule_variable(State* state, bool canassign);
+static void fei_comprule_super(State* state, bool canassign);
+static void fei_comprule_this(State* state, bool canassign);
+static void fei_comprule_unary(State* state, bool canassign);
 
 
 /* the array of ParseRules 
@@ -2504,13 +2517,13 @@ ParseRule rules[] = {
 };
 
 
-Chunk* fei_compiler_currentchunk()
+Chunk* fei_compiler_currentchunk(State* state)
 {
     return &state->compiler->function->chunk;
 }
 
 // to handle syntax errors
-void fei_compiler_raiseat(Token* token, const char* message)
+void fei_compiler_raiseat(State* state, Token* token, const char* message)
 {
     if(state->parser.panicMode)
         return;// if an error already exists, no need to run other errors
@@ -2536,46 +2549,46 @@ void fei_compiler_raiseat(Token* token, const char* message)
 }
 
 // error from token most recently CONSUMED
-void fei_compiler_raiseerror(const char* message)
+void fei_compiler_raiseerror(State* state, const char* message)
 {
-    fei_compiler_raiseat(&state->parser.previous, message);
+    fei_compiler_raiseat(state, &state->parser.previous, message);
 }
 
 
 // handling error from token, the most current one being handed, not yet consumed
-void fei_compiler_raisehere(const char* message)// manually provide the message
+void fei_compiler_raisehere(State* state, const char* message)// manually provide the message
 {
-    fei_compiler_raiseat(&state->parser.current, message);// pass in the current parser
+    fei_compiler_raiseat(state, &state->parser.current, message);// pass in the current parser
 }
 
 
 /* main compile functions */
 
 // pump the compiler, basically go to / 'read' the next token, a SINGLE token
-void fei_compiler_advancenext()
+void fei_compiler_advancenext(State* state)
 {
     state->parser.previous = state->parser.current;//  store next parser as current
 
     for(;;)
     {
-        state->parser.current = fei_lexer_scantoken();// gets next token, stores it for later use(the next scan)
+        state->parser.current = fei_lexer_scantoken(state);// gets next token, stores it for later use(the next scan)
 
         if(state->parser.current.type != TOKEN_ERROR)
             break;// if error is not found break
 
-        fei_compiler_raisehere(state->parser.current.start);// start is the location/pointer of the token source code
+        fei_compiler_raisehere(state, state->parser.current.start);// start is the location/pointer of the token source code
     }
 }
 
 
 // advance while skipping the given parameter, give none to skip nothing
-void fei_compiler_advanceskipping(TokenType type)
+void fei_compiler_advanceskipping(State* state, TokenType type)
 {
     state->parser.previous = state->parser.current;//  store next parser as current
 
     for(;;)
     {
-        state->parser.current = fei_lexer_scantoken();// gets next token, stores it for later use(the next scan)
+        state->parser.current = fei_lexer_scantoken(state);// gets next token, stores it for later use(the next scan)
 
         if(state->parser.current.type == type)
             continue;
@@ -2583,157 +2596,157 @@ void fei_compiler_advanceskipping(TokenType type)
         if(state->parser.current.type != TOKEN_ERROR)
             break;// if error is not found break
 
-        fei_compiler_raisehere(state->parser.current.start);// start is the location/pointer of the token source code
+        fei_compiler_raisehere(state, state->parser.current.start);// start is the location/pointer of the token source code
     }
 }
 
 
 // SIMILAR to advance but there is a validation for a certain type
 // syntax error comes from here, where it is known/expected what the next token will be
-void fei_compiler_consume(TokenType type, const char* message)
+void fei_compiler_consume(State* state, TokenType type, const char* message)
 {
     if(state->parser.current.type == type)// if current token is equal to the token type being compared to
     {
-        fei_compiler_advancenext();
+        fei_compiler_advancenext(state);
         return;
     }
 
-    fei_compiler_raisehere(message);// if consumes a different type, error
+    fei_compiler_raisehere(state, message);// if consumes a different type, error
 }
 
-bool fei_compiler_check(TokenType type)
+bool fei_compiler_check(State* state, TokenType type)
 {
     return state->parser.current.type == type;// check if current matches given
 }
 
 
-bool fei_compiler_match(TokenType type)
+bool fei_compiler_match(State* state, TokenType type)
 {
-    if(!fei_compiler_check(type))
+    if(!fei_compiler_check(state, type))
         return false;
-    fei_compiler_advancenext();
+    fei_compiler_advancenext(state);
     return true;
 }
 
 /* emitting BYTECODE for the VM to understand */
 // the fei_chunk_pushbyte for the compiler
-void fei_compiler_emitbyte(uint8_t byte)
+void fei_compiler_emitbyte(State* state, uint8_t byte)
 {
-    fei_chunk_pushbyte(fei_compiler_currentchunk(), byte, state->parser.previous.line);// sends previous line so runtime errors are associated with that line
+    fei_chunk_pushbyte(state, fei_compiler_currentchunk(state), byte, state->parser.previous.line);// sends previous line so runtime errors are associated with that line
 }
 
 // write chunk for multiple chunks, used to write an opcode followed by an operand(eg. in constants)
-void fei_compiler_emitbytes(uint8_t byte1, uint8_t byte2)
+void fei_compiler_emitbytes(State* state, uint8_t byte1, uint8_t byte2)
 {
-    fei_compiler_emitbyte(byte1);
-    fei_compiler_emitbyte(byte2);
+    fei_compiler_emitbyte(state, byte1);
+    fei_compiler_emitbyte(state, byte2);
 }
 
 // for looping statements
-void fei_compiler_emitloop(int loopStart)
+void fei_compiler_emitloop(State* state, int loopStart)
 {
-    fei_compiler_emitbyte(OP_LOOP);
+    fei_compiler_emitbyte(state, OP_LOOP);
 
     // int below jumps back, + 2 accounting the OP_LOOP and the instruction's own operand
-    int offset = fei_compiler_currentchunk()->count - loopStart + 2;
+    int offset = fei_compiler_currentchunk(state)->count - loopStart + 2;
     if(offset > UINT16_MAX)
-        fei_compiler_raiseerror("Loop body too large.");
+        fei_compiler_raiseerror(state, "Loop body too large.");
 
-    fei_compiler_emitbyte((offset >> 8) & 0xff);
-    fei_compiler_emitbyte(offset & 0xff);
+    fei_compiler_emitbyte(state, (offset >> 8) & 0xff);
+    fei_compiler_emitbyte(state, offset & 0xff);
 }
 
-void fei_compiler_emitcondloop(int loopStart, bool state)
+void fei_compiler_emitcondloop(State* state, int loopStart, bool condstate)
 {
-    if(state)
-        fei_compiler_emitbyte(OP_LOOP_IF_TRUE);
+    if(condstate)
+        fei_compiler_emitbyte(state, OP_LOOP_IF_TRUE);
     else
-        fei_compiler_emitbyte(OP_LOOP_IF_FALSE);
+        fei_compiler_emitbyte(state, OP_LOOP_IF_FALSE);
 
-    int offset = fei_compiler_currentchunk()->count - loopStart + 2;
+    int offset = fei_compiler_currentchunk(state)->count - loopStart + 2;
     if(offset > UINT16_MAX)
-        fei_compiler_raiseerror("Loop body too large.");
+        fei_compiler_raiseerror(state, "Loop body too large.");
 
-    fei_compiler_emitbyte((offset >> 8) & 0xff);
-    fei_compiler_emitbyte(offset & 0xff);
+    fei_compiler_emitbyte(state, (offset >> 8) & 0xff);
+    fei_compiler_emitbyte(state, offset & 0xff);
 }
 
 
-int fei_compiler_emitjump(uint8_t instruction)
+int fei_compiler_emitjump(State* state, uint8_t instruction)
 {
     /* backpatching */
-    fei_compiler_emitbyte(instruction);// writes a placeholder operand for jump offset
-    fei_compiler_emitbyte(0xff);// hexadecimal number with value of 255
-    fei_compiler_emitbyte(0xff);
+    fei_compiler_emitbyte(state, instruction);// writes a placeholder operand for jump offset
+    fei_compiler_emitbyte(state, 0xff);// hexadecimal number with value of 255
+    fei_compiler_emitbyte(state, 0xff);
 
     // basically, get the difference in bytes before the two 0xff is added
-    return fei_compiler_currentchunk()->count - 2;
+    return fei_compiler_currentchunk(state)->count - 2;
 }
 
 //  emit specific return type
-void fei_compiler_emitreturn()
+void fei_compiler_emitreturn(State* state)
 {
     if(state->compiler->type == TYPE_INITIALIZER)// class constructor
     {
-        fei_compiler_emitbytes(OP_GET_LOCAL, 0);// return the instance
+        fei_compiler_emitbytes(state, OP_GET_LOCAL, 0);// return the instance
     }
     else
     {
-        fei_compiler_emitbyte(OP_NULL);// for functions that return nothing
+        fei_compiler_emitbyte(state, OP_NULL);// for functions that return nothing
     }
 
-    fei_compiler_emitbyte(OP_RETURN);// emit return type at the end of a compiler
+    fei_compiler_emitbyte(state, OP_RETURN);// emit return type at the end of a compiler
 }
 
 // to insert into constant table
-uint8_t fei_compiler_makeconst(Value value)
+uint8_t fei_compiler_makeconst(State* state, Value value)
 {
-    int constant = fei_chunk_pushconst(fei_compiler_currentchunk(), value);
+    int constant = fei_chunk_pushconst(state, fei_compiler_currentchunk(state), value);
     if(constant > UINT8_MAX)
     {
-        fei_compiler_raiseerror("Too many constants in one chunk.");
+        fei_compiler_raiseerror(state, "Too many constants in one chunk.");
         return 0;
     }
 
     return (uint8_t)constant;// return as byte, the byte being the INDEX of the constantin the constats array
 }
 
-void fei_compiler_emitconst(Value value)// for constant emit the opcode, then the index
+void fei_compiler_emitconst(State* state, Value value)// for constant emit the opcode, then the index
 {
-    fei_compiler_emitbytes(OP_CONSTANT, fei_compiler_makeconst(value));// add value to constant table
+    fei_compiler_emitbytes(state, OP_CONSTANT, fei_compiler_makeconst(state, value));// add value to constant table
 }
 
-void fei_compiler_patchjump(int offset)
+void fei_compiler_patchjump(State* state, int offset)
 {
     // - 2 to adjust for the jump offset itself
-    int jump = fei_compiler_currentchunk()->count - offset - 2;
+    int jump = fei_compiler_currentchunk(state)->count - offset - 2;
 
     if(jump > UINT16_MAX)
     {
-        fei_compiler_raiseerror("Too much code to jump over.");
+        fei_compiler_raiseerror(state, "Too much code to jump over.");
     }
 
     // the fei_compiler_patchjump provides the VALUE or amount to JUMP
-    fei_compiler_currentchunk()->code[offset] = (jump >> 8) & 0xff;// right shift by 8, then bitwise AND with 255(oxff is 111111)
-    fei_compiler_currentchunk()->code[offset + 1] = jump & 0xff;// only AND
+    fei_compiler_currentchunk(state)->code[offset] = (jump >> 8) & 0xff;// right shift by 8, then bitwise AND with 255(oxff is 111111)
+    fei_compiler_currentchunk(state)->code[offset + 1] = jump & 0xff;// only AND
 }
 
 // initialize the compiler
-void fei_compiler_init(Compiler* compiler, FunctionType type)
+void fei_compiler_init(State* state, Compiler* compiler, FunctionType type)
 {
     compiler->enclosing = state->compiler;// the 'outer' compiler
     compiler->function = NULL;
     compiler->type = type;
     compiler->localCount = 0;
     compiler->scopeDepth = 0;
-    compiler->function = fei_object_makefunction();
+    compiler->function = fei_object_makefunction(state);
     state->compiler = compiler;// current is the global variable pointer for the Compiler struct, point to to the parameter
     // basically assign the global pointer
 
     // for functions
     if(type != TYPE_SCRIPT)
     {
-        state->compiler->function->name = fei_object_copystring(state->parser.previous.start, state->parser.previous.length);// function name handled here
+        state->compiler->function->name = fei_object_copystring(state, state->parser.previous.start, state->parser.previous.length);// function name handled here
     }
 
     // compiler implicitly claims slot zero for local variables
@@ -2755,25 +2768,25 @@ void fei_compiler_init(Compiler* compiler, FunctionType type)
     // for loop scopes, for break and continue statements
     compiler->loopCountTop = -1;
     compiler->continueJumpCapacity = 4;
-    compiler->continueJumps = ALLOCATE(int, 4);
+    compiler->continueJumps = ALLOCATE(state, int, 4);
 
     // use memset to initialize array to 0
     memset(compiler->breakJumpCounts, 0, UINT8_COUNT * sizeof(compiler->breakJumpCounts[0]));
 }
 
-ObjFunction* fei_compiler_endcompiler()
+ObjFunction* fei_compiler_endcompiler(State* state)
 {
-    fei_compiler_emitreturn();
+    fei_compiler_emitreturn(state);
     ObjFunction* function = state->compiler->function;
 
-    FREE(int, state->compiler->continueJumps);
+    FREE(state, int, state->compiler->continueJumps);
 
 
     // for debugging
-#ifdef DEBUG_PRINT_CODE
+#if defined(DEBUG_PRINT_CODE) && (DEBUG_PRINT_CODE == 1)
     if(!state->parser.hadError)
     {
-        fei_dbgdisas_chunk(fei_compiler_currentchunk(), function->name != NULL ? function->name->chars : "<script>");// if name is NULL then it is the Script type(main()
+        fei_dbgdisas_chunk(state, fei_compiler_currentchunk(state), function->name != NULL ? function->name->chars : "<script>");// if name is NULL then it is the Script type(main()
     }
 #endif
 
@@ -2781,12 +2794,12 @@ ObjFunction* fei_compiler_endcompiler()
     return function;// return to free
 }
 
-void fei_compiler_beginscope()
+void fei_compiler_beginscope(State* state)
 {
     state->compiler->scopeDepth++;
 }
 
-void fei_compiler_endscope()
+void fei_compiler_endscope(State* state)
 {
     state->compiler->scopeDepth--;
 
@@ -2798,11 +2811,11 @@ void fei_compiler_endscope()
 		*/
         if(state->compiler->locals[state->compiler->localCount - 1].isCaptured)// if it is captured/used
         {
-            fei_compiler_emitbyte(OP_CLOSE_UPVALUE);// op code to move the upvalue to the heap
+            fei_compiler_emitbyte(state, OP_CLOSE_UPVALUE);// op code to move the upvalue to the heap
         }
         else
         {
-            fei_compiler_emitbyte(OP_POP);// if not used anymore/capture simply pop the value off the stack
+            fei_compiler_emitbyte(state, OP_POP);// if not used anymore/capture simply pop the value off the stack
         }
 
         state->compiler->localCount--;
@@ -2810,12 +2823,12 @@ void fei_compiler_endscope()
 }
 
 // loop enclosing
-void fei_compiler_beginloopscope()
+void fei_compiler_beginloopscope(State* state)
 {
     state->compiler->loopCountTop++;
 }
 
-void fei_compiler_endloopscope()
+void fei_compiler_endloopscope(State* state)
 {
     if(state->compiler->breakJumpCounts[state->compiler->loopCountTop] > 0)
         state->compiler->breakJumpCounts[state->compiler->loopCountTop] = 0;
@@ -2824,27 +2837,27 @@ void fei_compiler_endloopscope()
 }
 
 // mark current chunk for continue jump
-void fei_compiler_markcontinuejump()
+void fei_compiler_markcontinuejump(State* state)
 {
-    state->compiler->continueJumps[state->compiler->loopCountTop] = fei_compiler_currentchunk()->count;
+    state->compiler->continueJumps[state->compiler->loopCountTop] = fei_compiler_currentchunk(state)->count;
 }
 
 // patch available break jumps
-void fei_compiler_patchbreakjumps()
+void fei_compiler_patchbreakjumps(State* state)
 {
     for(int i = 0; i < state->compiler->breakJumpCounts[state->compiler->loopCountTop]; i++)
     {
-        fei_compiler_patchjump(state->compiler->breakPatchJumps[state->compiler->loopCountTop][i]);
+        fei_compiler_patchjump(state, state->compiler->breakPatchJumps[state->compiler->loopCountTop][i]);
     }
 }
 
 /* variable declarations */
-uint8_t fei_compiler_makeidentconst(Token* name)
+uint8_t fei_compiler_makeidentconst(State* state, Token* name)
 {
-    return fei_compiler_makeconst(OBJ_VAL(fei_object_copystring(name->start, name->length)));// add to constant table
+    return fei_compiler_makeconst(state, OBJ_VAL(fei_object_copystring(state, name->start, name->length)));// add to constant table
 }
 
-bool fei_compiler_identsequal(Token* a, Token* b)
+bool fei_compiler_identsequal(State* state, Token* a, Token* b)
 {
     if(a->length != b->length)
         return false;
@@ -2852,16 +2865,16 @@ bool fei_compiler_identsequal(Token* a, Token* b)
 }
 
 
-int fei_compiler_resolvelocal(Compiler* compiler, Token* name)
+int fei_compiler_resolvelocal(State* state, Compiler* compiler, Token* name)
 {
     for(int i = compiler->localCount - 1; i >= 0; i--)// walk through the local variables
     {
         Local* local = &compiler->locals[i];
-        if(fei_compiler_identsequal(name, &local->name))
+        if(fei_compiler_identsequal(state, name, &local->name))
         {
             if(local->depth == -1)
             {
-                fei_compiler_raiseerror("Cannot read local variable in its own initializer.");
+                fei_compiler_raiseerror(state, "Cannot read local variable in its own initializer.");
             }
             return i;// found the var, return the index
         }
@@ -2872,7 +2885,7 @@ int fei_compiler_resolvelocal(Compiler* compiler, Token* name)
 
 
 // add upvalue
-int fei_compiler_addupvalue(Compiler* compiler, uint8_t index, bool isLocal)
+int fei_compiler_addupvalue(State* state, Compiler* compiler, uint8_t index, bool isLocal)
 {
     int upvalueCount = compiler->function->upvalueCount;// get current upvalue count
 
@@ -2888,7 +2901,7 @@ int fei_compiler_addupvalue(Compiler* compiler, uint8_t index, bool isLocal)
 
     if(upvalueCount == UINT8_COUNT)
     {
-        fei_compiler_raiseerror("Too many closure variables");
+        fei_compiler_raiseerror(state, "Too many closure variables");
         return 0;
     }
 
@@ -2905,24 +2918,24 @@ int fei_compiler_addupvalue(Compiler* compiler, uint8_t index, bool isLocal)
 - fei_compiler_resolveupvalue looks for a local variable declared in any of the surrounding functions
 - if it finds one it returns the index for that upvalue variable, otherwise returns -1
 */
-int fei_compiler_resolveupvalue(Compiler* compiler, Token* name)
+int fei_compiler_resolveupvalue(State* state, Compiler* compiler, Token* name)
 {
     if(compiler->enclosing == NULL)
         return -1;// if in main()
 
-    int local = fei_compiler_resolvelocal(compiler->enclosing, name);// looks for local value in enclosing function/compiler
+    int local = fei_compiler_resolvelocal(state, compiler->enclosing, name);// looks for local value in enclosing function/compiler
     if(local != -1)
     {
         compiler->enclosing->locals[local].isCaptured = true;// mark local is captured/used by and upvalue
-        return fei_compiler_addupvalue(compiler, (uint8_t)local, true);// create up value
+        return fei_compiler_addupvalue(state, compiler, (uint8_t)local, true);// create up value
     }
 
     // recursion to solve nested upvalues
     // recursive call right in the middle
-    int upvalue = fei_compiler_resolveupvalue(compiler->enclosing, name);// if the enclosing function is main() (NULL), it returns -1
+    int upvalue = fei_compiler_resolveupvalue(state, compiler->enclosing, name);// if the enclosing function is main() (NULL), it returns -1
     if(upvalue != -1)
     {
-        return fei_compiler_addupvalue(compiler, (uint8_t)upvalue, true);
+        return fei_compiler_addupvalue(state, compiler, (uint8_t)upvalue, true);
     }
 
 
@@ -2930,11 +2943,11 @@ int fei_compiler_resolveupvalue(Compiler* compiler, Token* name)
 }
 
 
-void fei_compiler_addlocal(Token name)
+void fei_compiler_addlocal(State* state, Token name)
 {
     if(state->compiler->localCount == UINT8_COUNT)
     {
-        fei_compiler_raiseerror("Too many local variables in block.");
+        fei_compiler_raiseerror(state, "Too many local variables in block.");
         return;
     }
 
@@ -2944,7 +2957,7 @@ void fei_compiler_addlocal(Token name)
     local->isCaptured = false;
 }
 
-void fei_compiler_declvarfromcurrent()// for local variables
+void fei_compiler_declvarfromcurrent(State* state)// for local variables
 {
     // global vars are implicitly declared, and are late bound, not 'initialized' here but in the VM
     if(state->compiler->scopeDepth == 0)
@@ -2965,84 +2978,84 @@ void fei_compiler_declvarfromcurrent()// for local variables
             break;
         }
 
-        if(fei_compiler_identsequal(name, &local->name))
+        if(fei_compiler_identsequal(state, name, &local->name))
         {
-            fei_compiler_raiseerror("Variable with this name exists in scope.");
+            fei_compiler_raiseerror(state, "Variable with this name exists in scope.");
         }
     }
 
-    fei_compiler_addlocal(*name);
+    fei_compiler_addlocal(state, *name);
 }
 
-uint8_t fei_compiler_parsevarfromcurrent(const char* errorMessage)
+uint8_t fei_compiler_parsevarfromcurrent(State* state, const char* errorMessage)
 {
-    fei_compiler_consume(TOKEN_IDENTIFIER, errorMessage);// requires next token to be an identifier
+    fei_compiler_consume(state, TOKEN_IDENTIFIER, errorMessage);// requires next token to be an identifier
 
-    fei_compiler_declvarfromcurrent();
+    fei_compiler_declvarfromcurrent(state);
     if(state->compiler->scopeDepth > 0)
         return 0;// if scopeDepth is not 0, then it is a local not global var
     // return a dummy index
     // at runtime, locals are not looked up by name so no need to insert them to a table
 
 
-    return fei_compiler_makeidentconst(&state->parser.previous);// return index from the constant table
+    return fei_compiler_makeidentconst(state, &state->parser.previous);// return index from the constant table
 }
 
 
-void fei_compiler_markinit()
+void fei_compiler_markinit(State* state)
 {
     if(state->compiler->scopeDepth == 0)
         return;// if global return
     state->compiler->locals[state->compiler->localCount - 1].depth = state->compiler->scopeDepth;
 }
 
-void fei_compiler_defvarindex(uint8_t global)
+void fei_compiler_defvarindex(State* state, uint8_t global)
 {
     if(state->compiler->scopeDepth > 0)
     {
-        fei_compiler_markinit();
+        fei_compiler_markinit(state);
         return;
     }
 
-    fei_compiler_emitbytes(OP_DEFINE_GLOBAL, global);// opcode for declaration and the constant itself
+    fei_compiler_emitbytes(state, OP_DEFINE_GLOBAL, global);// opcode for declaration and the constant itself
 }
 
 
 // for function arguments, returns number of arguments
 // each argument expression generates code which leaves value on the stack in preparation for the call
-uint8_t fei_compiler_parsearglist()
+uint8_t fei_compiler_parsearglist(State* state)
 {
     uint8_t argCount = 0;
-    if(!fei_compiler_check(TOKEN_RIGHT_PAREN))// if ) has not been reached
+    if(!fei_compiler_check(state, TOKEN_RIGHT_PAREN))// if ) has not been reached
     {
         do
         {
-            fei_compiler_parseexpr();// collect the arguments
+            fei_compiler_parseexpr(state);// collect the arguments
 
             if(argCount == 255)// cannot have more than 255 arguments as each operand is a single byte(uint8_t)
             {
-                fei_compiler_raiseerror("Cannot have more than 255 arguments.");
+                fei_compiler_raiseerror(state, "Cannot have more than 255 arguments.");
             }
 
             argCount++;
-        } while(fei_compiler_match(TOKEN_COMMA));
+        } while(fei_compiler_match(state, TOKEN_COMMA));
     }
 
-    fei_compiler_consume(TOKEN_RIGHT_PAREN, "Expect ')' after argument list.");
+    fei_compiler_consume(state, TOKEN_RIGHT_PAREN, "Expect ')' after argument list.");
     return argCount;
 }
 
-static void fei_comprule_logicaland(bool canassign)
+static void fei_comprule_logicaland(State* state, bool canassign)
 {
     (void)canassign;
-    int endJump = fei_compiler_emitjump(OP_JUMP_IF_FALSE);// left hand side is already compiled,
+    int endJump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE);// left hand side is already compiled,
     // and if it is false skip it and go to next
 
-    fei_compiler_emitbyte(OP_POP);
-    fei_compiler_parseprec(PREC_AND);
+    fei_compiler_emitbyte(state, OP_POP);
+    fei_compiler_parseprec(state, PREC_AND);
 
 
-    fei_compiler_patchjump(endJump);
+    fei_compiler_patchjump(state, endJump);
 }
 
 
@@ -3050,55 +3063,55 @@ static void fei_comprule_logicaland(bool canassign)
 // or INFIX parser, where the operator is in the middle
 // entire left hand expression has been compiled, and the infix operator has been consumed
 // fei_comprule_binary() handles the rest of the arithmetic operator
-static void fei_comprule_binary(bool canassign)
+static void fei_comprule_binary(State* state, bool canassign)
 {
     (void)canassign;
     // remember type of operator, already consumed
     TokenType operatorType = state->parser.previous.type;
 
     // compile right operand
-    ParseRule* rule = fei_compiler_getrule(operatorType);// the BIDMAS rule, operands in the right side have HIGHER PRECEDENCE
+    ParseRule* rule = fei_compiler_getrule(state, operatorType);// the BIDMAS rule, operands in the right side have HIGHER PRECEDENCE
     // as binary operators are LEFT ASSOCIATIVE
     // recursively call fei_compiler_parseprec again
-    fei_compiler_parseprec((Precedence)(rule->precedence + 1));// conert from rule to enum(precedence) type
+    fei_compiler_parseprec(state, (Precedence)(rule->precedence + 1));// conert from rule to enum(precedence) type
 
     switch(operatorType)
     {
             // note how NOT opcode is at the end
             // six binary operators for three instructions only(greater, not, equal)
         case TOKEN_BANG_EQUAL:
-            fei_compiler_emitbytes(OP_EQUAL, OP_NOT);
+            fei_compiler_emitbytes(state, OP_EQUAL, OP_NOT);
             break;// add equal and not to the stack
         case TOKEN_EQUAL_EQUAL:
-            fei_compiler_emitbyte(OP_EQUAL);
+            fei_compiler_emitbyte(state, OP_EQUAL);
             break;
         case TOKEN_GREATER:
-            fei_compiler_emitbyte(OP_GREATER);
+            fei_compiler_emitbyte(state, OP_GREATER);
             break;
         case TOKEN_GREATER_EQUAL:
-            fei_compiler_emitbytes(OP_LESS, OP_NOT);
+            fei_compiler_emitbytes(state, OP_LESS, OP_NOT);
             break;
         case TOKEN_LESS:
-            fei_compiler_emitbyte(OP_LESS);
+            fei_compiler_emitbyte(state, OP_LESS);
             break;
         case TOKEN_LESS_EQUAL:
-            fei_compiler_emitbytes(OP_GREATER, OP_NOT);
+            fei_compiler_emitbytes(state, OP_GREATER, OP_NOT);
             break;
 
         case TOKEN_PLUS:
-            fei_compiler_emitbyte(OP_ADD);
+            fei_compiler_emitbyte(state, OP_ADD);
             break;
         case TOKEN_MINUS:
-            fei_compiler_emitbyte(OP_SUBTRACT);
+            fei_compiler_emitbyte(state, OP_SUBTRACT);
             break;
         case TOKEN_STAR:
-            fei_compiler_emitbyte(OP_MULTIPLY);
+            fei_compiler_emitbyte(state, OP_MULTIPLY);
             break;
         case TOKEN_SLASH:
-            fei_compiler_emitbyte(OP_DIVIDE);
+            fei_compiler_emitbyte(state, OP_DIVIDE);
             break;
         case TOKEN_MODULO:
-            fei_compiler_emitbyte(OP_MODULO);
+            fei_compiler_emitbyte(state, OP_MODULO);
             break;
         default:
             return;// unreachable
@@ -3107,56 +3120,56 @@ static void fei_comprule_binary(bool canassign)
 
 
 // for function calls
-static void fei_comprule_call(bool canassign)
+static void fei_comprule_call(State* state, bool canassign)
 {
     (void)canassign;
     // again, assumes the function itself(its call name) has been placed on the codestream stack
-    uint8_t argCount = fei_compiler_parsearglist();// compile arguments using fei_compiler_parsearglist
-    fei_compiler_emitbytes(OP_CALL, argCount);// write on the chunk
+    uint8_t argCount = fei_compiler_parsearglist(state);// compile arguments using fei_compiler_parsearglist
+    fei_compiler_emitbytes(state, OP_CALL, argCount);// write on the chunk
 }
 
 // class members/fields/properties
-static void fei_comprule_dot(bool canassign)
+static void fei_comprule_dot(State* state, bool canassign)
 {
-    fei_compiler_consume(TOKEN_IDENTIFIER, "Expect propery name after class instance.");
-    uint8_t name = fei_compiler_makeidentconst(&state->parser.previous);// already consumed
+    fei_compiler_consume(state, TOKEN_IDENTIFIER, "Expect propery name after class instance.");
+    uint8_t name = fei_compiler_makeidentconst(state, &state->parser.previous);// already consumed
 
-    if(canassign && fei_compiler_match(TOKEN_EQUAL))// assignment
+    if(canassign && fei_compiler_match(state, TOKEN_EQUAL))// assignment
     {
-        fei_compiler_parseexpr();// evalute expression to be set
-        fei_compiler_emitbytes(OP_SET_PROPERTY, name);
+        fei_compiler_parseexpr(state);// evalute expression to be set
+        fei_compiler_emitbytes(state, OP_SET_PROPERTY, name);
     }
-    else if(fei_compiler_match(TOKEN_LEFT_PAREN))// for running class methods, access the method and call it at the same time
+    else if(fei_compiler_match(state, TOKEN_LEFT_PAREN))// for running class methods, access the method and call it at the same time
     {
-        uint8_t argCount = fei_compiler_parsearglist();
+        uint8_t argCount = fei_compiler_parsearglist(state);
 
         /* new OP_INVOKE opcode that takes two operands:
 		1. the index of the property name in the constant table
 		2. the number of arguments passed in the methods
 		*** combines OP_GET_PROPERTY and OP_CALL
 		*/
-        fei_compiler_emitbytes(OP_INVOKE, name);
-        fei_compiler_emitbyte(argCount);
+        fei_compiler_emitbytes(state, OP_INVOKE, name);
+        fei_compiler_emitbyte(state, argCount);
     }
     else// simply get
     {
-        fei_compiler_emitbytes(OP_GET_PROPERTY, name);
+        fei_compiler_emitbytes(state, OP_GET_PROPERTY, name);
     }
 }
 
-static void fei_comprule_literal(bool canassign)
+static void fei_comprule_literal(State* state, bool canassign)
 {
     (void)canassign;
     switch(state->parser.previous.type)
     {
         case TOKEN_FALSE:
-            fei_compiler_emitbyte(OP_FALSE);
+            fei_compiler_emitbyte(state, OP_FALSE);
             break;
         case TOKEN_TRUE:
-            fei_compiler_emitbyte(OP_TRUE);
+            fei_compiler_emitbyte(state, OP_TRUE);
             break;
         case TOKEN_NULL:
-            fei_compiler_emitbyte(OP_NULL);
+            fei_compiler_emitbyte(state, OP_NULL);
             break;
 
         default:// unreachable
@@ -3165,17 +3178,17 @@ static void fei_comprule_literal(bool canassign)
 }
 
 // parentheses for grouping
-static void fei_comprule_grouping(bool canassign)
+static void fei_comprule_grouping(State* state, bool canassign)
 {
     (void)canassign;
     // assume initial ( has already been consumed, and recursively call to fei_compiler_parseexpr() to compile between the parentheses
-    fei_compiler_parseexpr();
-    fei_compiler_consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");// expects a right parentheses, if not received then  error
+    fei_compiler_parseexpr(state);
+    fei_compiler_consume(state, TOKEN_RIGHT_PAREN, "Expect ')' after expression.");// expects a right parentheses, if not received then  error
 }
 
 
 /* parsing the tokens */
-static void fei_comprule_number(bool canassign)
+static void fei_comprule_number(State* state, bool canassign)
 {
     (void)canassign;
     // strtod below converts from string to double
@@ -3188,77 +3201,77 @@ static void fei_comprule_number(bool canassign)
 	*/
     double value = strtod(state->parser.previous.start, NULL);
     //printf("num %c\n", *state->parser.previous.start);
-    fei_compiler_emitconst(NUMBER_VAL(value));
+    fei_compiler_emitconst(state, NUMBER_VAL(value));
 }
 
-static void fei_comprule_logicalor(bool canassign)
+static void fei_comprule_logicalor(State* state, bool canassign)
 {
     (void)canassign;
     // jump if left hand side is true
-    int elseJump = fei_compiler_emitjump(OP_JUMP_IF_FALSE);// if left is false jump directly to right hand
-    int endJump = fei_compiler_emitjump(OP_JUMP);// if not skipped(as left is true) jump the right hand
+    int elseJump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE);// if left is false jump directly to right hand
+    int endJump = fei_compiler_emitjump(state, OP_JUMP);// if not skipped(as left is true) jump the right hand
 
-    fei_compiler_patchjump(elseJump);
-    fei_compiler_emitbyte(OP_POP);
+    fei_compiler_patchjump(state, elseJump);
+    fei_compiler_emitbyte(state, OP_POP);
 
-    fei_compiler_parseprec(PREC_OR);
-    fei_compiler_patchjump(endJump);
+    fei_compiler_parseprec(state, PREC_OR);
+    fei_compiler_patchjump(state, endJump);
 }
 
 // 'initialize' the string here
-static void fei_comprule_string(bool canassign)
+static void fei_comprule_string(State* state, bool canassign)
 {
     (void)canassign;
     // in a string, eg. "hitagi", the quotation marks are trimmed
-    fei_compiler_emitconst(OBJ_VAL(fei_object_copystring(state->parser.previous.start + 1, state->parser.previous.length - 2)));
+    fei_compiler_emitconst(state, OBJ_VAL(fei_object_copystring(state, state->parser.previous.start + 1, state->parser.previous.length - 2)));
 }
 
 // declare/call variables
-void fei_compiler_declnamedvar(Token name, bool canassign)
+void fei_compiler_declnamedvar(State* state, Token name, bool canassign)
 {
     (void)canassign;
     uint8_t getOp, setOp;
-    int arg = fei_compiler_resolvelocal(state->compiler, &name);// try find a local variable with a given name
+    int arg = fei_compiler_resolvelocal(state, state->compiler, &name);// try find a local variable with a given name
     if(arg != -1)
     {
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
     }
-    else if((arg = fei_compiler_resolveupvalue(state->compiler, &name)) != -1)// for upvalues
+    else if((arg = fei_compiler_resolveupvalue(state, state->compiler, &name)) != -1)// for upvalues
     {
         getOp = OP_GET_UPVALUE;
         setOp = OP_SET_UPVALUE;
     }
     else
     {
-        arg = fei_compiler_makeidentconst(&name);
+        arg = fei_compiler_makeidentconst(state, &name);
         getOp = OP_GET_GLOBAL;
         setOp = OP_SET_GLOBAL;
     }
 
 
     // test case to check whether it is a get(just the name) or a reassignment
-    if(canassign && fei_compiler_match(TOKEN_EQUAL))// if a = follows right after
+    if(canassign && fei_compiler_match(state, TOKEN_EQUAL))// if a = follows right after
     {
-        fei_compiler_parseexpr();
-        fei_compiler_emitbytes(setOp, (uint8_t)arg);// reassignment/set
+        fei_compiler_parseexpr(state);
+        fei_compiler_emitbytes(state, setOp, (uint8_t)arg);// reassignment/set
     }
     else
     {
-        fei_compiler_emitbytes(getOp, (uint8_t)arg);// as normal get
+        fei_compiler_emitbytes(state, getOp, (uint8_t)arg);// as normal get
         // printf("gest");
     }
 }
 
 
-static void fei_comprule_variable(bool canassign)
+static void fei_comprule_variable(State* state, bool canassign)
 {
     (void)canassign;
-    fei_compiler_declnamedvar(state->parser.previous, canassign);
+    fei_compiler_declnamedvar(state, state->parser.previous, canassign);
 }
 
 // for super classes, token that mimics as if a user types in 'super'
-Token fei_compiler_makesyntoken(const char* text)
+Token fei_compiler_makesyntoken(State* state, const char* text)
 {
     Token token;
     token.start = text;
@@ -3267,23 +3280,23 @@ Token fei_compiler_makesyntoken(const char* text)
 }
 
 // for super calls
-static void fei_comprule_super(bool canassign)
+static void fei_comprule_super(State* state, bool canassign)
 {
     (void)canassign;
     // if token is not inside a class
     if(state->classcompiler == NULL)
     {
-        fei_compiler_raiseerror("'super' can only be initialized inside a class.");
+        fei_compiler_raiseerror(state, "'super' can only be initialized inside a class.");
     }
     else if(!state->classcompiler->hasSuperclass)// if class has no parent class
     {
-        fei_compiler_raiseerror("'super' cannot be used on a class with no parent class.");
+        fei_compiler_raiseerror(state, "'super' cannot be used on a class with no parent class.");
     }
 
 
-    fei_compiler_consume(TOKEN_DOT, "Expect '.' after 'super'.");
-    fei_compiler_consume(TOKEN_IDENTIFIER, "Expect parent class method identifier.");
-    uint8_t name = fei_compiler_makeidentconst(&state->parser.previous);// get identifier index
+    fei_compiler_consume(state, TOKEN_DOT, "Expect '.' after 'super'.");
+    fei_compiler_consume(state, TOKEN_IDENTIFIER, "Expect parent class method identifier.");
+    uint8_t name = fei_compiler_makeidentconst(state, &state->parser.previous);// get identifier index
 
 
     /*
@@ -3292,49 +3305,49 @@ static void fei_comprule_super(bool canassign)
 	1. first fei_compiler_declnamedvar call generates code to look up the current receiver and push it to the stack
 	2. second fei_compiler_declnamedvar emits code to look up the superclass and push that on top
 	*/
-    fei_compiler_declnamedvar(fei_compiler_makesyntoken("this"), false);
-    if(fei_compiler_match(TOKEN_LEFT_PAREN))// if there is a parameter list, invoke super method
+    fei_compiler_declnamedvar(state, fei_compiler_makesyntoken(state, "this"), false);
+    if(fei_compiler_match(state, TOKEN_LEFT_PAREN))// if there is a parameter list, invoke super method
     {
-        uint8_t argCount = fei_compiler_parsearglist();
-        fei_compiler_declnamedvar(fei_compiler_makesyntoken("super"), false);
-        fei_compiler_emitbytes(OP_SUPER_INVOKE, name);// super invoke opcode
-        fei_compiler_emitbyte(argCount);
+        uint8_t argCount = fei_compiler_parsearglist(state);
+        fei_compiler_declnamedvar(state, fei_compiler_makesyntoken(state, "super"), false);
+        fei_compiler_emitbytes(state, OP_SUPER_INVOKE, name);// super invoke opcode
+        fei_compiler_emitbyte(state, argCount);
     }
     else
     {
-        fei_compiler_declnamedvar(fei_compiler_makesyntoken("super"), false);
-        fei_compiler_emitbytes(OP_GET_SUPER, name);
+        fei_compiler_declnamedvar(state, fei_compiler_makesyntoken(state, "super"), false);
+        fei_compiler_emitbytes(state, OP_GET_SUPER, name);
     }
 }
 
 
 // for class methods
-static void fei_comprule_this(bool canassign)
+static void fei_comprule_this(State* state, bool canassign)
 {
     (void)canassign;
     // if not inside a class
     if(state->classcompiler == NULL)
     {
-        fei_compiler_raiseerror("Cannot use 'this' outside of class.");
+        fei_compiler_raiseerror(state, "Cannot use 'this' outside of class.");
         return;
     }
 
-    fei_comprule_variable(false);// always false
+    fei_comprule_variable(state, false);// always false
 }
 
 
-static void fei_comprule_unary(bool canassign)
+static void fei_comprule_unary(State* state, bool canassign)
 {
     (void)canassign;
     TokenType operatorType = state->parser.previous.type;// leading - token has already been consumed
 
     // compile operand
-    fei_compiler_parseexpr();
+    fei_compiler_parseexpr(state);
 
     switch(operatorType)
     {
         case TOKEN_BANG:
-            fei_compiler_emitbyte(OP_NOT);
+            fei_compiler_emitbyte(state, OP_NOT);
             break;
 
 
@@ -3346,7 +3359,7 @@ static void fei_comprule_unary(bool canassign)
 		to STOP when + is found, or generally when an operand of LOWER PRECEDENCE is found
 		*/
         case TOKEN_MINUS:
-            fei_compiler_emitbyte(OP_NEGATE);
+            fei_compiler_emitbyte(state, OP_NEGATE);
             break;
         default:
             return;
@@ -3358,25 +3371,25 @@ static void fei_comprule_unary(bool canassign)
 // starts at current token and parses any expression at the given precedence level or higher
 // for example, if fei_compiler_parseprec(PREC_COMPARISON) is called, it will parse unaries, terms, and factors
 // ubt not or, and or assignment operators as they are lower. Basically parse anything that is ABOVE the given precedence
-void fei_compiler_parseprec(Precedence precedence)
+void fei_compiler_parseprec(State* state, Precedence precedence)
 {
     /*	PREFIX FIRST
 	look up for a prefix token, and the FIRSt token is ALWAYS going to be a prefix
 	*/
-    fei_compiler_advancenext();// again, go next first then use previous type as the 'current' token
+    fei_compiler_advancenext(state);// again, go next first then use previous type as the 'current' token
     // the way the compiler is designed is that it has to always have a prefix
-    ParseFn prefixRule = fei_compiler_getrule(state->parser.previous.type)->prefix;
+    ParseFn prefixRule = fei_compiler_getrule(state, state->parser.previous.type)->prefix;
 
     if(prefixRule == NULL)
     {
-        fei_compiler_raiseerror("Expect expression.");
+        fei_compiler_raiseerror(state, "Expect expression.");
         return;
     }
 
     //
 
     bool canassign = precedence <= PREC_ASSIGNMENT;// for assignment precedence
-    prefixRule(canassign);// call the prefix function, may consume a lot of tokens
+    prefixRule(state, canassign);// call the prefix function, may consume a lot of tokens
 
 
     /* after prefix expression is done, look for infix expression
@@ -3385,82 +3398,82 @@ void fei_compiler_parseprec(Precedence precedence)
 	*/
 
 
-    while(precedence <= fei_compiler_getrule(state->parser.current.type)->precedence)
+    while(precedence <= fei_compiler_getrule(state, state->parser.current.type)->precedence)
     {
-        fei_compiler_advancenext();
-        ParseFn infixRule = fei_compiler_getrule(state->parser.previous.type)->infix;
+        fei_compiler_advancenext(state);
+        ParseFn infixRule = fei_compiler_getrule(state, state->parser.previous.type)->infix;
 
-        infixRule(canassign);
+        infixRule(state, canassign);
     }
 
     //consume(TOKEN_AND, "consume and failed");
 
-    if(canassign && fei_compiler_match(TOKEN_EQUAL))// if = is not consumed as part of the expression, nothing will , hence an error
+    if(canassign && fei_compiler_match(state, TOKEN_EQUAL))// if = is not consumed as part of the expression, nothing will , hence an error
     {
-        fei_compiler_raiseerror("Invalid Assignment target.");
+        fei_compiler_raiseerror(state, "Invalid Assignment target.");
     }
 }
 
 // get pointer to ParseRule struct according to type parameter
-ParseRule* fei_compiler_getrule(TokenType type)
+ParseRule* fei_compiler_getrule(State* state, TokenType type)
 {
     return &rules[type];
 }
 
-void fei_compiler_parseexpr()// a single 'statement' or line
+void fei_compiler_parseexpr(State* state)// a single 'statement' or line
 {
-    fei_compiler_parseprec(PREC_ASSIGNMENT);// as assignment is the 2nd lowest, parses evrything
+    fei_compiler_parseprec(state, PREC_ASSIGNMENT);// as assignment is the 2nd lowest, parses evrything
 }
 
-void fei_compiler_parseblock()
+void fei_compiler_parseblock(State* state)
 {
-    while(!fei_compiler_check(TOKEN_RIGHT_BRACE) && !fei_compiler_check(TOKEN_EOF))// parse until EOF or right brace is 'peeked'
+    while(!fei_compiler_check(state, TOKEN_RIGHT_BRACE) && !fei_compiler_check(state, TOKEN_EOF))// parse until EOF or right brace is 'peeked'
     {
-        fei_compiler_parsedeclaration();// compile rest of block, keeps on parsing until right brace or EOF is 'peeked'
+        fei_compiler_parsedeclaration(state);// compile rest of block, keeps on parsing until right brace or EOF is 'peeked'
     }
 
-    fei_compiler_consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+    fei_compiler_consume(state, TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
 
 /* functions */
-void fei_compiler_parsefuncdecl(FunctionType type)
+void fei_compiler_parsefuncdecl(State* state, FunctionType type)
 {
     // create separate Compiler for each function
     Compiler compiler;
-    fei_compiler_init(&compiler, type);// set new compiler(function) as the current one
-    fei_compiler_beginscope();
+    fei_compiler_init(state, &compiler, type);// set new compiler(function) as the current one
+    fei_compiler_beginscope(state);
 
     // compile parameters
-    fei_compiler_consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+    fei_compiler_consume(state, TOKEN_LEFT_PAREN, "Expect '(' after function name.");
 
-    if(!fei_compiler_check(TOKEN_RIGHT_PAREN))// if end ) has not been reached
+    if(!fei_compiler_check(state, TOKEN_RIGHT_PAREN))// if end ) has not been reached
     {
         do
         {
             state->compiler->function->arity++;// add number of parameters
             if(state->compiler->function->arity > 255)
             {
-                fei_compiler_raisehere("Cannot have more than 255 parameters.");
+                fei_compiler_raisehere(state, "Cannot have more than 255 parameters.");
             }
 
-            uint8_t paramConstant = fei_compiler_parsevarfromcurrent("Expect variable name.");// get name
-            fei_compiler_defvarindex(paramConstant);// scope handled here already
-        } while(fei_compiler_match(TOKEN_COMMA));
+            uint8_t paramConstant = fei_compiler_parsevarfromcurrent(state, "Expect variable name.");// get name
+            fei_compiler_defvarindex(state, paramConstant);// scope handled here already
+        } while(fei_compiler_match(state, TOKEN_COMMA));
     }
 
-    fei_compiler_consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameter list.");
+    fei_compiler_consume(state, TOKEN_RIGHT_PAREN, "Expect ')' after parameter list.");
 
     // body
-    fei_compiler_consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
-    fei_compiler_parseblock();
+    fei_compiler_consume(state, TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+    fei_compiler_parseblock(state);
 
     // create function object
-    ObjFunction* function = fei_compiler_endcompiler();// ends the current compiler
+    ObjFunction* function = fei_compiler_endcompiler(state);// ends the current compiler
     // compilers are treated like a stack; if current one is ended, like above, return to the previous one
 
-    // fei_compiler_emitbytes(OP_CONSTANT, fei_compiler_makeconst(OBJ_VAL(function)));
-    fei_compiler_emitbytes(OP_CLOSURE, fei_compiler_makeconst(OBJ_VAL(function)));
+    // fei_compiler_emitbytes(state, OP_CONSTANT, fei_compiler_makeconst(state, OBJ_VAL(function)));
+    fei_compiler_emitbytes(state, OP_CLOSURE, fei_compiler_makeconst(state, OBJ_VAL(function)));
 
     /*	by the time the compiler reaches the end of a function declaration,
 	every variable reference hass been resolved as either local, upvalue or global.
@@ -3473,16 +3486,16 @@ void fei_compiler_parsefuncdecl(FunctionType type)
 
     for(int i = 0; i < function->upvalueCount; i++)
     {
-        fei_compiler_emitbyte(compiler.upvalues[i].isLocal ? 1 : 0);
-        fei_compiler_emitbyte(compiler.upvalues[i].index);// emit index
+        fei_compiler_emitbyte(state, compiler.upvalues[i].isLocal ? 1 : 0);
+        fei_compiler_emitbyte(state, compiler.upvalues[i].index);// emit index
     }
 }
 
 // create method for class type
-void fei_compiler_parsemethoddecl()
+void fei_compiler_parsemethoddecl(State* state)
 {
-    fei_compiler_consume(TOKEN_IDENTIFIER, "Expect method name.");
-    uint8_t constant = fei_compiler_makeidentconst(&state->parser.previous);// get method name
+    fei_compiler_consume(state, TOKEN_IDENTIFIER, "Expect method name.");
+    uint8_t constant = fei_compiler_makeidentconst(state, &state->parser.previous);// get method name
 
     // method body
     FunctionType type = TYPE_METHOD;
@@ -3493,21 +3506,21 @@ void fei_compiler_parsemethoddecl()
         type = TYPE_INITIALIZER;
     }
 
-    fei_compiler_parsefuncdecl(type);// process the function
+    fei_compiler_parsefuncdecl(state, type);// process the function
 
-    fei_compiler_emitbytes(OP_METHOD, constant);
+    fei_compiler_emitbytes(state, OP_METHOD, constant);
 }
 
 
-void fei_compiler_parseclassdecl()
+void fei_compiler_parseclassdecl(State* state)
 {
-    fei_compiler_consume(TOKEN_IDENTIFIER, "Expect class name.");
+    fei_compiler_consume(state, TOKEN_IDENTIFIER, "Expect class name.");
     Token className = state->parser.previous;// get class name
-    uint8_t nameConstant = fei_compiler_makeidentconst(&state->parser.previous);// add to constant table as a string, return its index
-    fei_compiler_declvarfromcurrent();// declare that name variable
+    uint8_t nameConstant = fei_compiler_makeidentconst(state, &state->parser.previous);// add to constant table as a string, return its index
+    fei_compiler_declvarfromcurrent(state);// declare that name variable
 
-    fei_compiler_emitbytes(OP_CLASS, nameConstant);// takes opcode and takes the constant table index
-    fei_compiler_defvarindex(nameConstant);// add it to the global hasht; we must DEFINE AFTER DECLARE to use it
+    fei_compiler_emitbytes(state, OP_CLASS, nameConstant);// takes opcode and takes the constant table index
+    fei_compiler_defvarindex(state, nameConstant);// add it to the global hasht; we must DEFINE AFTER DECLARE to use it
 
     // handle class enclosing for 'this'
     ClassCompiler classCompiler;
@@ -3517,101 +3530,101 @@ void fei_compiler_parseclassdecl()
     state->classcompiler = &classCompiler;// set new class as current
 
     // class inheritance
-    if(fei_compiler_match(TOKEN_FROM))
+    if(fei_compiler_match(state, TOKEN_FROM))
     {
-        fei_compiler_consume(TOKEN_IDENTIFIER, "Expect parent class name.");
-        fei_comprule_variable(false);// get the class variable, looks up the parent class by name and push it to the stack
+        fei_compiler_consume(state, TOKEN_IDENTIFIER, "Expect parent class name.");
+        fei_comprule_variable(state, false);// get the class variable, looks up the parent class by name and push it to the stack
 
         // check that the class names must be different
-        if(fei_compiler_identsequal(&className, &state->parser.previous))
+        if(fei_compiler_identsequal(state, &className, &state->parser.previous))
         {
-            fei_compiler_raiseerror("Cannot inherit class from itself");
+            fei_compiler_raiseerror(state, "Cannot inherit class from itself");
         }
 
         /* super classes
 		- create new lexical scope to ensure that if we declare two classes in the same scope, each has a different
 		local slot to store the superclasses
 		*/
-        fei_compiler_beginscope();
-        fei_compiler_addlocal(fei_compiler_makesyntoken("super"));
-        fei_compiler_defvarindex(0);
+        fei_compiler_beginscope(state);
+        fei_compiler_addlocal(state, fei_compiler_makesyntoken(state, "super"));
+        fei_compiler_defvarindex(state, 0);
 
-        fei_compiler_declnamedvar(className, false);
-        fei_compiler_emitbyte(OP_INHERIT);
+        fei_compiler_declnamedvar(state, className, false);
+        fei_compiler_emitbyte(state, OP_INHERIT);
         classCompiler.hasSuperclass = true;
     }
 
 
-    fei_compiler_declnamedvar(className, false);// helper function to geenrate code that LOADS a variable with a given name to te stack
+    fei_compiler_declnamedvar(state, className, false);// helper function to geenrate code that LOADS a variable with a given name to te stack
 
-    fei_compiler_consume(TOKEN_LEFT_BRACE, "Expect '{' before class body.");
-    while(!fei_compiler_check(TOKEN_RIGHT_BRACE) && !fei_compiler_check(TOKEN_EOF))
+    fei_compiler_consume(state, TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+    while(!fei_compiler_check(state, TOKEN_RIGHT_BRACE) && !fei_compiler_check(state, TOKEN_EOF))
     {
-        fei_compiler_parsemethoddecl();
+        fei_compiler_parsemethoddecl(state);
     }
 
-    fei_compiler_consume(TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
-    fei_compiler_emitbyte(OP_POP);// no longer need the class, pop it
+    fei_compiler_consume(state, TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
+    fei_compiler_emitbyte(state, OP_POP);// no longer need the class, pop it
 
     // close local scope for superclass variable
     if(classCompiler.hasSuperclass)
     {
-        fei_compiler_endscope();
+        fei_compiler_endscope(state);
     }
 
     state->classcompiler = state->classcompiler->enclosing;// go back to enclosing/main() class
 }
 
 
-void fei_compiler_parseclassfuncdecl()
+void fei_compiler_parseclassfuncdecl(State* state)
 {
-    uint8_t global = fei_compiler_parsevarfromcurrent("Expect function name.");
-    fei_compiler_markinit();// scoping
-    fei_compiler_parsefuncdecl(TYPE_FUNCTION);
-    fei_compiler_defvarindex(global);
+    uint8_t global = fei_compiler_parsevarfromcurrent(state, "Expect function name.");
+    fei_compiler_markinit(state);// scoping
+    fei_compiler_parsefuncdecl(state, TYPE_FUNCTION);
+    fei_compiler_defvarindex(state, global);
 }
 
-void fei_compiler_parsevardecl()
+void fei_compiler_parsevardecl(State* state)
 {
-    uint8_t global = fei_compiler_parsevarfromcurrent("Expect variable name.");
+    uint8_t global = fei_compiler_parsevarfromcurrent(state, "Expect variable name.");
 
-    if(fei_compiler_match(TOKEN_EQUAL))
+    if(fei_compiler_match(state, TOKEN_EQUAL))
     {
-        fei_compiler_parseexpr();
+        fei_compiler_parseexpr(state);
     }
     else
     {
-        fei_compiler_emitbyte(OP_NULL);// not initialized
+        fei_compiler_emitbyte(state, OP_NULL);// not initialized
     }
-    fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
+    fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
 
-    fei_compiler_defvarindex(global);// create global variable here; if local, not added to table
+    fei_compiler_defvarindex(state, global);// create global variable here; if local, not added to table
 }
 
-void fei_compiler_parseexprstmt()
+void fei_compiler_parseexprstmt(State* state)
 {
-    fei_compiler_parseexpr();
-    fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
-    fei_compiler_emitbyte(OP_POP);
+    fei_compiler_parseexpr(state);
+    fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after expression.");
+    fei_compiler_emitbyte(state, OP_POP);
 }
 
 // if method
-void fei_compiler_parseifstmt()
+void fei_compiler_parseifstmt(State* state)
 {
-    //	fei_compiler_consume(TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
-    fei_compiler_parseexpr();// compile the expression statment inside; fei_compiler_parseprec()
+    //	fei_compiler_consume(state, TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
+    fei_compiler_parseexpr(state);// compile the expression statment inside; fei_compiler_parseprec()
     // after compiling expression above conditon value will be left at the top of the stack
-    //	fei_compiler_consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+    //	fei_compiler_consume(state, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
 
     // gives an operand on how much to offset the ip; how many bytes of code to skip
     // if falsey, simply adjusts the ip by that amount
     // offset to jump to next (potentially else or elf) statment
     // insert to opcode the then branch statment first, then get offset
-    int thenJump = fei_compiler_emitjump(OP_JUMP_IF_FALSE); /* this gets distance */
+    int thenJump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE); /* this gets distance */
 
 
-    fei_compiler_emitbyte(OP_POP);// pop then
+    fei_compiler_emitbyte(state, OP_POP);// pop then
 
     /* use BACKPATCHING
 	- emit jump first with a placeholder offset, and get how far to jump
@@ -3619,47 +3632,47 @@ void fei_compiler_parseifstmt()
 	
 	*/
 
-    fei_compiler_parsestatement();
+    fei_compiler_parsestatement(state);
 
     // below jump wil SURELY jump; this is skipped if the first fei_compiler_emitjump is not false
-    int elseJump = fei_compiler_emitjump(OP_JUMP);// need to jump at least 'twice' with an else statement
+    int elseJump = fei_compiler_emitjump(state, OP_JUMP);// need to jump at least 'twice' with an else statement
     // if the original statement is  true, then skip the the else statement
 
     // if then statment is run; pop the expression inside () after if
-    fei_compiler_patchjump(thenJump); /* this actually jumps */
+    fei_compiler_patchjump(state, thenJump); /* this actually jumps */
 
-    fei_compiler_emitbyte(OP_POP);// if else statment is run; pop the expression inside () after if
-    if(fei_compiler_match(TOKEN_ELSE))
-        fei_compiler_parsestatement();
+    fei_compiler_emitbyte(state, OP_POP);// if else statment is run; pop the expression inside () after if
+    if(fei_compiler_match(state, TOKEN_ELSE))
+        fei_compiler_parsestatement(state);
 
-    if(fei_compiler_match(TOKEN_ELF))// else if
+    if(fei_compiler_match(state, TOKEN_ELF))// else if
     {
         // go to statement, then go back to IF
-        fei_compiler_parseifstmt();
+        fei_compiler_parseifstmt(state);
     }
 
     /* this actually jumps */
     // last jump that is executed IF FIRST STATEMENT IS TRUE
-    fei_compiler_patchjump(elseJump);// for the second jump
+    fei_compiler_patchjump(state, elseJump);// for the second jump
 }
 
-void fei_compiler_parseswitchstmt()
+void fei_compiler_parseswitchstmt(State* state)
 {
-    // fei_compiler_consume(TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
-    if(!fei_compiler_check(TOKEN_IDENTIFIER))// check next token
+    // fei_compiler_consume(state, TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
+    if(!fei_compiler_check(state, TOKEN_IDENTIFIER))// check next token
     {
-        fei_compiler_raisehere("Expect identifier after switch.");
+        fei_compiler_raisehere(state, "Expect identifier after switch.");
     }
 
     // if no error, consume the identifier
-    fei_compiler_parseexpr();
-    fei_compiler_consume(TOKEN_LEFT_BRACE, "Expect '{' after switch identifier.");
-    fei_compiler_consume(TOKEN_CASE, "Expect at least 1 case after switch declaration.");
+    fei_compiler_parseexpr(state);
+    fei_compiler_consume(state, TOKEN_LEFT_BRACE, "Expect '{' after switch identifier.");
+    fei_compiler_consume(state, TOKEN_CASE, "Expect at least 1 case after switch declaration.");
 
     /* to store  opcode offsets */
     uint8_t casesCount = -1;
     uint8_t capacity = 0;
-    int* casesOffset = ALLOCATE(int, 8);// 8 initial switch cases
+    int* casesOffset = ALLOCATE(state, int, 8);// 8 initial switch cases
 
     do// while next token is a case, match also advances
     {
@@ -3668,106 +3681,106 @@ void fei_compiler_parseswitchstmt()
         {
             int oldCapacity = capacity;
             capacity = GROW_CAPACITY(oldCapacity);
-            casesOffset = GROW_ARRAY(int, casesOffset, oldCapacity, capacity);
+            casesOffset = GROW_ARRAY(state, int, casesOffset, oldCapacity, capacity);
         }
 
         casesCount++;
 
-        fei_compiler_parseexpr();
-        fei_compiler_consume(TOKEN_COLON, "Expect ':' after case expression.");
-        fei_compiler_emitbyte(OP_SWITCH_EQUAL);// check if both values are equal
+        fei_compiler_parseexpr(state);
+        fei_compiler_consume(state, TOKEN_COLON, "Expect ':' after case expression.");
+        fei_compiler_emitbyte(state, OP_SWITCH_EQUAL);// check if both values are equal
 
-        int caseFalseJump = fei_compiler_emitjump(OP_JUMP_IF_FALSE);// jump if false
+        int caseFalseJump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE);// jump if false
         //printf("\ncase false jump offset: %d", caseFalseJump);
 
         // parse the statment
-        fei_compiler_parsestatement();
+        fei_compiler_parsestatement(state);
 
-        fei_compiler_emitbyte(OP_POP);// pop the 'true' from OP_SWITCH_EQUAL
-        casesOffset[casesCount] = fei_compiler_emitjump(OP_JUMP);
+        fei_compiler_emitbyte(state, OP_POP);// pop the 'true' from OP_SWITCH_EQUAL
+        casesOffset[casesCount] = fei_compiler_emitjump(state, OP_JUMP);
         //printf("\ncase true jump offset: %d", casesOffset[casesCount]);
 
         // jump to end of case if false
-        fei_compiler_patchjump(caseFalseJump);
-        fei_compiler_emitbyte(OP_POP);// pop the 'false' statment from OP_SWITCH_EQUAL
-    } while(fei_compiler_match(TOKEN_CASE));
+        fei_compiler_patchjump(state, caseFalseJump);
+        fei_compiler_emitbyte(state, OP_POP);// pop the 'false' statment from OP_SWITCH_EQUAL
+    } while(fei_compiler_match(state, TOKEN_CASE));
 
-    if(fei_compiler_match(TOKEN_DEFAULT))
+    if(fei_compiler_match(state, TOKEN_DEFAULT))
     {
-        fei_compiler_consume(TOKEN_COLON, "Expect ':' default case.");
-        fei_compiler_parsestatement();// running the default statement
+        fei_compiler_consume(state, TOKEN_COLON, "Expect ':' default case.");
+        fei_compiler_parsestatement(state);// running the default statement
     }
-    //fei_compiler_consume(TOKEN_DEFAULT, "Default case not provided for switch.");
+    //fei_compiler_consume(state, TOKEN_DEFAULT, "Default case not provided for switch.");
 
 
     // fei_compiler_patchjump for each available jump
     for(uint8_t i = 0; i <= casesCount; i++)
     {
-        fei_compiler_patchjump(casesOffset[i]);
+        fei_compiler_patchjump(state, casesOffset[i]);
     }
 
-    fei_compiler_emitbyte(OP_POP);// pop switch constant
-    FREE_ARRAY(int, casesOffset, capacity);
+    fei_compiler_emitbyte(state, OP_POP);// pop switch constant
+    FREE_ARRAY(state, int, casesOffset, capacity);
 
-    fei_compiler_consume(TOKEN_RIGHT_BRACE, "Expect '}' at the end of switch statement");
+    fei_compiler_consume(state, TOKEN_RIGHT_BRACE, "Expect '}' at the end of switch statement");
 }
 
 
-void fei_compiler_parseprintstmt()
+void fei_compiler_parseprintstmt(State* state)
 {
-    fei_compiler_parseexpr();// this is the function that actually processes the experssion
-    fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after value.");// try consume ;, if fails show message
-    fei_compiler_emitbyte(OP_PRINT);
+    fei_compiler_parseexpr(state);// this is the function that actually processes the experssion
+    fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after value.");// try consume ;, if fails show message
+    fei_compiler_emitbyte(state, OP_PRINT);
 }
 
-void fei_compiler_parsereturnstmt()
+void fei_compiler_parsereturnstmt(State* state)
 {
     if(state->compiler->type == TYPE_SCRIPT)
     {
-        fei_compiler_raiseerror("Cannot return from top-level code.");
+        fei_compiler_raiseerror(state, "Cannot return from top-level code.");
     }
-    if(fei_compiler_match(TOKEN_SEMICOLON))
+    if(fei_compiler_match(state, TOKEN_SEMICOLON))
     {
-        fei_compiler_emitreturn();
+        fei_compiler_emitreturn(state);
     }
     else
     {
         // error in returning from an initializer
         if(state->compiler->type == TYPE_INITIALIZER)
         {
-            fei_compiler_raiseerror("Cannot return a value from an initializer");
+            fei_compiler_raiseerror(state, "Cannot return a value from an initializer");
         }
 
-        fei_compiler_parseexpr();
-        fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
-        fei_compiler_emitbyte(OP_RETURN);
+        fei_compiler_parseexpr(state);
+        fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after return value.");
+        fei_compiler_emitbyte(state, OP_RETURN);
     }
 }
 
-void fei_compiler_parseforstmt()
+void fei_compiler_parseforstmt(State* state)
 {
-    fei_compiler_beginscope();// for possible variable declarations in clause
+    fei_compiler_beginscope(state);// for possible variable declarations in clause
 
-    fei_compiler_beginloopscope();
+    fei_compiler_beginloopscope(state);
 
-    fei_compiler_consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
+    fei_compiler_consume(state, TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
 
     // initializer clause
-    if(fei_compiler_match(TOKEN_SEMICOLON))
+    if(fei_compiler_match(state, TOKEN_SEMICOLON))
     {
         // no initializer
     }
-    else if(fei_compiler_match(TOKEN_VAR))
+    else if(fei_compiler_match(state, TOKEN_VAR))
     {
-        fei_compiler_parsevardecl();// for clause scope only
+        fei_compiler_parsevardecl(state);// for clause scope only
     }
     else
     {
-        fei_compiler_parseexprstmt();
+        fei_compiler_parseexprstmt(state);
     }
 
     // for for/while loops, loop starts here, with currenChunk()->count
-    int loopStart = fei_compiler_currentchunk()->count;
+    int loopStart = fei_compiler_currentchunk(state)->count;
 
     //  the condition clause
     /* CONDITION CLAUSE
@@ -3775,18 +3788,18 @@ void fei_compiler_parseforstmt()
 	2. if true, go to the body; see increment clause below
 	*/
     int exitJump = -1;
-    if(!fei_compiler_match(TOKEN_SEMICOLON))
+    if(!fei_compiler_match(state, TOKEN_SEMICOLON))
     {
-        fei_compiler_parseexpr();
-        fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+        fei_compiler_parseexpr(state);
+        fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after loop condition.");
 
         // jump out of loop if condition is false
-        exitJump = fei_compiler_emitjump(OP_JUMP_IF_FALSE);
-        fei_compiler_emitbyte(OP_POP);// still need to figure this out, most likely just deleting 'temporary' constants in the scope
+        exitJump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE);
+        fei_compiler_emitbyte(state, OP_POP);// still need to figure this out, most likely just deleting 'temporary' constants in the scope
     }
 
     // the increment clause
-    if(!fei_compiler_match(TOKEN_RIGHT_PAREN))// if there is something else before the terminating ')'
+    if(!fei_compiler_match(state, TOKEN_RIGHT_PAREN))// if there is something else before the terminating ')'
     {
         /*	INCEREMENT CLAUSE
 		1. from the condition clause, first jump OVER the increment, to the body
@@ -3798,98 +3811,98 @@ void fei_compiler_parseforstmt()
         // for continue
 
 
-        int bodyJump = fei_compiler_emitjump(OP_JUMP);// jump the increment clause
+        int bodyJump = fei_compiler_emitjump(state, OP_JUMP);// jump the increment clause
 
-        int incrementStart = fei_compiler_currentchunk()->count;// starting index for increment
+        int incrementStart = fei_compiler_currentchunk(state)->count;// starting index for increment
 
         // set continue jump here, right after the increment statement
-        fei_compiler_markcontinuejump();
+        fei_compiler_markcontinuejump(state);
 
-        fei_compiler_parseexpr();// run the for expression
-        fei_compiler_emitbyte(OP_POP);// pop expression constant
-        fei_compiler_consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
+        fei_compiler_parseexpr(state);// run the for expression
+        fei_compiler_emitbyte(state, OP_POP);// pop expression constant
+        fei_compiler_consume(state, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
 
         // running the loop
-        fei_compiler_emitloop(loopStart);// goes back to the start of the CONDITION clause of the for loop
+        fei_compiler_emitloop(state, loopStart);// goes back to the start of the CONDITION clause of the for loop
         loopStart = incrementStart;
-        fei_compiler_patchjump(bodyJump);
+        fei_compiler_patchjump(state, bodyJump);
     }
 
-    fei_compiler_parsestatement();// running the code inside the loop
+    fei_compiler_parsestatement(state);// running the code inside the loop
 
-    fei_compiler_emitloop(loopStart);
+    fei_compiler_emitloop(state, loopStart);
 
     // patch the jump in the loop body
     if(exitJump != -1)
     {
-        fei_compiler_patchjump(exitJump);
-        fei_compiler_emitbyte(OP_POP);// only pop when THERE EXISTS A CONDITION from the clause
+        fei_compiler_patchjump(state, exitJump);
+        fei_compiler_emitbyte(state, OP_POP);// only pop when THERE EXISTS A CONDITION from the clause
     }
 
     // patch break jumps, if available
-    fei_compiler_patchbreakjumps();
+    fei_compiler_patchbreakjumps(state);
 
-    fei_compiler_endloopscope();
-    fei_compiler_endscope();
+    fei_compiler_endloopscope(state);
+    fei_compiler_endscope(state);
 }
 
-void fei_compiler_parsewhilestmt()
+void fei_compiler_parsewhilestmt(State* state)
 {
-    int loopStart = fei_compiler_currentchunk()->count;// index where the statement to loop starts
-    fei_compiler_beginloopscope();
+    int loopStart = fei_compiler_currentchunk(state)->count;// index where the statement to loop starts
+    fei_compiler_beginloopscope(state);
 
     // set jump for potential continue statement
-    fei_compiler_markcontinuejump();
+    fei_compiler_markcontinuejump(state);
 
-    fei_compiler_parseexpr();
+    fei_compiler_parseexpr(state);
 
 
-    int exitJump = fei_compiler_emitjump(OP_JUMP_IF_FALSE);// skip stament if condition is false
+    int exitJump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE);// skip stament if condition is false
 
-    fei_compiler_emitbyte(OP_POP);// pop the last expression(true or false)
+    fei_compiler_emitbyte(state, OP_POP);// pop the last expression(true or false)
 
-    fei_compiler_parsestatement();
+    fei_compiler_parsestatement(state);
 
-    fei_compiler_emitloop(loopStart);// method to 'loop' the instruction
+    fei_compiler_emitloop(state, loopStart);// method to 'loop' the instruction
 
-    fei_compiler_patchjump(exitJump);
+    fei_compiler_patchjump(state, exitJump);
 
-    fei_compiler_emitbyte(OP_POP);
+    fei_compiler_emitbyte(state, OP_POP);
 
     // patch break jumps, if available
-    fei_compiler_patchbreakjumps();
+    fei_compiler_patchbreakjumps(state);
 
-    fei_compiler_endloopscope();
+    fei_compiler_endloopscope(state);
 }
 
-void fei_compiler_parsebreakstmt()
+void fei_compiler_parsebreakstmt(State* state)
 {
     if(state->compiler->loopCountTop < 0)
     {
-        fei_compiler_raiseerror("Break statement must be enclosed in a loop");
+        fei_compiler_raiseerror(state, "Break statement must be enclosed in a loop");
         return;
     }
 
     if(++state->compiler->breakJumpCounts[state->compiler->loopCountTop] > UINT8_COUNT)
     {
-        fei_compiler_raiseerror("Too many break statments in one loop");
+        fei_compiler_raiseerror(state, "Too many break statments in one loop");
         return;
     }
 
-    int breakJump = fei_compiler_emitjump(OP_JUMP);
+    int breakJump = fei_compiler_emitjump(state, OP_JUMP);
     int loopDepth = state->compiler->loopCountTop;
     int breakAmount = state->compiler->breakJumpCounts[loopDepth];
     state->compiler->breakPatchJumps[state->compiler->loopCountTop][breakAmount - 1] = breakJump;
 
-    fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after break.");
+    fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after break.");
 }
 
 
-void fei_compiler_parsecontinuestmt()
+void fei_compiler_parsecontinuestmt(State* state)
 {
     if(state->compiler->loopCountTop < 0)
     {
-        fei_compiler_raiseerror("Continue statement must be enclosed in a loop");
+        fei_compiler_raiseerror(state, "Continue statement must be enclosed in a loop");
         return;
     }
 
@@ -3897,64 +3910,64 @@ void fei_compiler_parsecontinuestmt()
     {
         int oldCapacity = state->compiler->continueJumpCapacity;
         state->compiler->continueJumpCapacity = GROW_CAPACITY(oldCapacity);
-        state->compiler->continueJumps = GROW_ARRAY(int, state->compiler->continueJumps, oldCapacity, state->compiler->continueJumpCapacity);
+        state->compiler->continueJumps = GROW_ARRAY(state, int, state->compiler->continueJumps, oldCapacity, state->compiler->continueJumpCapacity);
     }
 
-    fei_compiler_emitloop(state->compiler->continueJumps[state->compiler->loopCountTop]);
+    fei_compiler_emitloop(state, state->compiler->continueJumps[state->compiler->loopCountTop]);
 
-    fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after continue.");
+    fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after continue.");
 }
 
-void fei_compiler_parserepeatuntilstmt()
+void fei_compiler_parserepeatuntilstmt(State* state)
 {
-    // fei_compiler_consume(TOKEN_LEFT_BRACE, "Expect '{' after repeat.");
-    int loopStart = fei_compiler_currentchunk()->count;
-    fei_compiler_beginloopscope();
-    fei_compiler_markcontinuejump();
+    // fei_compiler_consume(state, TOKEN_LEFT_BRACE, "Expect '{' after repeat.");
+    int loopStart = fei_compiler_currentchunk(state)->count;
+    fei_compiler_beginloopscope(state);
+    fei_compiler_markcontinuejump(state);
 
     // process the statement
-    fei_compiler_parsestatement();
+    fei_compiler_parsestatement(state);
 
-    fei_compiler_consume(TOKEN_UNTIL, "Expect 'until' after repeat statement.");
+    fei_compiler_consume(state, TOKEN_UNTIL, "Expect 'until' after repeat statement.");
 
     // get true or false
-    fei_compiler_parseexpr();
+    fei_compiler_parseexpr(state);
 
     // emit loop if false op code
-    fei_compiler_emitcondloop(loopStart, false);
+    fei_compiler_emitcondloop(state, loopStart, false);
 
     // patch possible break jumps
-    fei_compiler_patchbreakjumps();
+    fei_compiler_patchbreakjumps(state);
 
-    fei_compiler_endloopscope();
-    fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after until exppression.");
+    fei_compiler_endloopscope(state);
+    fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after until exppression.");
 }
 
-void fei_compiler_parsedowhilestmt()
+void fei_compiler_parsedowhilestmt(State* state)
 {
-    int loopStart = fei_compiler_currentchunk()->count;
-    fei_compiler_beginloopscope();
-    fei_compiler_markcontinuejump();
+    int loopStart = fei_compiler_currentchunk(state)->count;
+    fei_compiler_beginloopscope(state);
+    fei_compiler_markcontinuejump(state);
 
     // process the statement
-    fei_compiler_parsestatement();
+    fei_compiler_parsestatement(state);
 
-    fei_compiler_consume(TOKEN_WHILE, "Expect 'until' after repeat statement.");
+    fei_compiler_consume(state, TOKEN_WHILE, "Expect 'until' after repeat statement.");
 
     // get true or false
-    fei_compiler_parseexpr();
+    fei_compiler_parseexpr(state);
 
     // emit loop if true op code
-    fei_compiler_emitcondloop(loopStart, true);
+    fei_compiler_emitcondloop(state, loopStart, true);
 
     // patch possible break jumps
-    fei_compiler_patchbreakjumps();
+    fei_compiler_patchbreakjumps(state);
 
-    fei_compiler_endloopscope();
-    fei_compiler_consume(TOKEN_SEMICOLON, "Expect ';' after until exppression.");
+    fei_compiler_endloopscope(state);
+    fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after until exppression.");
 }
 
-void fei_compiler_synchronize()
+void fei_compiler_synchronize(State* state)
 {
     state->parser.panicMode = false;
 
@@ -3982,128 +3995,128 @@ void fei_compiler_synchronize()
             ;
         }
 
-        fei_compiler_advancenext();
+        fei_compiler_advancenext(state);
     }
 }
 
-void fei_compiler_parsedeclaration()
+void fei_compiler_parsedeclaration(State* state)
 {
-    if(fei_compiler_match(TOKEN_CLASS))
+    if(fei_compiler_match(state, TOKEN_CLASS))
     {
-        fei_compiler_parseclassdecl();
+        fei_compiler_parseclassdecl(state);
     }
-    else if(fei_compiler_match(TOKEN_FUN))
+    else if(fei_compiler_match(state, TOKEN_FUN))
     {
-        fei_compiler_parseclassfuncdecl();
+        fei_compiler_parseclassfuncdecl(state);
     }
-    else if(fei_compiler_match(TOKEN_VAR))
+    else if(fei_compiler_match(state, TOKEN_VAR))
     {
-        fei_compiler_parsevardecl();// declare variable
+        fei_compiler_parsevardecl(state);// declare variable
     }
     else
     {
-        fei_compiler_parsestatement();
+        fei_compiler_parsestatement(state);
     }
     if(state->parser.panicMode)
-        fei_compiler_synchronize();// for errors
+        fei_compiler_synchronize(state);// for errors
 }
 
-void fei_compiler_parsestatement()// either an expression or a print
+void fei_compiler_parsestatement(State* state)// either an expression or a print
 {
-    if(fei_compiler_match(TOKEN_PRINT))
+    if(fei_compiler_match(state, TOKEN_PRINT))
     {
-        fei_compiler_parseprintstmt();
+        fei_compiler_parseprintstmt(state);
     }
-    else if(fei_compiler_match(TOKEN_RETURN))
+    else if(fei_compiler_match(state, TOKEN_RETURN))
     {
-        fei_compiler_parsereturnstmt();// for functions return
+        fei_compiler_parsereturnstmt(state);// for functions return
     }
-    else if(fei_compiler_match(TOKEN_WHILE))
+    else if(fei_compiler_match(state, TOKEN_WHILE))
     {
-        fei_compiler_parsewhilestmt();
+        fei_compiler_parsewhilestmt(state);
     }
-    else if(fei_compiler_match(TOKEN_FOR))
+    else if(fei_compiler_match(state, TOKEN_FOR))
     {
-        fei_compiler_parseforstmt();
+        fei_compiler_parseforstmt(state);
     }
-    else if(fei_compiler_match(TOKEN_SWITCH))
+    else if(fei_compiler_match(state, TOKEN_SWITCH))
     {
-        fei_compiler_parseswitchstmt();
+        fei_compiler_parseswitchstmt(state);
     }
-    else if(fei_compiler_match(TOKEN_BREAK))
+    else if(fei_compiler_match(state, TOKEN_BREAK))
     {
-        fei_compiler_parsebreakstmt();
+        fei_compiler_parsebreakstmt(state);
     }
-    else if(fei_compiler_match(TOKEN_CONTINUE))
+    else if(fei_compiler_match(state, TOKEN_CONTINUE))
     {
-        fei_compiler_parsecontinuestmt();
+        fei_compiler_parsecontinuestmt(state);
     }
-    else if(fei_compiler_match(TOKEN_IF))
+    else if(fei_compiler_match(state, TOKEN_IF))
     {
-        fei_compiler_parseifstmt();
+        fei_compiler_parseifstmt(state);
     }
-    else if(fei_compiler_match(TOKEN_REPEAT))
+    else if(fei_compiler_match(state, TOKEN_REPEAT))
     {
-        fei_compiler_parserepeatuntilstmt();
+        fei_compiler_parserepeatuntilstmt(state);
     }
-    else if(fei_compiler_match(TOKEN_DO))
+    else if(fei_compiler_match(state, TOKEN_DO))
     {
-        fei_compiler_parsedowhilestmt();
+        fei_compiler_parsedowhilestmt(state);
     }
-    else if(fei_compiler_match(TOKEN_LEFT_BRACE))// parse initial { token
+    else if(fei_compiler_match(state, TOKEN_LEFT_BRACE))// parse initial { token
     {
-        fei_compiler_beginscope();
-        fei_compiler_parseblock();
-        fei_compiler_endscope();
+        fei_compiler_beginscope(state);
+        fei_compiler_parseblock(state);
+        fei_compiler_endscope(state);
     }
     else
     {
-        fei_compiler_parseexprstmt();
+        fei_compiler_parseexprstmt(state);
     }
 }
 
-ObjFunction* fei_compiler_compilesource(const char* source)
+ObjFunction* fei_compiler_compilesource(State* state, const char* source)
 {
-    fei_lexer_initsource(source);// start scan/lexing
+    fei_lexer_initsource(state, source);// start scan/lexing
     Compiler compiler;
-    fei_compiler_init(&compiler, TYPE_SCRIPT);
+    fei_compiler_init(state, &compiler, TYPE_SCRIPT);
 
     state->parser.hadError = false;
     state->parser.panicMode = false;
 
-    fei_compiler_advancenext();// call to advance once to 'pump' the scanner
+    fei_compiler_advancenext(state);// call to advance once to 'pump' the scanner
 
-    while(!fei_compiler_match(TOKEN_EOF))/// while EOF token is not met
+    while(!fei_compiler_match(state, TOKEN_EOF))/// while EOF token is not met
     {
-        fei_compiler_parsedeclaration();
+        fei_compiler_parsedeclaration(state);
     }
 
 
-    ObjFunction* function = fei_compiler_endcompiler();// ends the expression with a return type
+    ObjFunction* function = fei_compiler_endcompiler(state);// ends the expression with a return type
     return state->parser.hadError ? NULL : function;// if no error return true
 }
 
 
 // marking compiler roots, for garbage collection
-void fei_compiler_markroots()
+void fei_compiler_markroots(State* state)
 {
     Compiler* compiler = state->compiler;
     while(compiler != NULL)
     {
-        fei_gcmem_markobject((Obj*)compiler->function);
+        fei_gcmem_markobject(state, (Obj*)compiler->function);
         compiler = compiler->enclosing;
     }
 }
 
 
-static Value cfn_clock(int argCount, Value* args)
+static Value cfn_clock(State* state, int argCount, Value* args)
 {
     (void)argCount;
     (void)args;
     return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);// returns elapsed time since program was running
 }
 
-static Value cfn_print(/*State* vm, */ int argc, Value* args)
+static Value cfn_print(State* state, int argc, Value* args)
 {
     int i;
     Obj* o;
@@ -4147,10 +4160,10 @@ static Value cfn_print(/*State* vm, */ int argc, Value* args)
     return NUMBER_VAL(0);
 }
 
-static Value cfn_println(/*State* vm, */ int argc, Value* args)
+static Value cfn_println(State* state, int argc, Value* args)
 {
     Value r;
-    r = cfn_print(/*vm, */ argc, args);
+    r = cfn_print(state, argc, args);
     fprintf(stdout, "\n");
     fflush(stdout);
     return r;
@@ -4159,7 +4172,7 @@ static Value cfn_println(/*State* vm, */ int argc, Value* args)
 
 // IMPORTANT
 // variadic function ( ... ), takes a varying number of arguments
-void fei_vm_raiseruntimeerror(const char* format, ...)
+void fei_vm_raiseruntimeerror(State* state, const char* format, ...)
 {
     va_list args;// list from the varying parameter
     va_start(args, format);
@@ -4194,20 +4207,20 @@ void fei_vm_raiseruntimeerror(const char* format, ...)
     int line = frame->closure->function->chunk.lines[instruction];
     fprintf(stderr, "Error in script at [Line %d]\n", line);
 
-    fei_vm_resetstack();
+    fei_vm_resetstack(state);
 }
 
-void fei_vm_defnative(const char* name, NativeFn function)
+void fei_vm_defnative(State* state, const char* name, NativeFn function)
 {
-    fei_vm_pushvalue(OBJ_VAL(fei_object_copystring(name, (int)strlen(name))));// strlen to get char* length
-    fei_vm_pushvalue(OBJ_VAL(fei_object_makenativefunc(function)));
-    fei_table_set(&state->globals, AS_STRING(state->stack[0]), state->stack[1]);
-    fei_vm_popvalue();
-    fei_vm_popvalue();
+    fei_vm_pushvalue(state, OBJ_VAL(fei_object_copystring(state, name, (int)strlen(name))));// strlen to get char* length
+    fei_vm_pushvalue(state, OBJ_VAL(fei_object_makenativefunc(state, function)));
+    fei_table_set(state, &state->globals, AS_STRING(state->stack[0]), state->stack[1]);
+    fei_vm_popvalue(state);
+    fei_vm_popvalue(state);
 }
 
 
-void fei_vm_resetstack()
+void fei_vm_resetstack(State* state)
 {
     // point stackStop to the begininng of the empty array
     state->stackTop = state->stack;// stack array(state->stack) is already indirectly declared, hence no need to allocate memory for it
@@ -4217,15 +4230,14 @@ void fei_vm_resetstack()
 
 State* fei_state_init()
 {
-    State* r;
-    r = (State*)malloc(sizeof(State));
-    state = r;
-    r->compiler = NULL;
-    r->classcompiler = NULL;
-    fei_vm_resetstack();// initialiing the Value stack, also initializing the callframe count
+    State* state;
+    state = (State*)malloc(sizeof(State));
+    state->compiler = NULL;
+    state->classcompiler = NULL;
+    fei_vm_resetstack(state);// initialiing the Value stack, also initializing the callframe count
     state->objects = NULL;
-    fei_table_init(&state->globals);
-    fei_table_init(&state->strings);
+    fei_table_init(state, &state->globals);
+    fei_table_init(state, &state->strings);
 
     // initializing gray marked obj stack for garbage collection
     state->grayCapacity = 0;
@@ -4236,35 +4248,33 @@ State* fei_state_init()
     state->bytesAllocated = 0;
     state->nextGC = 1024 * 1024;
 
-
     // init initalizer string
     state->initString = NULL;
-    state->initString = fei_object_copystring("init", 4);
+    state->initString = fei_object_copystring(state, "init", 4);
 
-    fei_vm_defnative("clock", cfn_clock);
-    fei_vm_defnative("print", cfn_print);
-    fei_vm_defnative("println", cfn_println);
-
-    return r;
+    fei_vm_defnative(state, "clock", cfn_clock);
+    fei_vm_defnative(state, "print", cfn_print);
+    fei_vm_defnative(state, "println", cfn_println);
+    return state;
 }
 
-void fei_state_destroy(State* r)
+void fei_state_destroy(State* state)
 {
-    r->initString = NULL;
-    fei_gcmem_freeobjects();// free all objects, from state->objects
-    fei_table_destroy(&r->globals);
-    fei_table_destroy(&r->strings);
-    free(r);
+    state->initString = NULL;
+    fei_gcmem_freeobjects(state);// free all objects, from state->objects
+    fei_table_destroy(state, &state->globals);
+    fei_table_destroy(state, &state->strings);
+    free(state);
 }
 
 /* stack operations */
-void fei_vm_pushvalue(Value value)
+void fei_vm_pushvalue(State* state, Value value)
 {
     *state->stackTop = value;// * in front of the pointer means the rvalue itself, assign value(parameter) to it
     state->stackTop++;
 }
 
-Value fei_vm_popvalue()
+Value fei_vm_popvalue(State* state)
 {
     state->stackTop--;// first move the stack BACK to get the last element(stackTop points to ONE beyond the last element)
     return *state->stackTop;
@@ -4274,25 +4284,25 @@ Value fei_vm_popvalue()
 // PEEK from the STACK, AFTER the compiler passes it through
 // return a value from top of the stack but does not pop it, distance being how far down
 // this is a C kind of accessing arrays/pointers
-Value fei_vm_peekvalue(int distance)
+Value fei_vm_peekvalue(State* state, int distance)
 {
     return state->stackTop[-1 - distance];
 }
 
 
 /* for call stacks/functions  */
-bool fei_vm_callclosure(ObjClosure* closure, int argCount)
+bool fei_vm_callclosure(State* state, ObjClosure* closure, int argCount)
 {
     if(argCount != closure->function->arity)// if number of parameters does not match
     {
-        fei_vm_raiseruntimeerror("Expected %d arguments but got %d", closure->function->arity, argCount);
+        fei_vm_raiseruntimeerror(state, "Expected %d arguments but got %d", closure->function->arity, argCount);
         return false;
     }
 
     // as CallFrame is an array, to ensure array does not overflow
     if(state->frameCount == FRAMES_MAX)
     {
-        fei_vm_raiseruntimeerror("Stack overflow.");
+        fei_vm_raiseruntimeerror(state, "Stack overflow.");
         return false;
     }
 
@@ -4308,7 +4318,7 @@ bool fei_vm_callclosure(ObjClosure* closure, int argCount)
     return true;
 }
 
-bool fei_vm_callvalue(Value callee, int argCount)
+bool fei_vm_callvalue(State* state, Value callee, int argCount)
 {
     if(IS_OBJ(callee))
     {
@@ -4318,38 +4328,38 @@ bool fei_vm_callvalue(Value callee, int argCount)
             {
                 ObjBoundMethod* bound = AS_BOUND_METHOD(callee);// get ObjBoundMethod from value type(callee)
                 state->stackTop[-argCount - 1] = bound->receiver;// set [-] inside square brackes of top stack pointer to go down the stack
-                return fei_vm_callclosure(bound->method, argCount);//	run call to execute
+                return fei_vm_callclosure(state, bound->method, argCount);//	run call to execute
             }
             case OBJ_CLASS:// create class instance
             {
                 ObjClass* kelas = AS_CLASS(callee);
                 // create new instance here
-                state->stackTop[-argCount - 1] = OBJ_VAL(fei_object_makeinstance(kelas));// - argcounts as above values are parameters
+                state->stackTop[-argCount - 1] = OBJ_VAL(fei_object_makeinstance(state, kelas));// - argcounts as above values are parameters
 
                 // initializer
                 Value initializer;
                 // if we find one from the table
-                if(fei_table_get(&kelas->methods, state->initString, &initializer))// have a state->initString as 'token', ObjString type
+                if(fei_table_get(state, &kelas->methods, state->initString, &initializer))// have a state->initString as 'token', ObjString type
                 {
-                    return fei_vm_callclosure(AS_CLOSURE(initializer), argCount);
+                    return fei_vm_callclosure(state, AS_CLOSURE(initializer), argCount);
                 }
                 else if(argCount != 0)// if there ARE arguments but the initalizer method cannot be found
                 {
-                    fei_vm_raiseruntimeerror("Expected 0  arguments but got %d\n", argCount);
+                    fei_vm_raiseruntimeerror(state, "Expected 0  arguments but got %d\n", argCount);
                     return false;
                 }
 
                 return true;
             }
             case OBJ_CLOSURE:// ensure type is function
-                return fei_vm_callclosure(AS_CLOSURE(callee), argCount);// call to function happens here
+                return fei_vm_callclosure(state, AS_CLOSURE(callee), argCount);// call to function happens here
 
             case OBJ_NATIVE:
             {
-                NativeFn native = AS_NATIVE(callee);
-                Value result = native(argCount, state->stackTop - argCount);
+                NativeFn natfn = AS_NATIVE(callee);
+                Value result = natfn(state, argCount, state->stackTop - argCount);
                 state->stackTop -= argCount + 1;// remove call and arguments from the stack
-                fei_vm_pushvalue(result);
+                fei_vm_pushvalue(state, result);
                 return true;
             }
             default:
@@ -4357,33 +4367,33 @@ bool fei_vm_callvalue(Value callee, int argCount)
         }
     }
 
-    fei_vm_raiseruntimeerror("Non-function or non-class type is called.");
+    fei_vm_raiseruntimeerror(state, "Non-function or non-class type is called.");
     return false;
 }
 
 
-bool fei_class_invokemethod(ObjClass* kelas, ObjString* name, int argCount)
+bool fei_class_invokemethod(State* state, ObjClass* kelas, ObjString* name, int argCount)
 {
     Value method;
-    if(!fei_table_get(&kelas->methods, name, &method))
+    if(!fei_table_get(state, &kelas->methods, name, &method))
     {
-        fei_vm_raiseruntimeerror("Undefined property '%s'.", name->chars);
+        fei_vm_raiseruntimeerror(state, "Undefined property '%s'.", name->chars);
         return false;
     }
 
-    return fei_vm_callclosure(AS_CLOSURE(method), argCount);
+    return fei_vm_callclosure(state, AS_CLOSURE(method), argCount);
 }
 
 
 // invoke class method, access method + call method
-bool fei_vm_stackinvoke(ObjString* name, int argCount)
+bool fei_vm_stackinvoke(State* state, ObjString* name, int argCount)
 {
-    Value receiver = fei_vm_peekvalue(argCount);// grab the receiver of the stack
+    Value receiver = fei_vm_peekvalue(state, argCount);// grab the receiver of the stack
 
     // call method with wrong type, not an objinstance type
     if(!IS_INSTANCE(receiver))
     {
-        fei_vm_raiseruntimeerror("Tried to invoke a method from a non instance object.");
+        fei_vm_raiseruntimeerror(state, "Tried to invoke a method from a non instance object.");
         return false;
     }
 
@@ -4391,37 +4401,37 @@ bool fei_vm_stackinvoke(ObjString* name, int argCount)
 
     // for fields()
     Value value;
-    if(fei_table_get(&instance->fields, name, &value))
+    if(fei_table_get(state, &instance->fields, name, &value))
     {
         state->stackTop[-argCount - 1] = value;
-        return fei_vm_callvalue(value, argCount);
+        return fei_vm_callvalue(state, value, argCount);
     }
 
 
-    return fei_class_invokemethod(instance->kelas, name, argCount);// actual function that searches for method and calls it
+    return fei_class_invokemethod(state, instance->kelas, name, argCount);// actual function that searches for method and calls it
 }
 
 
 // bind method and wrap it in a new ObjBoundMethod
-bool fei_class_bindmethod(ObjClass* kelas, ObjString* name)
+bool fei_class_bindmethod(State* state, ObjClass* kelas, ObjString* name)
 {
     Value method;
-    if(!fei_table_get(&kelas->methods, name, &method))// get method from table and bind it
+    if(!fei_table_get(state, &kelas->methods, name, &method))// get method from table and bind it
     {
         // if method not found
-        fei_vm_raiseruntimeerror("Undefined property %s.", name->chars);
+        fei_vm_raiseruntimeerror(state, "Undefined property %s.", name->chars);
         return false;
     }
-    ObjBoundMethod* bound = fei_object_makeboundmethod(fei_vm_peekvalue(0), AS_CLOSURE(method));// wrap method in a new ObjBoundMethodd
+    ObjBoundMethod* bound = fei_object_makeboundmethod(state, fei_vm_peekvalue(state, 0), AS_CLOSURE(method));// wrap method in a new ObjBoundMethodd
 
-    fei_vm_popvalue();// pop the class instance
-    fei_vm_pushvalue(OBJ_VAL(bound));
+    fei_vm_popvalue(state);// pop the class instance
+    fei_vm_pushvalue(state, OBJ_VAL(bound));
     return true;
 }
 
 
 // get corresponding upvalue
-ObjUpvalue* fei_vm_captureupvalue(Value* local)
+ObjUpvalue* fei_vm_captureupvalue(State* state, Value* local)
 {
     // set up the linked list
     ObjUpvalue* prevUpvalue = NULL;
@@ -4450,7 +4460,7 @@ ObjUpvalue* fei_vm_captureupvalue(Value* local)
         return upvalue;// return already created upvalue
     }
 
-    ObjUpvalue* createdUpvalue = fei_object_makeupvalue(local);
+    ObjUpvalue* createdUpvalue = fei_object_makeupvalue(state, local);
     createdUpvalue->next = upvalue;// insert at the front
 
     if(prevUpvalue == NULL)// ran out of values to search
@@ -4466,7 +4476,7 @@ ObjUpvalue* fei_vm_captureupvalue(Value* local)
 }
 
 // closes every upvalue it can find that points to the slot or any above the stack
-void fei_vm_closeupvalues(Value* last)// takes pointer to stack slot
+void fei_vm_closeupvalues(State* state, Value* last)// takes pointer to stack slot
 {
     while(state->openUpvalues != NULL && state->openUpvalues->location >= last)
     {
@@ -4478,17 +4488,17 @@ void fei_vm_closeupvalues(Value* last)// takes pointer to stack slot
 }
 
 // defining method for class type
-void fei_vm_stackdefmethod(ObjString* name)
+void fei_vm_stackdefmethod(State* state, ObjString* name)
 {
-    Value method = fei_vm_peekvalue(0);// method/closure is at the top of the stack
-    ObjClass* kelas = AS_CLASS(fei_vm_peekvalue(1));// class is at the 2nd top
-    fei_table_set(&kelas->methods, name, method);// add to hashtable
-    fei_vm_popvalue();// pop the method
+    Value method = fei_vm_peekvalue(state, 0);// method/closure is at the top of the stack
+    ObjClass* kelas = AS_CLASS(fei_vm_peekvalue(state, 1));// class is at the 2nd top
+    fei_table_set(state, &kelas->methods, name, method);// add to hashtable
+    fei_vm_popvalue(state);// pop the method
 }
 
 
 // comparison for OP_NOT
-bool fei_value_isfalsey(Value value)
+bool fei_value_isfalsey(State* state, Value value)
 {
     // return true if value is the null type or if it is a false bool type
     bool test = IS_NULL(value) || (IS_BOOL(value) && !AS_BOOL(value));
@@ -4497,13 +4507,13 @@ bool fei_value_isfalsey(Value value)
 }
 
 // string concatenation
-void fei_vmdo_strconcat()
+void fei_vmdo_strconcat(State* state)
 {
-    ObjString* second = AS_STRING(fei_vm_peekvalue(0));// peek, so we do not pop it off if calling a GC is needed
-    ObjString* first = AS_STRING(fei_vm_peekvalue(1));
+    ObjString* second = AS_STRING(fei_vm_peekvalue(state, 0));// peek, so we do not pop it off if calling a GC is needed
+    ObjString* first = AS_STRING(fei_vm_peekvalue(state, 1));
 
     int length = first->length + second->length;
-    char* chars = ALLOCATE(char, length + 1);// dynamically allocate memory for the char, chars is now a NULL string
+    char* chars = ALLOCATE(state, char, length + 1);// dynamically allocate memory for the char, chars is now a NULL string
 
     /* NOTE ON C STRINGS, NULL VS EMPTY
 	-> null string has no elements, it is an empty charray, ONLY DECLARED
@@ -4515,34 +4525,34 @@ void fei_vmdo_strconcat()
     memcpy(chars + first->length, second->chars, second->length);// remember to add the first length of bits to chars again, so it will START AFTER the given offset
     chars[length] = '\0';// IMPORTANT-> terminating character for Cstring, if not put will get n2222
 
-    ObjString* result = fei_object_takestring(chars, length);// declare new ObjString ptr
-    fei_vm_popvalue();// pop the two strings, garbage collection
-    fei_vm_popvalue();
-    fei_vm_pushvalue(OBJ_VAL(result));
+    ObjString* result = fei_object_takestring(state, chars, length);// declare new ObjString ptr
+    fei_vm_popvalue(state);// pop the two strings, garbage collection
+    fei_vm_popvalue(state);
+    fei_vm_pushvalue(state, OBJ_VAL(result));
 }
 
 
 /* starting point of the compiler */
-InterpretResult fei_vm_evalsource(const char* source)
+InterpretResult fei_vm_evalsource(State* state, const char* source)
 {
-    ObjFunction* function = fei_compiler_compilesource(source);
+    ObjFunction* function = fei_compiler_compilesource(state, source);
     if(function == NULL)
         return INTERPRET_COMPILE_ERROR;// NULL gets passed from compiler
 
-    fei_vm_pushvalue(OBJ_VAL(function));
-    ObjClosure* closure = fei_object_makeclosure(function);
-    fei_vm_popvalue();
-    fei_vm_pushvalue(OBJ_VAL(closure));
-    fei_vm_callvalue(OBJ_VAL(closure), 0);// 0 params for main()
+    fei_vm_pushvalue(state, OBJ_VAL(function));
+    ObjClosure* closure = fei_object_makeclosure(state, function);
+    fei_vm_popvalue(state);
+    fei_vm_pushvalue(state, OBJ_VAL(closure));
+    fei_vm_callvalue(state, OBJ_VAL(closure), 0);// 0 params for main()
 
 
-    return fei_vm_exec();
+    return fei_vm_exec(state);
 }
 
 
 // run the chunk
 // most IMPORTANT part of the interpreter
-InterpretResult fei_vm_exec()// static means the scope of the function is only to this file
+InterpretResult fei_vm_exec(State* state)// static means the scope of the function is only to this file
 {
     CallFrame* frame = &state->frames[state->frameCount - 1];
 
@@ -4575,14 +4585,14 @@ READ STRING:
 #define BINARY_OP(valueType, op, downcastType)                                 \
     do                                                                         \
     {                                                                          \
-        if(!IS_NUMBER(fei_vm_peekvalue(0)) || !IS_NUMBER(fei_vm_peekvalue(1))) \
+        if(!IS_NUMBER(fei_vm_peekvalue(state, 0)) || !IS_NUMBER(fei_vm_peekvalue(state, 1))) \
         {                                                                      \
-            fei_vm_raiseruntimeerror("Operands must be numbers.");             \
+            fei_vm_raiseruntimeerror(state, "Operands must be numbers.");             \
             return INTERPRET_RUNTIME_ERROR;                                    \
         }                                                                      \
-        downcastType b = (downcastType)AS_NUMBER(fei_vm_popvalue());           \
-        downcastType a = (downcastType)AS_NUMBER(fei_vm_popvalue());           \
-        fei_vm_pushvalue(valueType(a op b));                                   \
+        downcastType b = (downcastType)AS_NUMBER(fei_vm_popvalue(state));           \
+        downcastType a = (downcastType)AS_NUMBER(fei_vm_popvalue(state));           \
+        fei_vm_pushvalue(state, valueType(a op b));                                   \
     } while(false)
 
     for(;;)
@@ -4591,7 +4601,7 @@ READ STRING:
         // from the beginning of the chunk (subtract current ip from the starting ip)
         // IMPORTANT -> only for debugging the VM
 
-#ifdef DEBUG_TRACE_EXECUTION
+#if defined(DEBUG_TRACE_EXECUTION) && (DEBUG_TRACE_EXECUTION == 1)
         // for stack tracing
         printf("		");
         /* note on C POINTERSE
@@ -4604,12 +4614,12 @@ READ STRING:
         for(Value* slot = state->stack; slot < state->stackTop; slot++)
         {
             printf("[ ");
-            fei_value_printvalue(*slot);
+            fei_value_printvalue(state, *slot);
             printf(" ]");
         }
 
 
-        fei_dbgdisas_instr(&frame->closure->function->chunk, (int)(frame->ip - frame->closure->function->chunk.code));
+        fei_dbgdisas_instr(state, &frame->closure->function->chunk, (int)(frame->ip - frame->closure->function->chunk.code));
 #endif
         uint8_t instruction;
         switch(instruction = READ_BYTE())// get result of the byte read, every set of instruction starts with an opcode
@@ -4618,40 +4628,40 @@ READ STRING:
             {
                 // function is smart; chunk advances by 1 on first read, then in the READ_CONSTANT() macro it reads again which advances by 1 and returns the INDEX
                 Value constant = READ_CONSTANT();// READ the next line, which is the INDEX of the constant in the constants array
-                fei_vm_pushvalue(constant);// push to stack
+                fei_vm_pushvalue(state, constant);// push to stack
                 break;// break from the switch
             }
             // unary opcode
             case OP_NEGATE:
-                if(!IS_NUMBER(fei_vm_peekvalue(0)))// if next value is not a number
+                if(!IS_NUMBER(fei_vm_peekvalue(state, 0)))// if next value is not a number
                 {
                     //printf("\nnot a number\n"); it actually works
-                    fei_vm_raiseruntimeerror("Operand must be a number.");
+                    fei_vm_raiseruntimeerror(state, "Operand must be a number.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
 
-                fei_vm_pushvalue(NUMBER_VAL(-AS_NUMBER(fei_vm_popvalue())));
+                fei_vm_pushvalue(state, NUMBER_VAL(-AS_NUMBER(fei_vm_popvalue(state))));
                 break;// negates the last element of the stack
 
             // literals
             case OP_NULL:
-                fei_vm_pushvalue(NULL_VAL);
+                fei_vm_pushvalue(state, NULL_VAL);
                 break;
             case OP_TRUE:
-                fei_vm_pushvalue(BOOL_VAL(true));
+                fei_vm_pushvalue(state, BOOL_VAL(true));
                 break;
             case OP_FALSE:
-                fei_vm_pushvalue(BOOL_VAL(false));
+                fei_vm_pushvalue(state, BOOL_VAL(false));
                 break;
 
             // binary opcode
             case OP_ADD:
             {
-                if(IS_STRING(fei_vm_peekvalue(0)) && IS_STRING(fei_vm_peekvalue(1)))// if last two constants are strings
+                if(IS_STRING(fei_vm_peekvalue(state, 0)) && IS_STRING(fei_vm_peekvalue(state, 1)))// if last two constants are strings
                 {
-                    fei_vmdo_strconcat();
+                    fei_vmdo_strconcat(state);
                 }
-                else if(IS_NUMBER(fei_vm_peekvalue(0)) && IS_NUMBER(fei_vm_peekvalue(1)))
+                else if(IS_NUMBER(fei_vm_peekvalue(state, 0)) && IS_NUMBER(fei_vm_peekvalue(state, 1)))
                 {
                     // in the book, macro is not used and a new algorithm is used directly
                     BINARY_OP(NUMBER_VAL, +, double);// initialize new Value struct (NUMBER_VAL) here
@@ -4659,7 +4669,7 @@ READ STRING:
                 else// handle errors dynamically here
                 {
                     //printf("operands error");
-                    fei_vm_raiseruntimeerror("Operands are incompatible.");
+                    fei_vm_raiseruntimeerror(state, "Operands are incompatible.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -4680,23 +4690,23 @@ READ STRING:
                 break;
 
             case OP_NOT:
-                fei_vm_pushvalue(BOOL_VAL(fei_value_isfalsey(fei_vm_popvalue())));// again, pops most recent one from the stack, does the operation on it, and pushes it back
+                fei_vm_pushvalue(state, BOOL_VAL(fei_value_isfalsey(state, fei_vm_popvalue(state))));// again, pops most recent one from the stack, does the operation on it, and pushes it back
                 break;
 
             // for switch eqal
             case OP_SWITCH_EQUAL:
             {
-                Value b = fei_vm_popvalue();// only pop second value
-                Value a = fei_vm_peekvalue(0);// peek topmost, the first value
-                fei_vm_pushvalue(BOOL_VAL(fei_value_compare(a, b)));
+                Value b = fei_vm_popvalue(state);// only pop second value
+                Value a = fei_vm_peekvalue(state, 0);// peek topmost, the first value
+                fei_vm_pushvalue(state, BOOL_VAL(fei_value_compare(state, a, b)));
                 break;
             }
 
             case OP_EQUAL:// implemenation comparison done here
             {
-                Value b = fei_vm_popvalue();
-                Value a = fei_vm_popvalue();
-                fei_vm_pushvalue(BOOL_VAL(fei_value_compare(a, b)));
+                Value b = fei_vm_popvalue(state);
+                Value a = fei_vm_popvalue(state);
+                fei_vm_pushvalue(state, BOOL_VAL(fei_value_compare(state, a, b)));
                 break;
             }
             case OP_GREATER:
@@ -4710,19 +4720,19 @@ READ STRING:
             case OP_PRINT:
             {
                 // ACTUAL PRINTING IS DONE HERE
-                fei_value_printvalue(fei_vm_popvalue());// pop the stack and print the value, getting it from value.c
+                fei_value_printvalue(state, fei_vm_popvalue(state));// pop the stack and print the value, getting it from value.c
                 printf("\n");
                 break;
             }
 
             case OP_POP:
-                fei_vm_popvalue();
+                fei_vm_popvalue(state);
                 break;
 
             case OP_GET_LOCAL:
             {
                 uint8_t slot = READ_BYTE();
-                fei_vm_pushvalue(frame->slots[slot]);// pushes the value to the stack where later instructions can read it
+                fei_vm_pushvalue(state, frame->slots[slot]);// pushes the value to the stack where later instructions can read it
                 break;
             }
 
@@ -4730,15 +4740,15 @@ READ STRING:
             {
                 uint8_t slot = READ_BYTE();
                 // all the local var's VARIABLES are stored inside state->stack
-                frame->slots[slot] = fei_vm_peekvalue(0);// takes from top of the stack and stores it in the stack slot
+                frame->slots[slot] = fei_vm_peekvalue(state, 0);// takes from top of the stack and stores it in the stack slot
                 break;
             }
 
             case OP_DEFINE_GLOBAL:
             {
                 ObjString* name = READ_STRING();// get name from constant table
-                fei_table_set(&state->globals, name, fei_vm_peekvalue(0));// take value from the top of the stack
-                fei_vm_popvalue();
+                fei_table_set(state, &state->globals, name, fei_vm_peekvalue(state, 0));// take value from the top of the stack
+                fei_vm_popvalue(state);
                 break;
             }
 
@@ -4746,22 +4756,22 @@ READ STRING:
             {
                 ObjString* name = READ_STRING();// get the name
                 Value value;// create new Value
-                if(!fei_table_get(&state->globals, name, &value))// if key not in hash table
+                if(!fei_table_get(state, &state->globals, name, &value))// if key not in hash table
                 {
-                    fei_vm_raiseruntimeerror("Undefined variable '%s'.", name->chars);
+                    fei_vm_raiseruntimeerror(state, "Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                fei_vm_pushvalue(value);
+                fei_vm_pushvalue(state, value);
                 break;
             }
 
             case OP_SET_GLOBAL:
             {
                 ObjString* name = READ_STRING();
-                if(fei_table_set(&state->globals, name, fei_vm_peekvalue(0)))// if key not in hash table
+                if(fei_table_set(state, &state->globals, name, fei_vm_peekvalue(state, 0)))// if key not in hash table
                 {
-                    fei_table_delete(&state->globals, name);// delete the false name
-                    fei_vm_raiseruntimeerror("Undefined variable '%s'.", name->chars);
+                    fei_table_delete(state, &state->globals, name);// delete the false name
+                    fei_vm_raiseruntimeerror(state, "Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -4771,38 +4781,38 @@ READ STRING:
             case OP_GET_UPVALUE:
             {
                 uint8_t slot = READ_BYTE();// read index
-                fei_vm_pushvalue(*frame->closure->upvalues[slot]->location);// push the value to the stack
+                fei_vm_pushvalue(state, *frame->closure->upvalues[slot]->location);// push the value to the stack
                 break;
             }
 
             case OP_SET_UPVALUE:
             {
                 uint8_t slot = READ_BYTE();// read index
-                *frame->closure->upvalues[slot]->location = fei_vm_peekvalue(0);// set to the topmost stack
+                *frame->closure->upvalues[slot]->location = fei_vm_peekvalue(state, 0);// set to the topmost stack
                 break;
             }
 
             case OP_GET_PROPERTY:
             {
                 // to make sure only instances are allowed to have fields
-                if(!IS_INSTANCE(fei_vm_peekvalue(0)))
+                if(!IS_INSTANCE(fei_vm_peekvalue(state, 0)))
                 {
-                    fei_vm_raiseruntimeerror("Only instances have properties.");
+                    fei_vm_raiseruntimeerror(state, "Only instances have properties.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
 
-                ObjInstance* instance = AS_INSTANCE(fei_vm_peekvalue(0));// get instance from top most stack
+                ObjInstance* instance = AS_INSTANCE(fei_vm_peekvalue(state, 0));// get instance from top most stack
                 ObjString* name = READ_STRING();// get identifier name
 
                 Value value;// set up value to add to the stack
-                if(fei_table_get(&instance->fields, name, &value))// get from fields hash table, assign it to instance
+                if(fei_table_get(state, &instance->fields, name, &value))// get from fields hash table, assign it to instance
                 {
-                    fei_vm_popvalue();// pop the instance itself
-                    fei_vm_pushvalue(value);
+                    fei_vm_popvalue(state);// pop the instance itself
+                    fei_vm_pushvalue(state, value);
                     break;
                 }
 
-                if(!fei_class_bindmethod(instance->kelas, name))// no method as well, error
+                if(!fei_class_bindmethod(state, instance->kelas, name))// no method as well, error
                 {
                     return INTERPRET_RUNTIME_ERROR;
                 }
@@ -4811,27 +4821,27 @@ READ STRING:
 
             case OP_SET_PROPERTY:
             {
-                if(!IS_INSTANCE(fei_vm_peekvalue(1)))// if not an instance
+                if(!IS_INSTANCE(fei_vm_peekvalue(state, 1)))// if not an instance
                 {
-                    fei_vm_raiseruntimeerror("Identifier must be a class instance.");
+                    fei_vm_raiseruntimeerror(state, "Identifier must be a class instance.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
 
                 // not top most, as the top most is reserved for the new value to be set
-                ObjInstance* instance = AS_INSTANCE(fei_vm_peekvalue(1));
-                fei_table_set(&instance->fields, READ_STRING(), fei_vm_peekvalue(0));//peek(0) is the new value
+                ObjInstance* instance = AS_INSTANCE(fei_vm_peekvalue(state, 1));
+                fei_table_set(state, &instance->fields, READ_STRING(), fei_vm_peekvalue(state, 0));//peek(0) is the new value
 
-                Value value = fei_vm_popvalue();// pop the already set value
-                fei_vm_popvalue();// pop the property instance itself
-                fei_vm_pushvalue(value);// push the value back again
+                Value value = fei_vm_popvalue(state);// pop the already set value
+                fei_vm_popvalue(state);// pop the property instance itself
+                fei_vm_pushvalue(state, value);// push the value back again
                 break;
             }
 
 
             case OP_CLOSE_UPVALUE:
             {
-                fei_vm_closeupvalues(state->stackTop - 1);// put address to the slot
-                fei_vm_popvalue();// pop from the stack
+                fei_vm_closeupvalues(state, state->stackTop - 1);// put address to the slot
+                fei_vm_popvalue(state);// pop from the stack
                 break;
             }
 
@@ -4847,7 +4857,7 @@ READ STRING:
             {
                 uint16_t offset = READ_SHORT();// offset already put in the stack
                 // actual jump instruction is done here; skip over the instruction pointer
-                if(fei_value_isfalsey(fei_vm_peekvalue(0)))
+                if(fei_value_isfalsey(state, fei_vm_peekvalue(state, 0)))
                     frame->ip += offset;// if evaluated expression inside if statement is false jump
                 break;
             }
@@ -4864,9 +4874,9 @@ READ STRING:
                 uint16_t offset = READ_SHORT();// offset already put in the stack
                 // bool state is at the top of the stack
                 // if false loop back
-                if(fei_value_isfalsey(fei_vm_peekvalue(0)))
+                if(fei_value_isfalsey(state, fei_vm_peekvalue(state, 0)))
                     frame->ip -= offset;
-                fei_vm_popvalue();// pop the true/false
+                fei_vm_popvalue(state);// pop the true/false
                 break;
             }
 
@@ -4875,9 +4885,9 @@ READ STRING:
                 uint16_t offset = READ_SHORT();// offset already put in the stack
                 // bool state is at the top of the stack
                 // if not false loop back
-                if(!fei_value_isfalsey(fei_vm_peekvalue(0)))
+                if(!fei_value_isfalsey(state, fei_vm_peekvalue(state, 0)))
                     frame->ip -= offset;
-                fei_vm_popvalue();// pop the true/false
+                fei_vm_popvalue(state);// pop the true/false
                 break;
             }
 
@@ -4886,7 +4896,7 @@ READ STRING:
             case OP_CALL:
             {
                 int argCount = READ_BYTE();
-                if(!fei_vm_callvalue(fei_vm_peekvalue(argCount), argCount))// call function; pass in the function name istelf[peek(depth)] and the number of arguments
+                if(!fei_vm_callvalue(state, fei_vm_peekvalue(state, argCount), argCount))// call function; pass in the function name istelf[peek(depth)] and the number of arguments
                 {
                     return INTERPRET_RUNTIME_ERROR;
                 }
@@ -4898,8 +4908,8 @@ READ STRING:
             case OP_CLOSURE:
             {
                 ObjFunction* function = AS_FUNCTION(READ_CONSTANT());// load compiled function from table
-                ObjClosure* closure = fei_object_makeclosure(function);
-                fei_vm_pushvalue(OBJ_VAL(closure));
+                ObjClosure* closure = fei_object_makeclosure(state, function);
+                fei_vm_pushvalue(state, OBJ_VAL(closure));
 
                 // fill upvalue array over in the interpreter when a closure is created
                 // to see upvalues in each slot
@@ -4909,7 +4919,7 @@ READ STRING:
                     uint8_t index = READ_BYTE();// read index for local, if available, in the closure
                     if(isLocal)
                     {
-                        closure->upvalues[i] = fei_vm_captureupvalue(frame->slots + index);// get from slots stack
+                        closure->upvalues[i] = fei_vm_captureupvalue(state, frame->slots + index);// get from slots stack
                     }
                     else// if not local(nested upvalue)
                     {
@@ -4921,18 +4931,18 @@ READ STRING:
             }
 
             case OP_CLASS:
-                fei_vm_pushvalue(OBJ_VAL(fei_object_makeclass(READ_STRING())));// load string for the class' name and push it onto the stack
+                fei_vm_pushvalue(state, OBJ_VAL(fei_object_makeclass(state, READ_STRING())));// load string for the class' name and push it onto the stack
                 break;
 
             case OP_METHOD:
-                fei_vm_stackdefmethod(READ_STRING());// get name of the method
+                fei_vm_stackdefmethod(state, READ_STRING());// get name of the method
                 break;
 
             case OP_INVOKE:
             {
                 ObjString* method = READ_STRING();
                 int argCount = READ_BYTE();
-                if(!fei_vm_stackinvoke(method, argCount))// new invoke function
+                if(!fei_vm_stackinvoke(state, method, argCount))// new invoke function
                 {
                     return INTERPRET_RUNTIME_ERROR;
                 }
@@ -4942,26 +4952,26 @@ READ STRING:
 
             case OP_INHERIT:
             {
-                Value parent = fei_vm_peekvalue(1);// parent class from 2nd top of the stack
+                Value parent = fei_vm_peekvalue(state, 1);// parent class from 2nd top of the stack
 
                 // ensure that parent identifier is a class
                 if(!IS_CLASS(parent))
                 {
-                    fei_vm_raiseruntimeerror("Parent identifier is not a class.");
+                    fei_vm_raiseruntimeerror(state, "Parent identifier is not a class.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
 
-                ObjClass* child = AS_CLASS(fei_vm_peekvalue(0));// child class at the top of the stack
-                fei_table_mergefrom(&AS_CLASS(parent)->methods, &child->methods);// add all methods from parent to child table
-                fei_vm_popvalue();// pop the child class
+                ObjClass* child = AS_CLASS(fei_vm_peekvalue(state, 0));// child class at the top of the stack
+                fei_table_mergefrom(state, &AS_CLASS(parent)->methods, &child->methods);// add all methods from parent to child table
+                fei_vm_popvalue(state);// pop the child class
                 break;
             }
 
             case OP_GET_SUPER:
             {
                 ObjString* name = READ_STRING();// get method name/identifier
-                ObjClass* parent = AS_CLASS(fei_vm_popvalue());// class identifier is at the top of the stack
-                if(!fei_class_bindmethod(parent, name))// if binding fails
+                ObjClass* parent = AS_CLASS(fei_vm_popvalue(state));// class identifier is at the top of the stack
+                if(!fei_class_bindmethod(state, parent, name))// if binding fails
                 {
                     return INTERPRET_RUNTIME_ERROR;
                 }
@@ -4972,8 +4982,8 @@ READ STRING:
             {
                 ObjString* method = READ_STRING();
                 int count = READ_BYTE();
-                ObjClass* parent = AS_CLASS(fei_vm_popvalue());
-                if(!fei_class_invokemethod(parent, method, count))
+                ObjClass* parent = AS_CLASS(fei_vm_popvalue(state));
+                if(!fei_class_invokemethod(state, parent, method, count))
                 {
                     return INTERPRET_RUNTIME_ERROR;
                 }
@@ -4983,21 +4993,21 @@ READ STRING:
 
             case OP_RETURN:
             {
-                Value result = fei_vm_popvalue();// if function returns a value, value will beon top of the stack
+                Value result = fei_vm_popvalue(state);// if function returns a value, value will beon top of the stack
 
-                fei_vm_closeupvalues(frame->slots);// close lingering closed values
+                fei_vm_closeupvalues(state, frame->slots);// close lingering closed values
 
                 state->frameCount--;
                 if(state->frameCount == 0)// return from 'main()'/script function
                 {
-                    fei_vm_popvalue();// pop main script function from the stack
+                    fei_vm_popvalue(state);// pop main script function from the stack
                     return INTERPRET_OK;
                 }
 
                 // for a function
                 // discard all the slots the callee was using for its parameters
                 state->stackTop = frame->slots;// basically 're-assign'
-                fei_vm_pushvalue(result);// push the return value
+                fei_vm_pushvalue(state, result);// push the return value
 
                 frame = &state->frames[state->frameCount - 1];// update run function's current frame
                 break;
@@ -5014,7 +5024,7 @@ READ STRING:
 }
 
 // for REPL, the print eval read loop
-void repl()
+void repl(State* state)
 {
     char line[1024];// char array to hold everything, with a length limit
     for(;;)
@@ -5034,7 +5044,7 @@ void repl()
             break;
         }
 
-        fei_vm_evalsource(line);
+        fei_vm_evalsource(state, line);
     }
 }
 
@@ -5093,10 +5103,10 @@ char* readFile(const char* path)
 }
 
 // function for loading scripts
-void runFile(const char* path)
+void runFile(State* state, const char* path)
 {
     char* source = readFile(path);// get raw source code from the file
-    InterpretResult result = fei_vm_evalsource(source);// get enum type result from VM
+    InterpretResult result = fei_vm_evalsource(state, source);// get enum type result from VM
     free(source);// free the source code
 
     if(result == INTERPRET_COMPILE_ERROR)
@@ -5105,23 +5115,29 @@ void runFile(const char* path)
         exit(61);
 }
 
+#define ptyp(t) \
+    fprintf(stderr, "sizeof(%s) = %d\n", #t, (int)sizeof(t))
 
 int main(int argc, const char* argv[])// used in the command line, argc being the amount of arguments and argv the array
 {
-    State* r;
+    State* state;
 
-    r = fei_state_init();
+    state = fei_state_init();
 
+    {
+        ptyp(State);
+
+    }
 
     // the FIRST argument will always be the name of the executable being run(e.g node, python in terminal)
 
     if(argc == 1)// if number of argument is one, run the repl
     {
-        repl();
+        repl(state);
     }
     else if(argc == 2)// if number of arguments is two, the second one being the file, run the second file
     {
-        runFile(argv[1]);
+        runFile(state, argv[1]);
     }
     else
     {
@@ -5130,6 +5146,6 @@ int main(int argc, const char* argv[])// used in the command line, argc being th
         exit(64);
     }
 
-    fei_state_destroy(r);
+    fei_state_destroy(state);
     return 0;
 }
