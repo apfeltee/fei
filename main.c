@@ -4972,26 +4972,299 @@ static inline uint16_t READ_SHORT(CallFrame* frame)
     return (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]);
 }
 
-// MACRO for binary operations
-// take two last constants, and push ONE final value doing the operations on both of them
-// this macro needs to expand to a series of statements, read a-virtual-machine for more info, this is a macro trick or a SCOPE BLOCK
-// pass in an OPERAOTR as a MACRO
-// valuetype is a Value struct
-// first check that both operands are numbers
-#define BINARY_OP(valuetype, op, downcasttype)                                 \
-    do                                                                         \
-    {                                                                          \
-        if(!fei_value_isnumber(fei_vm_peekvalue(state, 0)) || !fei_value_isnumber(fei_vm_peekvalue(state, 1))) \
-        {                                                                      \
-            fei_vm_raiseruntimeerror(state, "Operands must be numbers.");             \
-            return INTERPRET_RUNTIME_ERROR;                                    \
-        }                                                                      \
-        downcasttype b = (downcasttype)fei_value_asnumber(fei_vm_popvalue(state));           \
-        downcasttype a = (downcasttype)fei_value_asnumber(fei_vm_popvalue(state));           \
-        fei_vm_pushvalue(state, valuetype(a op b));                                   \
-    } while(false)
+
+bool fei_vmdo_return(State* state, CallFrame** frame)
+{
+    // if function returns a value, value will beon top of the stack
+    Value result = fei_vm_popvalue(state);
+    // close lingering closed values
+    fei_vm_closeupvalues(state, (*frame)->slots);
+    state->vmstate.framecount--;
+    // return from 'main()'/script function
+    if(state->vmstate.framecount == 0)
+    {
+        // pop main script function from the stack
+        fei_vm_popvalue(state);
+        return false;
+    }
+    // for a function
+    // discard all the slots the callee was using for its parameters
+    // basically 're-assign'
+    state->vmstate.stacktop = (*frame)->slots;
+    // push the return value
+    fei_vm_pushvalue(state, result);
+    // update run function's current frame
+    *frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    return true;
+}
+
+bool fei_vmdo_superinvoke(State* state, CallFrame** frame)
+{
+    ObjString* method = READ_STRING(state, *frame);
+    int count = READ_BYTE(*frame);
+    ObjClass* parent = fei_value_asclass(fei_vm_popvalue(state));
+    if(!fei_class_invokemethod(state, parent, method, count))
+    {
+        return false;
+    }
+    *frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    return true;
+}
+
+bool fei_vmdo_getsuper(State* state, CallFrame** frame)
+{
+    // get method name/identifier
+    ObjString* name = READ_STRING(state, *frame);
+    // class identifier is at the top of the stack
+    ObjClass* parent = fei_value_asclass(fei_vm_popvalue(state));
+    // if binding fails
+    if(!fei_class_bindmethod(state, parent, name))
+    {
+        return false;
+    }
+    return true;
+}
+
+bool fei_vmdo_inherit(State* state, CallFrame** frame)
+{
+    (void)frame;
+    // parent class from 2nd top of the stack
+    // ensure that parent identifier is a class
+    Value parent = fei_vm_peekvalue(state, 1);
+    if(!fei_value_isclass(parent))
+    {
+        fei_vm_raiseruntimeerror(state, "Parent identifier is not a class.");
+        return false;
+    }
+    // child class at the top of the stack
+    ObjClass* child = fei_value_asclass(fei_vm_peekvalue(state, 0));
+    // add all methods from parent to child table
+    fei_table_mergefrom(state, &fei_value_asclass(parent)->methods, &child->methods);
+    // pop the child class
+    fei_vm_popvalue(state);
+    return true;
+}
+
+bool fei_vmdo_invokemethod(State* state, CallFrame** frame)
+{
+    ObjString* method = READ_STRING(state, *frame);
+    int argcount = READ_BYTE(*frame);
+    // new invoke function
+    if(!fei_vm_stackinvoke(state, method, argcount))
+    {
+        return false;
+    }
+    *frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    return true;
+}
+
+bool fei_vmdo_makeclosure(State* state, CallFrame** frame)
+{
+    // load compiled function from table
+    ObjFunction* function = fei_value_asfunction(READ_CONSTANT(state, *frame));
+    ObjClosure* closure = fei_object_makeclosure(state, function);
+    fei_vm_pushvalue(state, OBJ_VAL(closure));
+    // fill upvalue array over in the interpreter when a closure is created
+    // to see upvalues in each slot
+    for(int i = 0; i < closure->upvaluecount; i++)
+    {
+        // read islocal bool
+        uint8_t islocal = READ_BYTE(*frame);
+        // read index for local, if available, in the closure
+        uint8_t index = READ_BYTE(*frame);
+        if(islocal)
+        {
+            // get from slots stack
+            closure->upvalues[i] = fei_vm_captureupvalue(state, (*frame)->slots + index);
+        }
+        // if not local(nested upvalue)
+        else
+        {
+            // get from current upvalue
+            closure->upvalues[i] = (*frame)->closure->upvalues[index];
+        }
+    }
+    return true;
+}
+
+bool fei_vmdo_setproperty(State* state, CallFrame** frame)
+{
+    if(!fei_value_isinstance(fei_vm_peekvalue(state, 1)))// if not an instance
+    {
+        fei_vm_raiseruntimeerror(state, "Identifier must be a class instance.");
+        return false;
+    }
+    // not top most, as the top most is reserved for the new value to be set
+    ObjInstance* instance = fei_value_asinstance(fei_vm_peekvalue(state, 1));
+    //peek(0) is the new value
+    fei_table_set(state, &instance->fields, READ_STRING(state, *frame), fei_vm_peekvalue(state, 0));
+    // pop the already set value
+    Value value = fei_vm_popvalue(state);
+    // pop the property instance itself
+    fei_vm_popvalue(state);
+    // push the value back again
+    fei_vm_pushvalue(state, value);
+    return true;
+}
+
+bool fei_vmdo_getproperty(State* state, CallFrame** frame)
+{
+    Value value;
+    // to make sure only instances are allowed to have fields
+    if(!fei_value_isinstance(fei_vm_peekvalue(state, 0)))
+    {
+        fei_vm_raiseruntimeerror(state, "Only instances have properties.");
+        return false;
+    }
+    // get instance from top most stack
+    ObjInstance* instance = fei_value_asinstance(fei_vm_peekvalue(state, 0));
+    // get identifier name
+    ObjString* name = READ_STRING(state, *frame);
+    // get from fields hash table, assign it to instance
+    if(fei_table_get(state, &instance->fields, name, &value))
+    {
+        // pop the instance itself
+        fei_vm_popvalue(state);
+        fei_vm_pushvalue(state, value);
+        return true;
+    }
+    // no method as well, error
+    if(!fei_class_bindmethod(state, instance->classobject, name))
+    {
+        return false;
+    }
+    return true;
+}
+
+enum
+{
+    VMDO_UNARY_INVALID,
+    VMDO_UNARY_NEGATE,
+};
+
+bool fei_vmdo_unary(State* state, CallFrame** frame, int unop)
+{
+    double dnum;
+    double res;
+    Value poked;
+    Value popped;
+    (void)frame;
+    poked = fei_vm_peekvalue(state, 0);
+    if(!fei_value_isnumber(poked))
+    {
+        fei_vm_raiseruntimeerror(state, "Operand must be a number.");
+        return false;
+    }
+    popped = fei_vm_popvalue(state);
+    dnum = fei_value_asnumber(popped);
+    switch(unop)
+    {
+        case VMDO_UNARY_NEGATE:
+            {
+                res = -dnum;
+            }
+            break;
+        default:
+            {
+                fei_vm_raiseruntimeerror(state, "invalid VMDO flag '%d' for vmdo_unary", unop);
+                return false;
+            }
+            break;
+    }
+    fei_vm_pushvalue(state, NUMBER_VAL(res));
+    return true;
+}
 
 
+bool fei_vmdo_binary(State* state, CallFrame** frame, uint8_t instruc)
+{
+    Value valright;
+    Value valleft;
+    Value pokeright;
+    Value pokeleft;
+    double fvleft;
+    double fvright;
+    int nvleft;
+    int nvright;
+    (void)frame;
+    pokeright = fei_vm_peekvalue(state, 0);
+    pokeleft = fei_vm_peekvalue(state, 1);
+    if((instruc == OP_ADD) && (fei_value_isstring(pokeright) && fei_value_isstring(pokeleft)))
+    {
+        fei_vmdo_strconcat(state);
+        return true;
+    }
+    if(fei_value_isnumber(pokeright) && fei_value_isnumber(pokeleft))
+    {
+        valright = fei_vm_popvalue(state);
+        valleft = fei_vm_popvalue(state);
+        switch(instruc)
+        {
+            case OP_ADD:
+                {
+                    fvright = (double)fei_value_asnumber(valright);
+                    fvleft = (double)fei_value_asnumber(valleft);
+                    fei_vm_pushvalue(state, NUMBER_VAL(fvleft + fvright));
+                }
+                break;
+            case OP_SUBTRACT:
+                {
+                    fvright = (double)fei_value_asnumber(valright);
+                    fvleft = (double)fei_value_asnumber(valleft);
+                    fei_vm_pushvalue(state, NUMBER_VAL(fvleft - fvright));
+                }
+                break;
+            case OP_MULTIPLY:
+                {
+                    fvright = (double)fei_value_asnumber(valright);
+                    fvleft = (double)fei_value_asnumber(valleft);
+                    fei_vm_pushvalue(state, NUMBER_VAL(fvleft * fvright));
+                }
+                break;
+            case OP_DIVIDE:
+                {
+                    fvright = (double)fei_value_asnumber(valright);
+                    fvleft = (double)fei_value_asnumber(valleft);
+                    fei_vm_pushvalue(state, NUMBER_VAL(fvleft / fvright));
+                }
+                break;
+
+            case OP_MODULO:
+                {
+                    nvright = (int)fei_value_asnumber(valright);
+                    nvleft = (int)fei_value_asnumber(valleft);
+                    fei_vm_pushvalue(state, NUMBER_VAL(nvleft % nvright));
+                }
+                break;
+
+            case OP_GREATER:
+                {
+                    fvright = (double)fei_value_asnumber(valright);
+                    fvleft = (double)fei_value_asnumber(valleft);
+                    fei_vm_pushvalue(state, BOOL_VAL(fvleft > fvright));
+                }
+                break;
+            case OP_LESS:
+                {
+                    fvright = (double)fei_value_asnumber(valright);
+                    fvleft = (double)fei_value_asnumber(valleft);
+                    fei_vm_pushvalue(state, BOOL_VAL(fvleft < fvright));
+                }
+                break;
+            default:
+                {
+                    fei_vm_raiseruntimeerror(state, "invalid instruction '%d' in vmdo_binary", instruc);
+                    return false;
+                }
+        }
+    }
+    else
+    {
+        fei_vm_raiseruntimeerror(state, "Operands are incompatible.");
+        return false;
+    }
+    return true;
+}
 
 // run the chunk
 // most IMPORTANT part of the interpreter
@@ -5027,158 +5300,124 @@ ResultCode fei_vm_exec(State* state)// static means the scope of the function is
         switch(instruction = READ_BYTE(frame))// get result of the byte read, every set of instruction starts with an opcode
         {
             case OP_CONSTANT:
-            {
-                // function is smart; chunk advances by 1 on first read, then in the READ_CONSTANT() macro it reads again which advances by 1 and returns the INDEX
-                Value constant = READ_CONSTANT(state, frame);// READ the next line, which is the INDEX of the constant in the constants array
-                fei_vm_pushvalue(state, constant);// push to stack
-                break;// break from the switch
-            }
+                {
+                    // READ the next line, which is the INDEX of the constant in the constants array
+                    Value constant = READ_CONSTANT(state, frame);
+                    fei_vm_pushvalue(state, constant);
+                }
+                break;
             // unary opcode
             case OP_NEGATE:
-                if(!fei_value_isnumber(fei_vm_peekvalue(state, 0)))// if next value is not a number
                 {
-                    //printf("\nnot a number\n"); it actually works
-                    fei_vm_raiseruntimeerror(state, "Operand must be a number.");
-                    return INTERPRET_RUNTIME_ERROR;
+                    if(!fei_vmdo_unary(state, &frame, VMDO_UNARY_NEGATE))
+                    {
+                        return INTERPRET_RUNTIME_ERROR;
+                    }
                 }
-
-                fei_vm_pushvalue(state, NUMBER_VAL(-fei_value_asnumber(fei_vm_popvalue(state))));
-                break;// negates the last element of the stack
-
+                break;
             // literals
             case OP_NULL:
-                fei_vm_pushvalue(state, NULL_VAL);
+                {
+                    fei_vm_pushvalue(state, NULL_VAL);
+                }
                 break;
             case OP_TRUE:
-                fei_vm_pushvalue(state, BOOL_VAL(true));
+                {
+                    fei_vm_pushvalue(state, BOOL_VAL(true));
+                }
                 break;
             case OP_FALSE:
-                fei_vm_pushvalue(state, BOOL_VAL(false));
+                {
+                    fei_vm_pushvalue(state, BOOL_VAL(false));
+                }
                 break;
-
-            // binary opcode
             case OP_ADD:
-            {
-                if(fei_value_isstring(fei_vm_peekvalue(state, 0)) && fei_value_isstring(fei_vm_peekvalue(state, 1)))// if last two constants are strings
-                {
-                    fei_vmdo_strconcat(state);
-                }
-                else if(fei_value_isnumber(fei_vm_peekvalue(state, 0)) && fei_value_isnumber(fei_vm_peekvalue(state, 1)))
-                {
-                    // in the book, macro is not used and a new algorithm is used directly
-                    BINARY_OP(NUMBER_VAL, +, double);// initialize new Value struct (NUMBER_VAL) here
-                }
-                else// handle errors dynamically here
-                {
-                    //printf("operands error");
-                    fei_vm_raiseruntimeerror(state, "Operands are incompatible.");
-                    return INTERPRET_RUNTIME_ERROR;
-                }
-                break;
-            }
-
             case OP_SUBTRACT:
-                BINARY_OP(NUMBER_VAL, -, double);
-                break;
             case OP_MULTIPLY:
-                BINARY_OP(NUMBER_VAL, *, double);
-                break;
             case OP_DIVIDE:
-                BINARY_OP(NUMBER_VAL, /, double);
-                break;
-
             case OP_MODULO:
-                BINARY_OP(NUMBER_VAL, %, int);
-                break;
-
-            case OP_NOT:
-                fei_vm_pushvalue(state, BOOL_VAL(fei_value_isfalsey(state, fei_vm_popvalue(state))));// again, pops most recent one from the stack, does the operation on it, and pushes it back
-                break;
-
-            // for switch eqal
-            case OP_SWITCH_EQUAL:
-            {
-                Value b = fei_vm_popvalue(state);// only pop second value
-                Value a = fei_vm_peekvalue(state, 0);// peek topmost, the first value
-                fei_vm_pushvalue(state, BOOL_VAL(fei_value_compare(state, a, b)));
-                break;
-            }
-
-            case OP_EQUAL:// implemenation comparison done here
-            {
-                Value b = fei_vm_popvalue(state);
-                Value a = fei_vm_popvalue(state);
-                fei_vm_pushvalue(state, BOOL_VAL(fei_value_compare(state, a, b)));
-                break;
-            }
-            case OP_GREATER:
-                BINARY_OP(BOOL_VAL, >, double);
-                break;
             case OP_LESS:
-                BINARY_OP(BOOL_VAL, <, double);
+            case OP_GREATER:
+                {
+                    if(!fei_vmdo_binary(state, &frame, instruction))
+                    {
+                        return INTERPRET_RUNTIME_ERROR;
+                    }
+                }
                 break;
-
-
+            case OP_NOT:
+                {
+                    fei_vm_pushvalue(state, BOOL_VAL(fei_value_isfalsey(state, fei_vm_popvalue(state))));
+                }
+                break;
+            case OP_SWITCH_EQUAL:
+                {
+                    Value b = fei_vm_popvalue(state);// only pop second value
+                    Value a = fei_vm_peekvalue(state, 0);// peek topmost, the first value
+                    fei_vm_pushvalue(state, BOOL_VAL(fei_value_compare(state, a, b)));
+                }
+                break;
+            case OP_EQUAL:// implemenation comparison done here
+                {
+                    Value b = fei_vm_popvalue(state);
+                    Value a = fei_vm_popvalue(state);
+                    fei_vm_pushvalue(state, BOOL_VAL(fei_value_compare(state, a, b)));
+                }
+                break;
             case OP_PRINT:
-            {
-                // ACTUAL PRINTING IS DONE HERE
-                fei_value_printvalue(state, fei_vm_popvalue(state));// pop the stack and print the value, getting it from value.c
-                printf("\n");
+                {
+                    fei_value_printvalue(state, fei_vm_popvalue(state));
+                    printf("\n");
+                }
                 break;
-            }
-
             case OP_POP:
-                fei_vm_popvalue(state);
+                {
+                    fei_vm_popvalue(state);
+                }
                 break;
-
             case OP_GET_LOCAL:
-            {
-                uint8_t slot = READ_BYTE(frame);
-                fei_vm_pushvalue(state, frame->slots[slot]);// pushes the value to the stack where later instructions can read it
+                {
+                    uint8_t slot = READ_BYTE(frame);
+                    fei_vm_pushvalue(state, frame->slots[slot]);// pushes the value to the stack where later instructions can read it
+                }
                 break;
-            }
-
             case OP_SET_LOCAL:
-            {
-                uint8_t slot = READ_BYTE(frame);
-                // all the local var's VARIABLES are stored inside state->vmstate.stack
-                frame->slots[slot] = fei_vm_peekvalue(state, 0);// takes from top of the stack and stores it in the stack slot
+                {
+                    uint8_t slot = READ_BYTE(frame);
+                    // all the local var's VARIABLES are stored inside state->vmstate.stack
+                    frame->slots[slot] = fei_vm_peekvalue(state, 0);// takes from top of the stack and stores it in the stack slot
+                }
                 break;
-            }
-
             case OP_DEFINE_GLOBAL:
-            {
-                ObjString* name = READ_STRING(state, frame);// get name from constant table
-                fei_table_set(state, &state->vmstate.globals, name, fei_vm_peekvalue(state, 0));// take value from the top of the stack
-                fei_vm_popvalue(state);
+                {
+                    ObjString* name = READ_STRING(state, frame);// get name from constant table
+                    fei_table_set(state, &state->vmstate.globals, name, fei_vm_peekvalue(state, 0));// take value from the top of the stack
+                    fei_vm_popvalue(state);
+                }
                 break;
-            }
-
             case OP_GET_GLOBAL:
-            {
-                ObjString* name = READ_STRING(state, frame);// get the name
-                Value value;// create new Value
-                if(!fei_table_get(state, &state->vmstate.globals, name, &value))// if key not in hash table
                 {
-                    fei_vm_raiseruntimeerror(state, "Undefined variable '%s'.", name->chars);
-                    return INTERPRET_RUNTIME_ERROR;
+                    ObjString* name = READ_STRING(state, frame);// get the name
+                    Value value;// create new Value
+                    if(!fei_table_get(state, &state->vmstate.globals, name, &value))// if key not in hash table
+                    {
+                        fei_vm_raiseruntimeerror(state, "Undefined variable '%s'.", name->chars);
+                        return INTERPRET_RUNTIME_ERROR;
+                    }
+                    fei_vm_pushvalue(state, value);
                 }
-                fei_vm_pushvalue(state, value);
                 break;
-            }
-
             case OP_SET_GLOBAL:
-            {
-                ObjString* name = READ_STRING(state, frame);
-                if(fei_table_set(state, &state->vmstate.globals, name, fei_vm_peekvalue(state, 0)))// if key not in hash table
                 {
-                    fei_table_delete(state, &state->vmstate.globals, name);// delete the false name
-                    fei_vm_raiseruntimeerror(state, "Undefined variable '%s'.", name->chars);
-                    return INTERPRET_RUNTIME_ERROR;
+                    ObjString* name = READ_STRING(state, frame);
+                    if(fei_table_set(state, &state->vmstate.globals, name, fei_vm_peekvalue(state, 0)))// if key not in hash table
+                    {
+                        fei_table_delete(state, &state->vmstate.globals, name);// delete the false name
+                        fei_vm_raiseruntimeerror(state, "Undefined variable '%s'.", name->chars);
+                        return INTERPRET_RUNTIME_ERROR;
+                    }
                 }
                 break;
-            }
-
             // upvalues set/get
             case OP_GET_UPVALUE:
                 {
@@ -5199,48 +5438,20 @@ ResultCode fei_vm_exec(State* state)// static means the scope of the function is
 
             case OP_GET_PROPERTY:
                 {
-                    Value value;
-                    // to make sure only instances are allowed to have fields
-                    if(!fei_value_isinstance(fei_vm_peekvalue(state, 0)))
-                    {
-                        fei_vm_raiseruntimeerror(state, "Only instances have properties.");
-                        return INTERPRET_RUNTIME_ERROR;
-                    }
-                    // get instance from top most stack
-                    ObjInstance* instance = fei_value_asinstance(fei_vm_peekvalue(state, 0));
-                    // get identifier name
-                    ObjString* name = READ_STRING(state, frame);
-                    if(fei_table_get(state, &instance->fields, name, &value))// get from fields hash table, assign it to instance
-                    {
-                        fei_vm_popvalue(state);// pop the instance itself
-                        fei_vm_pushvalue(state, value);
-                        break;
-                    }
-                    // no method as well, error
-                    if(!fei_class_bindmethod(state, instance->classobject, name))
+                    if(!fei_vmdo_getproperty(state, &frame))
                     {
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 }
                 break;
-
             case OP_SET_PROPERTY:
                 {
-                    if(!fei_value_isinstance(fei_vm_peekvalue(state, 1)))// if not an instance
+                    if(!fei_vmdo_setproperty(state, &frame))
                     {
-                        fei_vm_raiseruntimeerror(state, "Identifier must be a class instance.");
                         return INTERPRET_RUNTIME_ERROR;
                     }
-                    // not top most, as the top most is reserved for the new value to be set
-                    ObjInstance* instance = fei_value_asinstance(fei_vm_peekvalue(state, 1));
-                    fei_table_set(state, &instance->fields, READ_STRING(state, frame), fei_vm_peekvalue(state, 0));//peek(0) is the new value
-                    Value value = fei_vm_popvalue(state);// pop the already set value
-                    fei_vm_popvalue(state);// pop the property instance itself
-                    fei_vm_pushvalue(state, value);// push the value back again
                 }
                 break;
-
-
             case OP_CLOSE_UPVALUE:
                 {
                     fei_vm_closeupvalues(state, state->vmstate.stacktop - 1);// put address to the slot
@@ -5316,29 +5527,9 @@ ResultCode fei_vm_exec(State* state)// static means the scope of the function is
             // closures
             case OP_CLOSURE:
                 {
-                    // load compiled function from table
-                    ObjFunction* function = fei_value_asfunction(READ_CONSTANT(state, frame));
-                    ObjClosure* closure = fei_object_makeclosure(state, function);
-                    fei_vm_pushvalue(state, OBJ_VAL(closure));
-                    // fill upvalue array over in the interpreter when a closure is created
-                    // to see upvalues in each slot
-                    for(int i = 0; i < closure->upvaluecount; i++)
+                    if(!fei_vmdo_makeclosure(state, &frame))
                     {
-                        // read islocal bool
-                        uint8_t islocal = READ_BYTE(frame);
-                        // read index for local, if available, in the closure
-                        uint8_t index = READ_BYTE(frame);
-                        if(islocal)
-                        {
-                            // get from slots stack
-                            closure->upvalues[i] = fei_vm_captureupvalue(state, frame->slots + index);
-                        }
-                        // if not local(nested upvalue)
-                        else
-                        {
-                            // get from current upvalue
-                            closure->upvalues[i] = frame->closure->upvalues[index];
-                        }
+                        return INTERPRET_RUNTIME_ERROR;
                     }
                 }
                 break;
@@ -5356,42 +5547,23 @@ ResultCode fei_vm_exec(State* state)// static means the scope of the function is
                 break;
             case OP_INVOKE:
                 {
-                    ObjString* method = READ_STRING(state, frame);
-                    int argcount = READ_BYTE(frame);
-                    // new invoke function
-                    if(!fei_vm_stackinvoke(state, method, argcount))
+                    if(!fei_vmdo_invokemethod(state, &frame))
                     {
                         return INTERPRET_RUNTIME_ERROR;
                     }
-                    frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
                 }
                 break;
             case OP_INHERIT:
                 {
-                    // parent class from 2nd top of the stack
-                    // ensure that parent identifier is a class
-                    Value parent = fei_vm_peekvalue(state, 1);
-                    if(!fei_value_isclass(parent))
+                    if(!fei_vmdo_inherit(state, &frame))
                     {
-                        fei_vm_raiseruntimeerror(state, "Parent identifier is not a class.");
                         return INTERPRET_RUNTIME_ERROR;
                     }
-                    // child class at the top of the stack
-                    ObjClass* child = fei_value_asclass(fei_vm_peekvalue(state, 0));
-                    // add all methods from parent to child table
-                    fei_table_mergefrom(state, &fei_value_asclass(parent)->methods, &child->methods);
-                    // pop the child class
-                    fei_vm_popvalue(state);
                 }
                 break;
             case OP_GET_SUPER:
                 {
-                    // get method name/identifier
-                    ObjString* name = READ_STRING(state, frame);
-                    // class identifier is at the top of the stack
-                    ObjClass* parent = fei_value_asclass(fei_vm_popvalue(state));
-                    // if binding fails
-                    if(!fei_class_bindmethod(state, parent, name))
+                    if(!fei_vmdo_getsuper(state, &frame))
                     {
                         return INTERPRET_RUNTIME_ERROR;
                     }
@@ -5399,48 +5571,24 @@ ResultCode fei_vm_exec(State* state)// static means the scope of the function is
                 break;
             case OP_SUPER_INVOKE:
                 {
-                    ObjString* method = READ_STRING(state, frame);
-                    int count = READ_BYTE(frame);
-                    ObjClass* parent = fei_value_asclass(fei_vm_popvalue(state));
-                    if(!fei_class_invokemethod(state, parent, method, count))
+                    if(!fei_vmdo_superinvoke(state, &frame))
                     {
                         return INTERPRET_RUNTIME_ERROR;
                     }
-                    frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
                 }
                 break;
             case OP_RETURN:
                 {
-                    // if function returns a value, value will beon top of the stack
-                    Value result = fei_vm_popvalue(state);
-                    // close lingering closed values
-                    fei_vm_closeupvalues(state, frame->slots);
-                    state->vmstate.framecount--;
-                    // return from 'main()'/script function
-                    if(state->vmstate.framecount == 0)
+                    if(fei_vmdo_return(state, &frame) == false)
                     {
-                        // pop main script function from the stack
-                        fei_vm_popvalue(state);
-                        return INTERPRET_OK;
+                        return INTERPRET_OK;                        
                     }
-                    // for a function
-                    // discard all the slots the callee was using for its parameters
-                    // basically 're-assign'
-                    state->vmstate.stacktop = frame->slots;
-                    // push the return value
-                    fei_vm_pushvalue(state, result);
-                    // update run function's current frame
-                    frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
                 }
                 break;
 
         }
     }
-
-
-#undef BINARY_OP
 }
-
 
 char* readhandle(FILE* hnd, size_t* dlen)
 {
