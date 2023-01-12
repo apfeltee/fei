@@ -1,7 +1,7 @@
 
 class Tree
 {
-    function init(item, depth)
+    init(item, depth)
     {
         this.item = item;
         this.depth = depth;
@@ -14,14 +14,14 @@ class Tree
         }
         else
         {
-            this.left = nil;
-            this.right = nil;
+            this.left = null;
+            this.right = null;
         }
     }
 
-    function check()
+    check()
     {
-        if (this.left == nil)
+        if (this.left == null)
         {
             return this.item;
         }
@@ -39,7 +39,7 @@ println("stretch tree of depth:", stretchDepth, " check:", Tree(0, stretchDepth)
 
 var longLivedTree = Tree(0, maxDepth);
 
-// iterations = 2 ** maxDepth
+
 var iterations = 1;
 var d = 0;
 while (d < maxDepth)

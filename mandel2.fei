@@ -12,13 +12,13 @@ function do_sub(x, y)
 
 function do_mul(x, y)
 {
-    var t = x * y;
+    var t = x * y
     return (t + 8192 / 2) / 8192;
 }
 
 function do_div(x, y)
 {
-    var t = x * 8192;
+    var t = x * 8192
     return (t + y / 2) / y;
 }
 
@@ -33,8 +33,8 @@ function iter(n, a, b, xn, yn)
     {
         return 1;
     }
-    var xn2 = do_mul(xn, xn);
-    var yn2 = do_mul(yn, yn);
+    var xn2 = do_mul(xn, xn)
+    var yn2 = do_mul(yn, yn)
     if(do_add(xn2, yn2) > of_int(4))
     {
         return 0;
@@ -52,36 +52,36 @@ function inside(x, y)
 
 function run()
 {
-    var steps = 30;
-    var xmin = of_int(-2);
-    var xmax = of_int(1);
-    var deltax = do_div(do_sub(xmax, xmin), of_int(2 * steps));
-    var ymin = of_int(-1);
-    var ymax = of_int(1);
-    var deltay = do_div(do_sub(ymax, ymin), of_int(steps));
-    var i = 0;
+    var steps = 30
+    var xmin = of_int(-2)
+    var xmax = of_int(1)
+    var deltax = do_div(do_sub(xmax, xmin), of_int(2 * steps))
+    var ymin = of_int(-1)
+    var ymax = of_int(1)
+    var deltay = do_div(do_sub(ymax, ymin), of_int(steps))
+    var i = 0
     while(i < steps)
     {
-        var other = do_mul(of_int(i), deltay);
+        var other = do_mul(of_int(i), deltay)
         
-        var y = do_add(ymin, other);
-        var j = 0;
+        var y = do_add(ymin, other)
+        var j = 0
         while(j < 2 * steps)
         {
-            var x = do_add(xmin, do_mul(of_int(j), deltax));
+            var x = do_add(xmin, do_mul(of_int(j), deltax))
             if(inside(x, y) == 1)
             {
-                print("#");
+                print("#")
             }
             else
             {
-                print("-");
+                print("-")
             }
-            j=j+1;
+            j=j+1
         }
         println("");
-        i=i+1;
+        i=i+1
     }
 }
-run();
+run()
 
