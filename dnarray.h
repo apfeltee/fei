@@ -1,263 +1,167 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-
-// ifexpr ? thenexpr : elseexpr
-#define _da_if(...) (__VA_ARGS__) ?
-#define _da_then(...) (__VA_ARGS__) :
-#define _da_else(...) (__VA_ARGS__)
-
-#ifndef JK_DYNARRAY_MAX
-    #define JK_DYNARRAY_MAX(a, b) \
-        ( \
-            _da_if((a) > (b)) \
-            _da_then(a) \
-            _da_else(b) \
-        )
+#ifndef JK_DYNAMIC_ARRAY_MAX
+    #define JK_DYNAMIC_ARRAY_MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
-#ifndef JK_DYNARRAY_MIN
-    #define JK_DYNARRAY_MIN(a, b) \
-        ( \
-            _da_if((a) < (b)) \
-            _da_then(a) \
-            _da_else(b) \
-        )
+#ifndef JK_DYNAMIC_ARRAY_MIN
+    #define JK_DYNAMIC_ARRAY_MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
+#ifndef JK_DYNAMIC_ARRAY_ASSERT
+    #define JK_DYNAMIC_ARRAY_ASSERT(cond) ((cond) ? 0 : ((*(volatile int*)0) = 123), 0)
+#endif
 
-static inline void* ds_extmalloc(size_t size, void* userptr)
-{
-    (void)userptr;
-    return malloc(size);
-}
+#ifndef JK_DYNAMIC_ARRAY_SIZE_T
+    #ifndef __cplusplus
+        #if __STDC_VERSION__ < 199901L
+            #define JK_DYNAMIC_ARRAY_SIZE_T unsigned int
+        #else
+            #define JK_DYNAMIC_ARRAY_SIZE_T size_t
+        #endif
+    #endif
+#endif
 
-static inline void* ds_extrealloc(void* ptr, size_t oldsz, size_t newsz, void* userptr)
-{
-    (void)oldsz;
-    (void)userptr;
-    return realloc(ptr, newsz);
-}
+#ifdef __clang__
+    #define JK_DYNAMIC_ARRAY_UNUSED __attribute__((__unused__))
+#else
+    #define JK_DYNAMIC_ARRAY_UNUSED
+#endif
 
-static inline void ds_extfree(void* ptr, void* userptr)
-{
-    (void)userptr;
-    free(ptr);
-}
+#ifdef JK_DYNAMIC_ARRAY_EXTERN
+    #define JK_DYNAMIC_ARRAY_DEF JK_DYNAMIC_ARRAY_UNUSED extern
+#else
+    #define JK_DYNAMIC_ARRAY_DEF JK_DYNAMIC_ARRAY_UNUSED static
+#endif
 
-static inline intptr_t* da_grow_internal(void* uptr, intptr_t* arr, size_t capacity, size_t tsize);
+#ifndef JK_DYNAMIC_ARRAY_REALLOC
+    #define JK_DYNAMIC_ARRAY_REALLOC realloc
+#endif
 
-#define da_count_internal(arr) \
-    ((((intptr_t*)(arr)) - 2)[0])
+#ifndef JK_DYNAMIC_ARRAY_MEMCPY
+    #include <string.h>
+    #define JK_DYNAMIC_ARRAY_MEMCPY memcpy
+#endif
 
-#define da_capacity_internal(arr) \
-    ((((intptr_t*)(arr)) - 1)[0])
+#ifndef JK_DYNAMIC_ARRAY_MEMSET
+    #include <string.h>
+    #define JK_DYNAMIC_ARRAY_MEMSET memset
+#endif
 
+#ifndef JK_DYNAMIC_ARRAY_NO_PRINTF
+    #ifndef JK_DYNAMIC_ARRAY_VSNPRINTF
+        #include <stdio.h>
+        #define JK_DYNAMIC_ARRAY_VSNPRINTF vsnprintf
+    #endif
+#endif
 
-#define da_need_to_grow_internal(arr, n) \
-    ((!(arr)) || (da_count_internal(arr) + (n)) >= da_capacity_internal(arr))
+#define da_intern_getsetcount(arr) \
+    ((((JK_DYNAMIC_ARRAY_SIZE_T*)(arr)) - 2)[0])
 
-#define da_maybe_grow_internal(uptr, arr, n) \
-    ( \
-        _da_if( \
-            da_need_to_grow_internal((intptr_t*)(arr), (n)) \
-        ) \
-        _da_then( \
-            (arr) = (intptr_t*)da_grow_internal(uptr, (intptr_t*)(arr), (n), sizeof(*(arr))) \
-        ) \
-        _da_else(0) \
-    )
-
-#define da_make(uptr, arr, n, sztyp) \
-    ( \
-        da_grow_internal(uptr, (intptr_t*)arr, n, sztyp) \
-    )
-
-#define da_destroy(uptr, arr) \
-    ( \
-        _da_if(arr) \
-        _da_then( \
-            ds_extfree(((intptr_t*)(arr)) - 2, uptr), (arr) = NULL, 0 \
-        ) \
-        _da_else(0) \
-    )
-
-#define da_clear(arr) \
-    (\
-        _da_if(da_count(arr) > 0) \
-        _da_then( \
-            memset((arr), 0, sizeof(*(arr)) * da_count_internal(arr)), \
-            da_count_internal(arr) = 0, \
-            0 \
-        ) \
-        _da_else(0) \
-    )
-
-#define da_count(arr) \
-    ((unsigned int)( \
-        _da_if((arr) == NULL) \
-        _da_then(0) \
-        _da_else( \
-            da_count_internal(arr) \
-        ) \
-    ))
+#define da_intern_getsetcapacity(arr) \
+    ((((JK_DYNAMIC_ARRAY_SIZE_T*)(arr)) - 1)[0])
 
 #define da_capacity(arr) \
-    ((unsigned int)( \
-        _da_if(arr) \
-        _da_then(da_capacity_internal(arr)) \
-        _da_else(0) \
-    ))
+    (da_intern_getsetcapacity(arr))
 
-#define da_get(arr, idx) \
-    ( \
-        _da_if((idx) <= da_count(arr)) \
-        _da_then( \
-            (void*)( \
-                (arr)[(idx)] \
-            ) \
-        ) \
-        _da_else( \
-            (void*)(NULL) \
-        ) \
-    )
+#define da_need_to_grow_internal(arr, n) \
+    (!(arr) || (da_intern_getsetcount(arr) + (n)) >= da_intern_getsetcapacity(arr))
 
-#define da_set(arr, idx, val) \
-    ( \
-        _da_if((idx) < da_count(arr)) \
-        _da_then( \
-            ( \
-                (arr)[idx] = (intptr_t)val \
-            ), \
-            true \
-        ) \
-        _da_else( \
-            false \
-        ) \
-    )
+#define da_maybe_grow_internal(arr, n, sz) \
+    (da_need_to_grow_internal((arr), (n)) ? (*((void**)&(arr)) = da_grow_internal((void*)(arr), (n), sz)) : 0)
 
-#define da_last(arr) \
-    (void*)( \
-        (arr)[da_count_internal(arr) - 1] \
-    )
+#define da_make(arr, n, sz) ((arr) = da_grow_internal((arr), (n), sz))
 
-#define da_push(uptr, arr, ...) \
-    ( \
-        da_maybe_grow_internal(uptr, (arr), 4), \
-        ((intptr_t*)(arr))[da_count_internal(arr)++] = (intptr_t)(__VA_ARGS__) \
-    )
+#define da_count(arr) ((arr) ? da_intern_getsetcount(arr) : 0)
 
-#define da_pushn(uptr, arr, n) \
-    ( \
-        da_maybe_grow_internal(uptr, (arr), n), \
-        da_count_internal(arr) += n \
-    )
+#define da_allocated(arr) ((arr) ? da_intern_getsetcapacity(arr) : 0)
 
+#define da_last(arr) ((arr)[da_intern_getsetcount(arr) - 1])
 
-#define da_pop(arr) \
-    ( \
-        _da_if(da_count(arr) > 0) \
-        _da_then( \
-            memset((arr) + (--da_count_internal(arr)), 0, sizeof(*(arr))), \
-            0 \
-        ) \
-        _da_else(0) \
-    )
+#define da_push(arr, sz, ...) (da_maybe_grow_internal((arr), 1, sz), (arr)[da_intern_getsetcount(arr)++] = (__VA_ARGS__))
 
-#define da_popn(arr, n) \
-    (\
-        _da_if(da_count(arr) > 0) \
-        _da_then( \
-            memset( \
-                (arr) + (da_count_internal(arr) - JK_DYNARRAY_MIN((n), da_count_internal(arr))), \
-                0, \
-                sizeof(*(arr)) * (JK_DYNARRAY_MIN((n), da_count_internal(arr)))\
-            ), \
-            da_count_internal(arr) -= JK_DYNARRAY_MIN((n), \
-            da_count_internal(arr)), 0 \
-        ) \
-        _da_else(0) \
-    )
+#define da_pushn(arr, n, sz) (da_maybe_grow_internal((arr), n, sz), da_intern_getsetcount(arr) += n)
 
-#define da_grow(uptr, arr, n) \
-    ( \
-        ((arr) = da_grow_internal(uptr, (intptr_t*)(arr), (n), sizeof(*(arr)))), \
-        da_count_internal(arr) += (n) \
-    )
+#define da_pop(arr, sz) \
+    (da_count(arr) ? JK_DYNAMIC_ARRAY_MEMSET((arr) + (--da_intern_getsetcount(arr)), 0, sz), 0 : 0)
 
-#define da_remove_swap_last(arr, index) \
-    ( \
-        _da_if(((index) >= 0) && (index) < da_count_internal(arr)) \
-        _da_then( \
-            memcpy((arr) + (index), &da_last(arr), sizeof(*(arr))), \
-            --da_count_internal(arr) \
-        ) \
-        _da_else(0)\
-    )
+#define da_popn(arr, n)                                                                                               \
+    (da_count(arr) ?                                                                                                  \
+     JK_DYNAMIC_ARRAY_MEMSET((arr) + (da_intern_getsetcount(arr) - JK_DYNAMIC_ARRAY_MIN((n), da_intern_getsetcount(arr))), 0, \
+                             sizeof(*(arr)) * (JK_DYNAMIC_ARRAY_MIN((n), da_intern_getsetcount(arr)))),                   \
+     da_intern_getsetcount(arr) -= JK_DYNAMIC_ARRAY_MIN((n), da_intern_getsetcount(arr)), 0 : 0)
+
+#define da_destroy(arr) ((arr) ? free(((JK_DYNAMIC_ARRAY_SIZE_T*)(arr)) - 2), (arr) = NULL, 0 : 0)
+
+#define da_clear(arr) \
+    (da_count(arr) ? JK_DYNAMIC_ARRAY_MEMSET((arr), 0, sizeof(*(arr)) * da_intern_getsetcount(arr)), \
+     da_intern_getsetcount(arr) = 0, 0 : 0);
+
+#define da_grow(arr, n, sz) (((arr) = da_grow_internal((arr), (n), sz)), da_intern_getsetcount(arr) += (n))
+
+#define da_remove_swap_last(arr, index)                                                                    \
+    ((((index) >= 0) && (index) < da_intern_getsetcount(arr)) ?                                                \
+     (JK_DYNAMIC_ARRAY_MEMCPY((arr) + (index), &da_last(arr), sizeof(*(arr))), --da_intern_getsetcount(arr)) : \
+     0)
 
 #define da_sizeof(arr) (sizeof(*(arr)) * da_count(arr))
 
-
-
-/*
-#undef _da_if
-#undef _da_then
-#undef _da_else
-*/
-
-static inline intptr_t* da_grow_internal(void* uptr, intptr_t* arr, size_t capacity, size_t tsize)
+JK_DYNAMIC_ARRAY_DEF void* da_grow_internal(void* arr, JK_DYNAMIC_ARRAY_SIZE_T count, JK_DYNAMIC_ARRAY_SIZE_T size)
 {
-    size_t asize;
-    size_t acount;
-    size_t zerosize;
-    size_t actualcapacity;
-    intptr_t* res;
-    intptr_t* ptr;
-    res = NULL;
-    acount = 0;
-    actualcapacity = capacity;
-    tsize = tsize + sizeof(intptr_t);
-    if(actualcapacity == 0)
-    {
-        actualcapacity = 1;
-    }
-    if(arr != NULL)
-    {
-        acount = JK_DYNARRAY_MAX(2 * da_count(arr), da_count(arr) + actualcapacity);
-    }
-    asize = ((2 * tsize) + (acount * tsize));
+    void* res = 0;
+    JK_DYNAMIC_ARRAY_SIZE_T allocSize;
+    JK_DYNAMIC_ARRAY_SIZE_T allocCount;
 
-
-    //fprintf(stderr, "da_grow_internal: arg.uptr=%p arg.arr=%p arg.capacity=%zu arg.tsize=%zu asize=%zu acount=%zu\n", uptr, arr, actualcapacity, tsize, asize, acount);
-
-
+    allocCount = JK_DYNAMIC_ARRAY_MAX(2 * da_count(arr), da_count(arr) + count);
+    allocSize = 2 * sizeof(JK_DYNAMIC_ARRAY_SIZE_T) + allocCount * size;
     if(arr)
     {
-        ptr = (intptr_t*)ds_extmalloc(asize * tsize, uptr);
+#if 0
+        JK_DYNAMIC_ARRAY_SIZE_T* ptr = (JK_DYNAMIC_ARRAY_SIZE_T*)JK_DYNAMIC_ARRAY_REALLOC(((JK_DYNAMIC_ARRAY_SIZE_T*)arr)-2, allocSize);
+#else
+        JK_DYNAMIC_ARRAY_SIZE_T* ptr = (JK_DYNAMIC_ARRAY_SIZE_T*)malloc(allocSize);
         if(ptr)
         {
-            memcpy(ptr, ((intptr_t*)arr) - 2, ((da_count(arr) * tsize) + (2 * tsize)));
-            da_destroy(uptr, arr);
+            JK_DYNAMIC_ARRAY_MEMCPY(ptr, ((JK_DYNAMIC_ARRAY_SIZE_T*)arr) - 2,
+                                    da_count(arr) * size + 2 * sizeof(JK_DYNAMIC_ARRAY_SIZE_T));
+            //free(((JK_DYNAMIC_ARRAY_SIZE_T*)arr) - 2);
+            da_destroy(arr);
         }
-        assert(ptr != NULL);
-        zerosize = ((asize - (2 * tsize)) - (ptr[0] * tsize));
-        memset(((intptr_t*)ptr) + (asize - zerosize), 0, zerosize);
-        res = (intptr_t*)(ptr + 2);
-        da_capacity_internal(res) = acount;
+#endif
+        if(ptr)
+        {
+            JK_DYNAMIC_ARRAY_SIZE_T zeroSize = allocSize - 2 * sizeof(JK_DYNAMIC_ARRAY_SIZE_T) - ptr[0] * size;
+            JK_DYNAMIC_ARRAY_MEMSET(((char*)ptr) + (allocSize - zeroSize), 0, zeroSize);
+            res = ptr + 2;
+            da_intern_getsetcapacity(res) = allocCount;
+        }
+        else
+        {
+            JK_DYNAMIC_ARRAY_ASSERT(0);
+        }
     }
     else
     {
-        ptr = (intptr_t*)ds_extmalloc(asize*tsize, uptr);
-        assert(ptr != NULL);
-        res = (intptr_t*)(ptr + 2);
-        memset(ptr, 0, asize);
-        da_count_internal(res) = 0;
-        da_capacity_internal(res) = acount;
+#if 0
+        JK_DYNAMIC_ARRAY_SIZE_T* ptr = (JK_DYNAMIC_ARRAY_SIZE_T*)JK_DYNAMIC_ARRAY_REALLOC(0, allocSize);
+#else
+        JK_DYNAMIC_ARRAY_SIZE_T* ptr = (JK_DYNAMIC_ARRAY_SIZE_T*)malloc(allocSize);
+#endif
+        if(ptr)
+        {
+            res = ptr + 2;
+            JK_DYNAMIC_ARRAY_MEMSET(ptr, 0, allocSize);
+            da_intern_getsetcount(res) = 0;
+            da_intern_getsetcapacity(res) = allocCount;
+        }
+        else
+        {
+            JK_DYNAMIC_ARRAY_ASSERT(0);
+        }
     }
-    assert(res != NULL);
+
+    JK_DYNAMIC_ARRAY_ASSERT(res);
     return res;
 }
 

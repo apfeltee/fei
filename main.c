@@ -268,9 +268,9 @@ typedef enum
 // rseult that responds from the running VM
 typedef enum
 {
-    INTERPRET_OK,
-    INTERPRET_COMPILE_ERROR,
-    INTERPRET_RUNTIME_ERROR
+    STATUS_OK,
+    STATUS_SYNTAXERROR,
+    STATUS_RTERROR
 } ResultCode;
 
 // type tags for the tagged union
@@ -426,6 +426,7 @@ struct Compiler
     // array to store locals, ordered in the order of declarations
     int progloccount;
     Local proglocals[CFG_MAX_COMPILERLOCALS];
+    //Local* proglocals;
 
     Upvalue upvalues[CFG_MAX_COMPILERUPVALS];
 
@@ -647,8 +648,8 @@ struct VMState
 
 
     // since the whole program is one big 'main()' use callstacks
-    CallFrame frameobjects[CFG_MAX_VMFRAMES];
-    //intptr_t* frameobjects;
+    //CallFrame frameobjects[CFG_MAX_VMFRAMES];
+    intptr_t* frameobjects;
 
     // stack array is 'indirectly' declared inline here
     Value stack[CFG_MAX_VMSTACK];
@@ -2799,7 +2800,9 @@ void fei_compiler_patchjump(State* state, int offset)
 void fei_compiler_init(State* state, Compiler* compiler, FuncType type)
 {
     size_t i;
+    Local stacklocal;
     Local* local;
+    Compiler* astcc;
     // the 'outer' compiler
     compiler->enclosing = state->aststate.compiler;
     compiler->programfunc = NULL;
@@ -2808,17 +2811,22 @@ void fei_compiler_init(State* state, Compiler* compiler, FuncType type)
     compiler->scopedepth = 0;
     compiler->programfunc = fei_object_makefunction(state);
     state->aststate.compiler = compiler;
+    astcc = state->aststate.compiler;
     if(type != TYPE_SCRIPT)
     {
         // function name handled here
-        state->aststate.compiler->programfunc->name = fei_object_copystring(state, state->aststate.parser.prevtoken.toksrc, state->aststate.parser.prevtoken.length);
+        astcc->programfunc->name = fei_object_copystring(state, state->aststate.parser.prevtoken.toksrc, state->aststate.parser.prevtoken.length);
     }
+    //astcc->proglocals = da_make(state, astcc->proglocals, 0, sizeof(Local));
     for(i=0; i<CFG_MAX_COMPILERLOCALS; i++)
     {
-        memset(&state->aststate.compiler->proglocals[i], 0, sizeof(Local));
+        memset(&astcc->proglocals[i], 0, sizeof(Local));
     }
+    
     // compiler implicitly claims slot zero for local variables
-    local = &state->aststate.compiler->proglocals[state->aststate.compiler->progloccount++];
+    local = &astcc->proglocals[astcc->progloccount++];
+    //local = &stacklocal;
+    //da_push(state, astcc->proglocals, &stacklocal);
     local->iscaptured = false;
     // for this tags
     // for none function types, for class methods
@@ -2843,9 +2851,11 @@ void fei_compiler_init(State* state, Compiler* compiler, FuncType type)
 ObjFunction* fei_compiler_endcompiler(State* state)
 {
     ObjFunction* function;
+    Compiler* astcc;
+    astcc = state->aststate.compiler;
     fei_compiler_emitreturn(state);
-    function = state->aststate.compiler->programfunc;
-    FREE(state, sizeof(int), state->aststate.compiler->continuejumps);
+    function = astcc->programfunc;
+    FREE(state, sizeof(int), astcc->continuejumps);
     // for debugging
 #if defined(DEBUG_PRINT_CODE) && (DEBUG_PRINT_CODE == 1)
     if(!state->aststate.parser.haderror)
@@ -2855,7 +2865,7 @@ ObjFunction* fei_compiler_endcompiler(State* state)
     }
 #endif
     // return back to enclosing compiler after function
-    state->aststate.compiler = state->aststate.compiler->enclosing;
+    state->aststate.compiler = astcc->enclosing;
     // return to free
     return function;
 }
@@ -2900,26 +2910,32 @@ void fei_compiler_beginloopscope(State* state)
 
 void fei_compiler_endloopscope(State* state)
 {
-    if(state->aststate.compiler->breakjumpcounts[state->aststate.compiler->loopcounttop] > 0)
+    Compiler* astcc;
+    astcc = state->aststate.compiler;
+    if(astcc->breakjumpcounts[astcc->loopcounttop] > 0)
     {
-        state->aststate.compiler->breakjumpcounts[state->aststate.compiler->loopcounttop] = 0;
+        astcc->breakjumpcounts[astcc->loopcounttop] = 0;
     }
-    state->aststate.compiler->loopcounttop--;
+    astcc->loopcounttop--;
 }
 
 // mark current chunk for continue jump
 void fei_compiler_markcontinuejump(State* state)
 {
-    state->aststate.compiler->continuejumps[state->aststate.compiler->loopcounttop] = fei_compiler_currentchunk(state)->count;
+    Compiler* astcc;
+    astcc = state->aststate.compiler;
+    astcc->continuejumps[astcc->loopcounttop] = fei_compiler_currentchunk(state)->count;
 }
 
 // patch available break jumps
 void fei_compiler_patchbreakjumps(State* state)
 {
     int i;
-    for(i = 0; i < state->aststate.compiler->breakjumpcounts[state->aststate.compiler->loopcounttop]; i++)
+    Compiler* astcc;
+    astcc = state->aststate.compiler;
+    for(i = 0; i < astcc->breakjumpcounts[astcc->loopcounttop]; i++)
     {
-        fei_compiler_patchjump(state, state->aststate.compiler->breakpatchjumps[state->aststate.compiler->loopcounttop][i]);
+        fei_compiler_patchjump(state, astcc->breakpatchjumps[astcc->loopcounttop][i]);
     }
 }
 
@@ -2945,10 +2961,22 @@ int fei_compiler_resolvelocal(State* state, Compiler* compiler, Token* name)
 {
     int i;
     Local* local;
+    Local stacklocal;
     // walk through the local variables
     for(i = compiler->progloccount - 1; i >= 0; i--)
     {
-        local = &compiler->proglocals[i];
+        /*
+        if(i >= da_count(compiler->proglocals))
+        {
+            local = &stacklocal;
+            memset(local, 0, sizeof(Local));
+            da_push(state, compiler->proglocals, &stacklocal);
+        }
+        else
+        */
+        {
+            local = &compiler->proglocals[i];
+        }
         if(fei_compiler_identsequal(state, name, &local->name))
         {
             if(local->depth == -1)
@@ -3035,12 +3063,14 @@ int fei_compiler_resolveupvalue(State* state, Compiler* compiler, Token* name)
 void fei_compiler_addlocal(State* state, Token name)
 {
     Local* local;
-    if(state->aststate.compiler->progloccount == CFG_MAX_COMPILERLOCALS)
+    Compiler* astcc;
+    astcc = state->aststate.compiler;
+    if(astcc->progloccount == CFG_MAX_COMPILERLOCALS)
     {
         fei_compiler_raiseerror(state, "too many local variables in block");
         return;
     }
-    local = &state->aststate.compiler->proglocals[state->aststate.compiler->progloccount++];
+    local = &astcc->proglocals[astcc->progloccount++];
     local->name = name;
     // for cases where a variable name is redefined inside another scope, using the variable itself
     local->depth = -1;
@@ -3052,8 +3082,10 @@ void fei_compiler_declvarfromcurrent(State* state)// for local variables
     int i;
     Local* local;
     Token* name;
+    Compiler* astcc;
+    astcc = state->aststate.compiler;
     // global vars are implicitly declared, and are late bound, not 'initialized' here but in the VM
-    if(state->aststate.compiler->scopedepth == 0)
+    if(astcc->scopedepth == 0)
     {
         return;
     }
@@ -3062,11 +3094,11 @@ void fei_compiler_declvarfromcurrent(State* state)// for local variables
     // to not allow two variable declarations to have the same name
     // loop only checks to a HIGHER SCOPE; another block overlaping/shadowing is allowed
     // work backwards
-    for(i = state->aststate.compiler->progloccount - 1; i >= 0; i--)
+    for(i = astcc->progloccount - 1; i >= 0; i--)
     {
-        local = &state->aststate.compiler->proglocals[i];
+        local = &astcc->proglocals[i];
         // if reach beginning of array(highest scope)
-        if(local->depth != -1 && local->depth < state->aststate.compiler->scopedepth)
+        if(local->depth != -1 && local->depth < astcc->scopedepth)
         {
             break;
         }
@@ -3096,12 +3128,14 @@ uint8_t fei_compiler_parsevarfromcurrent(State* state, const char* errormessage)
 
 void fei_compiler_markinit(State* state)
 {
-    if(state->aststate.compiler->scopedepth == 0)
+    Compiler* astcc;
+    astcc = state->aststate.compiler;
+    if(astcc->scopedepth == 0)
     {
         // if global return
         return;
     }
-    state->aststate.compiler->proglocals[state->aststate.compiler->progloccount - 1].depth = state->aststate.compiler->scopedepth;
+    astcc->proglocals[astcc->progloccount - 1].depth = astcc->scopedepth;
 }
 
 void fei_compiler_defvarindex(State* state, uint8_t global)
@@ -4915,7 +4949,7 @@ State* fei_state_init()
         // init initalizer string
         state->vmstate.initstring = NULL;
         state->vmstate.initstring = fei_object_copystring(state, "init", 4);
-        //state->vmstate.frameobjects = da_make(state, state->vmstate.frameobjects, 0, sizeof(CallFrame));
+        state->vmstate.frameobjects = da_make(state->vmstate.frameobjects, 24, sizeof(CallFrame));
     }
     {
         fei_vm_defnative(state, "clock", cfn_clock);
@@ -4929,12 +4963,18 @@ State* fei_state_init()
 
 void fei_state_destroy(State* state)
 {
+    int i;
     state->vmstate.initstring = NULL;
     // free all objects, from state->gcstate.objects
     fei_gcmem_freeobjects(state);
     fei_table_destroy(state, &state->vmstate.globals);
     fei_table_destroy(state, &state->vmstate.strings);
     fei_writer_destroy(state, state->outwriter);
+    for(i=0; i<da_count(state->vmstate.frameobjects); i++)
+    {
+        free((CallFrame*)((CallFrame**)state->vmstate.frameobjects)[i]);
+    }
+    da_destroy(state->vmstate.frameobjects);
     free(state);
 }
 
@@ -4993,7 +5033,7 @@ ResultCode fei_vm_evalsource(State* state, const char* source, size_t len)
     function = fei_compiler_compilesource(state, source, len);
     if(function == NULL)
     {
-        return INTERPRET_COMPILE_ERROR;
+        return STATUS_SYNTAXERROR;
     }
     fei_vm_pushvalue(state, OBJ_VAL(function));
     closure = fei_object_makeclosure(state, function);
@@ -5007,16 +5047,35 @@ ResultCode fei_vm_evalsource(State* state, const char* source, size_t len)
 
 CallFrame* fei_vm_frameget(State* state, int idx)
 {
-    /*
-    size_t cnt;
-    cnt = da_count(state->vmstate.frameobjects);
-    if(idx > cnt)
+    long cnt;
+    long cap;
+    bool mustalloc;
+    CallFrame* fr;
+    intptr_t* frobs;
+    frobs = state->vmstate.frameobjects;
+    cnt = da_count(frobs);
+    cap = da_capacity(frobs);
+    //fprintf(stderr, "fei_vm_frameget: idx=%d cnt=%d cap=%d\n", idx, cnt);
+    mustalloc = (
+        (
+            (idx >= cnt) ||
+            (cnt == 0)
+        )
+        #if 0
+        &&
+        (
+            (cap > 0) &&
+            (idx < cap)
+        )
+        #endif
+    );
+    if(mustalloc)
     {
-        CallFrame fr;
-        da_push(state, state->vmstate.frameobjects, &fr);
+        fr = (CallFrame*)malloc(sizeof(CallFrame));
+        memset(fr, 0, sizeof(CallFrame));
+        da_push(state->vmstate.frameobjects, sizeof(CallFrame), fr);
     }
-    */
-    return &state->vmstate.frameobjects[idx];
+    return ((CallFrame**)(state->vmstate.frameobjects))[idx];
 }
 
 
@@ -5692,7 +5751,7 @@ bool fei_vmdo_setglobal(State* state, CallFrame** frame)
     {
         //fei_table_delete(state, &state->vmstate.globals, name);// delete the false name
         //fei_vm_raiseruntimeerror(state, "undefined variable '%s'", name->chars);
-        //return INTERPRET_RUNTIME_ERROR;
+        //return STATUS_RTERROR;
     }
     return true;
 }
@@ -5843,7 +5902,7 @@ typedef bool(*VMPrimitive)(State*, CallFrame**);
     { \
         if(!(fn)(state, &frame)) \
         { \
-            return INTERPRET_RUNTIME_ERROR; \
+            return STATUS_RTERROR; \
         } \
     }
 
@@ -5888,7 +5947,7 @@ ResultCode fei_vm_exec(State* state)
                 {
                     if(!fei_vmdo_unary(state, &frame, instruction))
                     {
-                        return INTERPRET_RUNTIME_ERROR;
+                        return STATUS_RTERROR;
                     }
                 }
                 break;
@@ -5918,7 +5977,7 @@ ResultCode fei_vm_exec(State* state)
                 {
                     if(!fei_vmdo_binary(state, &frame, instruction))
                     {
-                        return INTERPRET_RUNTIME_ERROR;
+                        return STATUS_RTERROR;
                     }
                 }
                 break;
@@ -6074,7 +6133,7 @@ ResultCode fei_vm_exec(State* state)
                 {
                     if(fei_vmdo_return(state, &frame) == false)
                     {
-                        return INTERPRET_OK;                        
+                        return STATUS_OK;                        
                     }
                 }
                 break;
@@ -6158,11 +6217,11 @@ void runfile(State* state, const char* path)
     source = readfile(path, &len);
     ResultCode result = fei_vm_evalsource(state, source, len);
     free(source);
-    if(result == INTERPRET_COMPILE_ERROR)
+    if(result == STATUS_SYNTAXERROR)
     {
         exit(51);
     }
-    if(result == INTERPRET_RUNTIME_ERROR)
+    if(result == STATUS_RTERROR)
     {
         exit(61);
     }
