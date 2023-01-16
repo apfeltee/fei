@@ -584,6 +584,9 @@ struct ObjBoundMethod
 // each time a function is called, create this struct
 struct CallFrame
 {
+    int level;
+    int stackpos;
+
     ObjClosure* closure;
 
     // store ip on where in the VM the function is
@@ -652,9 +655,6 @@ struct VMState
         Value* stacktop;
     #endif
 
-    // stores current height of the stack
-    int framecount;
-
     // for storing global variables
     Table globals;
 
@@ -667,10 +667,14 @@ struct VMState
     // track all upvalues; points to the first node of the linked list
     ObjUpvalue* openupvalues;
 
+    CallFrame* topframe;
+
+    // stores current height of the stack
+    int framecount;
 
     // since the whole program is one big 'main()' use callstacks
     //CallFrame frameobjects[CFG_MAX_VMFRAMES];
-    intptr_t* frameobjects;
+    CallFrame** frameobjects;
 
 
 };
@@ -681,7 +685,6 @@ struct State
     VMState vmstate;
     ASTState aststate;
     GCState gcstate;
-    CallFrame* topframe;
 };
 
 
@@ -4993,7 +4996,7 @@ void fei_state_destroy(State* state)
     fei_writer_destroy(state, state->outwriter);
     for(i=0; i<da_count(state->vmstate.frameobjects); i++)
     {
-        free((CallFrame*)((CallFrame**)state->vmstate.frameobjects)[i]);
+        free(state->vmstate.frameobjects[i]);
     }
     da_destroy(state->vmstate.frameobjects);
     free(state);
@@ -5072,7 +5075,7 @@ CallFrame* fei_vm_frameget(State* state, int idx)
     long cap;
     bool mustalloc;
     CallFrame* fr;
-    intptr_t* frobs;
+    CallFrame** frobs;
     frobs = state->vmstate.frameobjects;
     cnt = da_count(frobs);
     cap = da_capacity(frobs);
@@ -5096,7 +5099,10 @@ CallFrame* fei_vm_frameget(State* state, int idx)
         memset(fr, 0, sizeof(CallFrame));
         da_push(state->vmstate.frameobjects, sizeof(CallFrame), fr);
     }
-    return ((CallFrame**)(state->vmstate.frameobjects))[idx];
+    fr = state->vmstate.frameobjects[idx];
+    fr->level = idx;
+    fr->stackpos = state->vmstate.stackindex;
+    return fr;
 }
 
 
@@ -5134,7 +5140,6 @@ static inline uint16_t READ_SHORT(CallFrame* frame)
     frame->ip += 2;
     return (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]);
 }
-
 
 #define ALSO_PRINTTOP 0
 
@@ -5520,12 +5525,12 @@ void fei_vmdo_strconcat(State* state)
 }
 
 
-bool fei_vmdo_return(State* state, CallFrame** frame)
+bool fei_vmdo_return(State* state)
 {
     // if function returns a value, value will beon top of the stack
     Value result = fei_vm_stackpop_inline(state);
     // close lingering closed values
-    fei_vm_closeupvalues(state, (*frame)->slots);
+    fei_vm_closeupvalues(state, state->vmstate.topframe->slots);
     state->vmstate.framecount--;
     // return from 'main()'/script function
     if(state->vmstate.framecount == 0)
@@ -5537,36 +5542,36 @@ bool fei_vmdo_return(State* state, CallFrame** frame)
     // for a function
     // discard all the slots the callee was using for its parameters
     // basically 're-assign'
-    state->vmstate.stacktop = (*frame)->slots;
+    state->vmstate.stacktop = state->vmstate.topframe->slots;
     // push the return value
     fei_vm_stackpush(state, result);
     // update run function's current frame
-    *frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    state->vmstate.topframe = fei_vm_frameget(state, state->vmstate.framecount - 1);
     return true;
 }
 
-bool fei_vmdo_superinvoke(State* state, CallFrame** frame)
+bool fei_vmdo_superinvoke(State* state)
 {
     int count;
     ObjClass* parent;
     ObjString* method;
-    method = READ_STRING(state, *frame);
-    count = READ_BYTE(*frame);
+    method = READ_STRING(state, state->vmstate.topframe);
+    count = READ_BYTE(state->vmstate.topframe);
     parent = fei_value_asclass(fei_vm_stackpop_inline(state));
     if(!fei_class_invokemethod(state, parent, method, count))
     {
         return false;
     }
-    *frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    state->vmstate.topframe = fei_vm_frameget(state, state->vmstate.framecount - 1);
     return true;
 }
 
-bool fei_vmdo_getsuper(State* state, CallFrame** frame)
+bool fei_vmdo_getsuper(State* state)
 {
     ObjString* name;
     ObjClass* parent;
     // get method name/identifier
-    name = READ_STRING(state, *frame);
+    name = READ_STRING(state, state->vmstate.topframe);
     // class identifier is at the top of the stack
     parent = fei_value_asclass(fei_vm_stackpop_inline(state));
     // if binding fails
@@ -5577,11 +5582,10 @@ bool fei_vmdo_getsuper(State* state, CallFrame** frame)
     return true;
 }
 
-bool fei_vmdo_inherit(State* state, CallFrame** frame)
+bool fei_vmdo_inherit(State* state)
 {
     Value parent;
     ObjClass* child;
-    (void)frame;
     // parent class from 2nd top of the stack
     // ensure that parent identifier is a class
     parent = fei_vm_stackpeek_inline(state, 1);
@@ -5599,22 +5603,22 @@ bool fei_vmdo_inherit(State* state, CallFrame** frame)
     return true;
 }
 
-bool fei_vmdo_invokemethod(State* state, CallFrame** frame)
+bool fei_vmdo_invokemethod(State* state)
 {
     int argcount;
     ObjString* method;
-    method = READ_STRING(state, *frame);
-    argcount = READ_BYTE(*frame);
+    method = READ_STRING(state, state->vmstate.topframe);
+    argcount = READ_BYTE(state->vmstate.topframe);
     // new invoke function
     if(!fei_vm_classinvokefromstack(state, method, argcount))
     {
         return false;
     }
-    *frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    state->vmstate.topframe = fei_vm_frameget(state, state->vmstate.framecount - 1);
     return true;
 }
 
-bool fei_vmdo_makeclosure(State* state, CallFrame** frame)
+bool fei_vmdo_makeclosure(State* state)
 {
     int i;
     uint8_t index;
@@ -5622,7 +5626,7 @@ bool fei_vmdo_makeclosure(State* state, CallFrame** frame)
     ObjClosure* closure;
     ObjFunction* function;
     // load compiled function from table
-    function = fei_value_asfunction(READ_CONSTANT(state, *frame));
+    function = fei_value_asfunction(READ_CONSTANT(state, state->vmstate.topframe));
     closure = fei_object_makeclosure(state, function);
     fei_vm_stackpush(state, OBJ_VAL(closure));
     // fill upvalue array over in the interpreter when a closure is created
@@ -5630,25 +5634,25 @@ bool fei_vmdo_makeclosure(State* state, CallFrame** frame)
     for(i = 0; i < closure->upvaluecount; i++)
     {
         // read islocal bool
-        islocal = READ_BYTE(*frame);
+        islocal = READ_BYTE(state->vmstate.topframe);
         // read index for local, if available, in the closure
-        index = READ_BYTE(*frame);
+        index = READ_BYTE(state->vmstate.topframe);
         if(islocal)
         {
             // get from slots stack
-            closure->upvalues[i] = fei_vm_captureupvalue(state, (*frame)->slots + index);
+            closure->upvalues[i] = fei_vm_captureupvalue(state, state->vmstate.topframe->slots + index);
         }
         // if not local(nested upvalue)
         else
         {
             // get from current upvalue
-            closure->upvalues[i] = (*frame)->closure->upvalues[index];
+            closure->upvalues[i] = state->vmstate.topframe->closure->upvalues[index];
         }
     }
     return true;
 }
 
-bool fei_vmdo_setproperty(State* state, CallFrame** frame)
+bool fei_vmdo_setproperty(State* state)
 {
     ObjInstance* instance;
     if(!fei_value_isinstance(fei_vm_stackpeek_inline(state, 1)))// if not an instance
@@ -5659,7 +5663,7 @@ bool fei_vmdo_setproperty(State* state, CallFrame** frame)
     // not top most, as the top most is reserved for the new value to be set
     instance = fei_value_asinstance(fei_vm_stackpeek_inline(state, 1));
     //peek(0) is the new value
-    fei_table_set(state, &instance->fields, READ_STRING(state, *frame), fei_vm_stackpeek_inline(state, 0));
+    fei_table_set(state, &instance->fields, READ_STRING(state, state->vmstate.topframe), fei_vm_stackpeek_inline(state, 0));
     // pop the already set value
     Value value = fei_vm_stackpop_inline(state);
     // pop the property instance itself
@@ -5669,7 +5673,7 @@ bool fei_vmdo_setproperty(State* state, CallFrame** frame)
     return true;
 }
 
-bool fei_vmdo_getproperty(State* state, CallFrame** frame)
+bool fei_vmdo_getproperty(State* state)
 {
     Value value;
     ObjString* name;
@@ -5683,7 +5687,7 @@ bool fei_vmdo_getproperty(State* state, CallFrame** frame)
     // get instance from top most stack
     instance = fei_value_asinstance(fei_vm_stackpeek_inline(state, 0));
     // get identifier name
-    name = READ_STRING(state, *frame);
+    name = READ_STRING(state, state->vmstate.topframe);
     // get from fields hash table, assign it to instance
     if(fei_table_get(state, &instance->fields, name, &value))
     {
@@ -5700,13 +5704,12 @@ bool fei_vmdo_getproperty(State* state, CallFrame** frame)
     return true;
 }
 
-bool fei_vmdo_unary(State* state, CallFrame** frame, uint8_t instruc)
+bool fei_vmdo_unary(State* state, uint8_t instruc)
 {
     double dnum;
     double res;
     Value poked;
     Value popped;
-    (void)frame;
     poked = fei_vm_stackpeek_inline(state, 0);
     if(!fei_value_isnumber(poked))
     {
@@ -5733,7 +5736,7 @@ bool fei_vmdo_unary(State* state, CallFrame** frame, uint8_t instruc)
     return true;
 }
 
-bool fei_vmdo_binary(State* state, CallFrame** frame, uint8_t instruc)
+bool fei_vmdo_binary(State* state, uint8_t instruc)
 {
     Value valright;
     Value valleft;
@@ -5743,7 +5746,6 @@ bool fei_vmdo_binary(State* state, CallFrame** frame, uint8_t instruc)
     double fvright;
     int nvleft;
     int nvright;
-    (void)frame;
     pokeright = fei_vm_stackpeek_inline(state, 0);
     pokeleft = fei_vm_stackpeek_inline(state, 1);
     if((instruc == OP_ADD) && (fei_value_isstring(pokeright) && fei_value_isstring(pokeleft)))
@@ -5823,25 +5825,24 @@ bool fei_vmdo_binary(State* state, CallFrame** frame, uint8_t instruc)
     return true;
 }
 
-bool fei_vmdo_call(State* state, CallFrame** frame)
+bool fei_vmdo_call(State* state)
 {
     int argcount;
-    argcount = READ_BYTE(*frame);
+    argcount = READ_BYTE(state->vmstate.topframe);
     // call function; pass in the function name istelf[peek(depth)] and the number of arguments
     if(!fei_vm_callvalue(state, fei_vm_stackpeek_inline(state, argcount), argcount))
     {
         return false;
     }
     // to update pointer if callframe is successful, asnew frame is added
-    *frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    state->vmstate.topframe = fei_vm_frameget(state, state->vmstate.framecount - 1);
     return true;
 }
 
-bool fei_vmdo_switchequal(State* state, CallFrame** frame)
+bool fei_vmdo_switchequal(State* state)
 {
     Value a;
     Value b;
-    (void)frame;
     // only pop second value
     b = fei_vm_stackpop_inline(state);
     // peek topmost, the first value
@@ -5850,43 +5851,41 @@ bool fei_vmdo_switchequal(State* state, CallFrame** frame)
     return true;
 }
 
-bool fei_vmdo_compare(State* state, CallFrame** frame)
+bool fei_vmdo_compare(State* state)
 {
     Value a;
     Value b;
-    (void)frame;
     b = fei_vm_stackpop_inline(state);
     a = fei_vm_stackpop_inline(state);
     fei_vm_stackpush(state, BOOL_VAL(fei_value_compare(state, a, b)));
     return true;
 }
 
-bool fei_vmdo_logicalnot(State* state, CallFrame** frame)
+bool fei_vmdo_logicalnot(State* state)
 {
     bool isfalsey;
     Value popped;
-    (void)frame;
     popped = fei_vm_stackpop_inline(state);
     isfalsey = fei_value_isfalsey(state, popped);
     fei_vm_stackpush(state, BOOL_VAL(isfalsey));
     return true;
 }
 
-bool fei_vmdo_defineglobal(State* state, CallFrame** frame)
+bool fei_vmdo_defineglobal(State* state)
 {
     ObjString* name;
     // get name from constant table
-    name = READ_STRING(state, *frame);
+    name = READ_STRING(state, state->vmstate.topframe);
     // take value from the top of the stack
     fei_table_set(state, &state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0));
     fei_vm_stackpop_inline(state);
     return true;
 }
 
-bool fei_vmdo_setglobal(State* state, CallFrame** frame)
+bool fei_vmdo_setglobal(State* state)
 {
     ObjString* name;
-    name = READ_STRING(state, *frame);
+    name = READ_STRING(state, state->vmstate.topframe);
     // if key not in hash table
     if(fei_table_set(state, &state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0)))
     {
@@ -5897,12 +5896,12 @@ bool fei_vmdo_setglobal(State* state, CallFrame** frame)
     return true;
 }
 
-bool fei_vmdo_getglobal(State* state, CallFrame** frame)
+bool fei_vmdo_getglobal(State* state)
 {
     Value value;
     ObjString* name;
     // get the name
-    name = READ_STRING(state, *frame);
+    name = READ_STRING(state, state->vmstate.topframe);
     // if key not in hash table
     if(!fei_table_get(state, &state->vmstate.globals, name, &value))
     {
@@ -5913,57 +5912,56 @@ bool fei_vmdo_getglobal(State* state, CallFrame** frame)
     return true;
 }
 
-bool fei_vmdo_setlocal(State* state, CallFrame** frame)
+bool fei_vmdo_setlocal(State* state)
 {
     uint8_t slot;
-    slot = READ_BYTE(*frame);
+    slot = READ_BYTE(state->vmstate.topframe);
     // all the local var's VARIABLES are stored inside state->vmstate.stackvalues
     // takes from top of the stack and stores it in the stack slot
-    (*frame)->slots[slot] = fei_vm_stackpeek_inline(state, 0);
+    state->vmstate.topframe->slots[slot] = fei_vm_stackpeek_inline(state, 0);
     return true;
 }
 
-bool fei_vmdo_getlocal(State* state, CallFrame** frame)
+bool fei_vmdo_getlocal(State* state)
 {
     uint8_t slot;
-    slot = READ_BYTE(*frame);
+    slot = READ_BYTE(state->vmstate.topframe);
     // pushes the value to the stack where later instructions can read it
-    fei_vm_stackpush(state, (*frame)->slots[slot]);
+    fei_vm_stackpush(state, state->vmstate.topframe->slots[slot]);
     return true;
 }
 
-bool fei_vmdo_getconstant(State* state, CallFrame** frame)
+bool fei_vmdo_getconstant(State* state)
 {
     Value constant;
     // READ the next line, which is the INDEX of the constant in the constants array
-    constant = READ_CONSTANT(state, *frame);
+    constant = READ_CONSTANT(state, state->vmstate.topframe);
     fei_vm_stackpush(state, constant);
     return true;
 }
 
-bool fei_vmdo_setupvalue(State* state, CallFrame** frame)
+bool fei_vmdo_setupvalue(State* state)
 {
     uint8_t slot;
     // read index
-    slot = READ_BYTE(*frame);
+    slot = READ_BYTE(state->vmstate.topframe);
     // set to the topmost stack
-    *((*frame)->closure->upvalues[slot]->location) = fei_vm_stackpeek_inline(state, 0);
+    *(state->vmstate.topframe->closure->upvalues[slot]->location) = fei_vm_stackpeek_inline(state, 0);
     return true;
 }
 
-bool fei_vmdo_getupvalue(State* state, CallFrame** frame)
+bool fei_vmdo_getupvalue(State* state)
 {
     uint8_t slot;
     // read index
-    slot = READ_BYTE(*frame);
+    slot = READ_BYTE(state->vmstate.topframe);
     // push the value to the stack
-    fei_vm_stackpush(state, *((*frame)->closure->upvalues[slot]->location));
+    fei_vm_stackpush(state, *(state->vmstate.topframe->closure->upvalues[slot]->location));
     return true;
 }
 
-bool fei_vmdo_closeupvalue(State* state, CallFrame** frame)
+bool fei_vmdo_closeupvalue(State* state)
 {
-    (void)frame;
     // put address to the slot
     fei_vm_closeupvalues(state, state->vmstate.stacktop - 1);
     // pop from the stack
@@ -5971,77 +5969,77 @@ bool fei_vmdo_closeupvalue(State* state, CallFrame** frame)
     return true;
 }
 
-bool fei_vmdo_jumpalways(State* state, CallFrame** frame)
+bool fei_vmdo_jumpalways(State* state)
 {
     uint16_t offset;
     (void)state;
-    offset = READ_SHORT(*frame);
-    (*frame)->ip += offset;
+    offset = READ_SHORT(state->vmstate.topframe);
+    state->vmstate.topframe->ip += offset;
     return true;
 }
 
-bool fei_vmdo_jumpiffalse(State* state, CallFrame** frame)
+bool fei_vmdo_jumpiffalse(State* state)
 {
     uint16_t offset;
     // offset already put in the stack
-    offset = READ_SHORT(*frame);
+    offset = READ_SHORT(state->vmstate.topframe);
     // actual jump instruction is done here; skip over the instruction pointer
     if(fei_value_isfalsey(state, fei_vm_stackpeek_inline(state, 0)))
     {
         // if evaluated expression inside if statement is false jump
-        (*frame)->ip += offset;
+        state->vmstate.topframe->ip += offset;
     }
     return true;
 }
 
-bool fei_vmdo_loop(State* state, CallFrame** frame)
+bool fei_vmdo_loop(State* state)
 {
     uint16_t offset;
     (void)state;
-    offset = READ_SHORT(*frame);
+    offset = READ_SHORT(state->vmstate.topframe);
     // jumps back
-    (*frame)->ip -= offset;
+    state->vmstate.topframe->ip -= offset;
     return true;
 }
 
-bool fei_vmdo_loopiffalse(State* state, CallFrame** frame)
+bool fei_vmdo_loopiffalse(State* state)
 {
     uint16_t offset;
     // offset already put in the stack
-    offset = READ_SHORT(*frame);
+    offset = READ_SHORT(state->vmstate.topframe);
     // bool state is at the top of the stack
     // if false loop back
     if(fei_value_isfalsey(state, fei_vm_stackpeek_inline(state, 0)))
     {
-        (*frame)->ip -= offset;
+        state->vmstate.topframe->ip -= offset;
     }
     // pop the true/false
     fei_vm_stackpop_inline(state);
     return true;
 }
 
-bool fei_vmdo_loopiftrue(State* state, CallFrame** frame)
+bool fei_vmdo_loopiftrue(State* state)
 {
     uint16_t offset;
     (void)state;
     // offset already put in the stack
-    offset = READ_SHORT(*frame);
+    offset = READ_SHORT(state->vmstate.topframe);
     // bool state is at the top of the stack
     // if not false loop back
     if(!fei_value_isfalsey(state, fei_vm_stackpeek_inline(state, 0)))
     {
-        (*frame)->ip -= offset;
+        state->vmstate.topframe->ip -= offset;
     }
     // pop the true/false
     fei_vm_stackpop_inline(state);
     return true;
 }
 
-typedef bool(*VMPrimitive)(State*, CallFrame**);
+typedef bool(*VMPrimitive)(State*);
 
 #define exec_vmprim(fn) \
     { \
-        if(!(fn)(state, &state->topframe)) \
+        if(!(fn)(state)) \
         { \
             return STATUS_RTERROR; \
         } \
@@ -6051,7 +6049,7 @@ typedef bool(*VMPrimitive)(State*, CallFrame**);
 ResultCode fei_vm_exec(State* state)
 {
     uint8_t instruction;
-    state->topframe = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    state->vmstate.topframe = fei_vm_frameget(state, state->vmstate.framecount - 1);
     while(true)
     {
         // fei_dbgdisas_instr needs an byte offset, do pointer math to convert ip back to relative offset
@@ -6072,10 +6070,10 @@ ResultCode fei_vm_exec(State* state)
                 fei_value_printvalue(state, stderr, *slot, true);
                 fprintf(stderr, " ]");
             }
-            fei_dbgdisas_instr(state, &state->topframe->closure->function->chunk, (int)(state->topframe->ip - state->topframe->closure->function->chunk.code));
+            fei_dbgdisas_instr(state, &state->vmstate.topframe->closure->function->chunk, (int)(state->vmstate.topframe->ip - state->vmstate.topframe->closure->function->chunk.code));
         #endif
         // get result of the byte read, every set of instruction starts with an opcode
-        switch(instruction = READ_BYTE(state->topframe))
+        switch(instruction = READ_BYTE(state->vmstate.topframe))
         {
             case OP_CONSTANT:
                 {
@@ -6085,7 +6083,7 @@ ResultCode fei_vm_exec(State* state)
             // unary opcode
             case OP_NEGATE:
                 {
-                    if(!fei_vmdo_unary(state, &state->topframe, instruction))
+                    if(!fei_vmdo_unary(state, instruction))
                     {
                         return STATUS_RTERROR;
                     }
@@ -6115,7 +6113,7 @@ ResultCode fei_vm_exec(State* state)
             case OP_LESS:
             case OP_GREATER:
                 {
-                    if(!fei_vmdo_binary(state, &state->topframe, instruction))
+                    if(!fei_vmdo_binary(state, instruction))
                     {
                         return STATUS_RTERROR;
                     }
@@ -6240,13 +6238,13 @@ ResultCode fei_vm_exec(State* state)
             case OP_CLASS:
                 {
                     // load string for the class' name and push it onto the stack
-                    fei_vm_stackpush(state, OBJ_VAL(fei_object_makeclass(state, READ_STRING(state, state->topframe))));
+                    fei_vm_stackpush(state, OBJ_VAL(fei_object_makeclass(state, READ_STRING(state, state->vmstate.topframe))));
                 }
                 break;
             case OP_METHOD:
                 {
                     // get name of the method
-                    fei_vm_classdefmethodfromstack(state, READ_STRING(state, state->topframe));
+                    fei_vm_classdefmethodfromstack(state, READ_STRING(state, state->vmstate.topframe));
                 }
                 break;
             case OP_INVOKE:
@@ -6271,7 +6269,7 @@ ResultCode fei_vm_exec(State* state)
                 break;
             case OP_RETURN:
                 {
-                    if(fei_vmdo_return(state, &state->topframe) == false)
+                    if(fei_vmdo_return(state) == false)
                     {
                         return STATUS_OK;                        
                     }
