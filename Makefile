@@ -1,13 +1,18 @@
 
 INCFLAGS = -I.
 
+withdyn ?= 1
+withtypes ?= 0
+
 CC = gcc -Wall -Wextra
 # ricing intensifies
 #CFLAGS = $(INCFLAGS) -Ofast -march=native -flto -ffast-math -funroll-loops
-CFLAGS = $(INCFLAGS) -Og -g3 -ggdb3
+CFLAGS = $(INCFLAGS) -O0 -g3 -ggdb3 -DUSE_DYNVALUE=$(withdyn) -DDEBUG_PRINTTYPES=$(withtypes)
 LDFLAGS = -flto -ldl -lm  -lreadline -lpthread
 #LDFLAGS = -lwinmm
 target = run
+
+
 
 src = \
 	$(wildcard *.c) \
