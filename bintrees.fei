@@ -21,11 +21,14 @@ class Tree
 
     check()
     {
-        if (this.left == null)
+        if(this.left == null)
         {
             return this.item;
         }
-        return this.item + this.left.check() - this.right.check();
+        var a = this.item;
+        var b = this.left.check();
+        var c = this.right.check();
+        return a + b - c;
     }
 }
 

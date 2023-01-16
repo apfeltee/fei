@@ -6,6 +6,7 @@ function add(one, two)
 var a = 25
 var b = 5
 var c = add(a, b);
+println("now: c=", c);
 var d = c * 2
 println("a = ", a, ", b = ", b, ", c = ", c, ", d = ", d)
 

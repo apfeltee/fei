@@ -1,7 +1,7 @@
 
 INCFLAGS = -I.
 
-withdyn ?= 1
+withdyn ?= 0
 withtypes ?= 0
 
 CC = gcc -Wall -Wextra
