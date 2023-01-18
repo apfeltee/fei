@@ -10,6 +10,7 @@
 #include <assert.h>
 #include "dnarray.h"
 
+/*
 #ifndef __TINYC__
     #if __has_include(<readline/readline.h>)
         #include <readline/readline.h>
@@ -17,6 +18,7 @@
         #define FEI_HAVE_READLINE
     #endif
 #endif
+*/
 
 // max frames is fixed
 //#define CFG_MAX_VMFRAMES 64
@@ -60,7 +62,9 @@ IMPORTANT = these macros give a 'tag' to each respective values
 #define BOOL_VAL(value) ((Value){ VAL_BOOL, { .valbool = value } })
 #define NULL_VAL ((Value){ VAL_NULL, { .valnumber = 0 } })
 #define NUMBER_VAL(value) ((Value){ VAL_NUMBER, { .valnumber = (double)(value) } })
-#define OBJ_VAL(object) ((Value){ VAL_OBJ, { .valobjptr = (Object*)object } })// pass in as a pointer to the object, receives the actual object
+#define OBJ_VAL(object) ((Value){ VAL_OBJ, { .valobjptr = (Object*)object } })
+
+// pass in as a pointer to the object, receives the actual object
 
 // type comparisons
 #define fei_value_isbool(value) ((value).type == VAL_BOOL)
@@ -276,6 +280,7 @@ typedef enum
 // type tags for the tagged union
 enum ValType
 {
+    VAL_UNDEF,
     VAL_BOOL,
     VAL_NULL,
     VAL_NUMBER,
@@ -359,6 +364,19 @@ struct Value
     } as;
 };
 
+
+struct Object
+{
+    // for mark-sweep garbage collection
+    bool ismarked;
+
+    ObjType type;
+
+    // linked list or intrusive list, to avoid memory leaks, obj itself as a node
+    // traverse the list to find every object that has been allocated on the heap
+    Object* next;
+};
+
 struct Token
 {
     int length;
@@ -423,11 +441,17 @@ struct Compiler
     // pointer to the 'outer'/enclosing compiler, to return to after function
     Compiler* enclosing;
 
-    // array to store locals, ordered in the order of declarations
+
+    /*
+    * array to store locals, ordered in the order of declarations
+    * TODO: should be dynamic
+    */
     int progloccount;
     Local proglocals[CFG_MAX_COMPILERLOCALS];
-    //Local* proglocals;
 
+    /*
+    * TODO: should be dynamic
+    */
     Upvalue upvalues[CFG_MAX_COMPILERUPVALS];
 
     // number of scopes/blocks surrounding the code
@@ -440,7 +464,10 @@ struct Compiler
     // only for continue jumpbs
     int continuejumpcapacity;
 
-    // for patching all break statements
+    /*
+    * for patching all break statements
+    * TODO: should be dynamic
+    */
     int breakpatchjumps[CFG_MAX_COMPILERBREAK][CFG_MAX_COMPILERBREAK];
     int breakjumpcounts[CFG_MAX_COMPILERBREAK];
 };
@@ -452,7 +479,6 @@ struct ClassCompiler
     Token name;
     ClassCompiler* enclosing;
 };
-
 
 struct ValArray
 {
@@ -487,17 +513,6 @@ struct Table
     TabEntry* entries;
 };
 
-struct Object
-{
-    // for mark-sweep garbage collection
-    bool ismarked;
-
-    ObjType type;
-
-    // linked list or intrusive list, to avoid memory leaks, obj itself as a node
-    // traverse the list to find every object that has been allocated on the heap
-    Object* next;
-};
 
 // for functions and calls
 struct ObjFunction
@@ -553,6 +568,7 @@ struct ObjString
     int length;
     char* chars;
     uint32_t hash;
+    int capacity;
 };
 
 struct ObjClass
@@ -586,6 +602,7 @@ struct CallFrame
 {
     int level;
     int stackpos;
+    Value* stackptr;
 
     ObjClosure* closure;
 
@@ -633,27 +650,29 @@ struct ASTState
 #if !defined(DEBUG_PRINTTYPES)
     #define DEBUG_PRINTTYPES 0
 #endif
-#if !defined(USE_DYNVALUE)
-    #define USE_DYNVALUE 0
-#endif
-
 
 struct VMState
 {
-
     int stackindex;
 
-    // pointer to the element just PAST the element containing the top value of the stack
-    // == stackvalues[size(stackvalues) - 2] 
-    #if defined(USE_DYNVALUE) && (USE_DYNVALUE == 1)
-        Value* stackvalues;
-        int64_t stacktop;
-    #else
-        // stack array is 'indirectly' declared inline here
-        Value stackvalues[CFG_MAX_VMSTACK];
-
-        Value* stacktop;
-    #endif
+    /*
+    * pointer to the element just PAST the element containing the top value of the stack
+    * == stackvalues[size(stackvalues) - 2] 
+    * stack array is 'indirectly' declared inline here
+    * ----
+    * NB. i've tried to make stackvalues dynamic, but ancient, arcane pointer arithmetic
+    * makes this either
+    *    a) very broken
+    *    b) very inefficient
+    *    c) very memory intensive
+    * pick your poison. for now, just leave as-is.
+    * if, however, you feel like changing it:
+    * stacktop gets assigned from 'slots' of the current CallFrame.
+    * no idea what exactly that does, tbh.
+    * have fun.
+    */
+    Value stackvalues[CFG_MAX_VMSTACK];
+    Value* stacktop;
 
     // for storing global variables
     Table globals;
@@ -673,17 +692,24 @@ struct VMState
     int framecount;
 
     // since the whole program is one big 'main()' use callstacks
-    //CallFrame frameobjects[CFG_MAX_VMFRAMES];
     CallFrame** frameobjects;
-
-
 };
 
 struct State
 {
-    Writer* outwriter;
+    /* a Writer instance that writes to standard output */
+    Writer* iowriter_stdout;
+
+    /* a Writer instance that writes to standard error */
+    Writer* iowriter_stderr;
+
+    /* the virtualmachine state */
     VMState vmstate;
+
+    /* the parser state */
     ASTState aststate;
+
+    /* the memory (garbage collector, et al) state */
     GCState gcstate;
 };
 
@@ -702,21 +728,30 @@ void fei_gcmem_freeobjects(State *state);
 void fei_valarray_init(State *state, ValArray *array);
 void fei_valarray_push(State *state, ValArray *array, Value value);
 void fei_valarray_destroy(State *state, ValArray *array);
-void fei_value_printvalue(State *state, FILE* fh, Value value, bool withquot);
-void fei_value_printfunc(State *state, FILE* fh, ObjFunction *function);
-void fei_value_printobject(State *state, FILE* fh, Value value, bool withquot);
+void fei_value_printvalue(State *state, Writer* fh, Value value, bool withquot);
+void fei_value_printfunc(State *state, Writer* fh, ObjFunction *function);
+void fei_value_printobject(State *state, Writer* fh, Value value, bool withquot);
 bool fei_value_compare(State *state, Value a, Value b);
 Object *fei_object_allocobject(State *state, size_t size, ObjType type);
 ObjBoundMethod *fei_object_makeboundmethod(State *state, Value receiver, ObjClosure *method);
 ObjClosure *fei_object_makeclosure(State *state, ObjFunction *function);
-ObjString *fei_object_allocstring(State *state, char *chars, int length, uint32_t hash);
+
+
+ObjString* fei_string_make(State* state, int length);
+bool fei_string_append(State* state, ObjString* dest, const char* strdata, int length);
+bool fei_string_appendobj(State* state, ObjString* dest, const ObjString* str2);
+bool fei_string_destroy(State* state, ObjString* str);
+ObjString *fei_object_allocstring(State *state, const char *chars, int length, uint32_t hash);
+uint32_t fei_string_gethash(State *state, const char *key, int length);
+ObjString *fei_string_take(State *state, char *chars, int length);
+ObjString *fei_string_copy(State *state, const char *chars, int length);
+
+
 ObjClass *fei_object_makeclass(State *state, ObjString *name);
 ObjInstance *fei_object_makeinstance(State *state, ObjClass *klassobj);
 ObjFunction *fei_object_makefunction(State *state);
 ObjNative *fei_object_makenativefunc(State *state, NativeFn function);
-uint32_t fei_object_hashstring(State *state, const char *key, int length);
-ObjString *fei_object_takestring(State *state, char *chars, int length);
-ObjString *fei_object_copystring(State *state, const char *chars, int length);
+
 ObjUpvalue *fei_object_makeupvalue(State *state, Value *slot);
 
 void fei_table_initcapacity(State* state, Table* table, int cap);
@@ -967,6 +1002,9 @@ bool fei_value_isclosure(Value v)
     return fei_object_istype(v, OBJ_CLOSURE);
 }
 
+/*
+* eventually this interface *should* also support creating a string.
+*/
 Writer* fei_writer_init(State* state)
 {
     Writer* wr;
@@ -996,6 +1034,29 @@ void fei_writer_appendstringlen(Writer* wr, const char* str, size_t len)
     {
         fwrite(str, len, sizeof(char), wr->filehandle);
     }
+}
+
+void fei_writer_appendchar(Writer* wr, int c)
+{
+    char actualch;
+    actualch = c;
+    fei_writer_appendstringlen(wr, &actualch, 1);
+}
+
+void fei_writer_appendfmtva(Writer* wr, const char* fmt, va_list va)
+{
+    if(wr->filehandle != NULL)
+    {
+        vfprintf(wr->filehandle, fmt, va);
+    }
+}
+
+void fei_writer_appendfmt(Writer* wr, const char* fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    fei_writer_appendfmtva(wr, fmt, va);
+    va_end(va);
 }
 
 void fei_valarray_init(State* state, ValArray* array)
@@ -1124,21 +1185,140 @@ ObjClosure* fei_object_makeclosure(State* state, ObjFunction* function)
     return closure;
 }
 
-ObjString* fei_object_allocstring(State* state, char* chars, int length, uint32_t hash)// pass in hash
+
+// hash function, the FNV-1a
+uint32_t fei_string_gethash(State* state, const char* key, int length)
 {
-    ObjString* string;
-    string = (ObjString*)fei_object_allocobject(state, sizeof(ObjString), OBJ_STRING);
-    string->length = length;
-    string->chars = chars;
-    string->hash = hash;
+    int i;
+    uint32_t hash;
+    (void)state;
+    hash = 2116136261u;
+    for(i = 0; i < length; i++)
+    {
+        // munge the bits from the string key to the hash value; ^= is a bitwise operator
+        hash ^= key[i];
+        hash *= 16777619;
+    }
+    return hash;
+}
+
+/* dynamic string impl via https://github.com/jasonmaclafferty/String */
+ObjString* fei_string_make(State* state, int length)
+{
+    int cap;
+    char* strbuf;
+    ObjString* str;
+    cap = length;
+    if(cap < 200)
+    {
+        cap = 200;
+    }
+    str = (ObjString*)fei_object_allocobject(state, sizeof(ObjString), OBJ_STRING);
+    strbuf = (char*)calloc(cap + 1, sizeof(char));
+    str->chars = strbuf;
+    str->capacity = cap;
+    str->length = 0;
+    return str;
+}
+
+bool fei_string_destroy(State* state, ObjString* str)
+{
+    if(str != NULL)
+    {
+        free(str->chars);
+        fei_gcmem_reallocate(state, str, sizeof(ObjString), 0);
+        return true;
+    }
+    return false;
+}
+
+bool fei_string_appendobj(State* state, ObjString* dest, const ObjString* str2)
+{
+    return fei_string_append(state, dest, str2->chars, str2->length);
+}
+
+bool fei_string_append(State* state, ObjString* dest, const char* strdata, int length)
+{
+    enum {
+        string_chunk_size = 52,
+    };
+    int str1_pos;
+    int str2_pos;
+    char* temp;
+    (void)state;
+    temp = NULL;
+    if((dest != NULL) && ((strdata != NULL) && (length > 0)))
+    {
+        if(length > 0)
+        {
+            /* + 2 for the '\0' characters */
+            if(dest->capacity < dest->length + length + 2)
+            {
+                temp = realloc(dest->chars, dest->length + length + string_chunk_size);
+                if(temp != NULL)
+                {
+                    dest->chars = temp;
+                    dest->capacity = dest->length + length + string_chunk_size;
+                }
+            }
+            if(dest->capacity >= dest->length + length + 2)
+            {
+                for(str1_pos = dest->length, str2_pos = 0; str2_pos < length; str1_pos++, str2_pos++)
+                {
+                    dest->chars[str1_pos] = strdata[str2_pos];
+                    dest->length++;
+                }
+                dest->chars[str1_pos] = strdata[str2_pos]; /* copy null char */
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+ObjString* fei_object_allocstring(State* state, const char* chars, int length, uint32_t hash)// pass in hash
+{
+    ObjString* objstr;
+    objstr = fei_string_make(state, length);
+    fei_string_append(state, objstr, chars, length);
+    objstr->hash = hash;
     // garbage collection
-    fei_vm_stackpush(state, OBJ_VAL(string));
+    fei_vm_stackpush(state, OBJ_VAL(objstr));
     //printf("allocate\n");
     // for string interning
-    fei_table_set(state, &state->vmstate.strings, string, NULL_VAL);
+    fei_table_set(state, &state->vmstate.strings, objstr, NULL_VAL);
     // garbage collection
     fei_vm_stackpop(state);
-    return string;
+    return objstr;
+}
+
+// shorten than fei_string_copy because owernship of the char* itself is declared in concatenate(), hence no need to declare memory again
+ObjString* fei_string_take(State* state, char* chars, int length)
+{
+    uint32_t hash;
+    ObjString* interned;
+    hash = fei_string_gethash(state, chars, length);
+    interned = fei_table_findstring(state, &state->vmstate.strings, chars, length, hash);
+    if(interned != NULL)
+    {
+        FREE_ARRAY(state, sizeof(char), chars, length + 1);
+        return interned;
+    }
+    return fei_object_allocstring(state, chars, length, hash);
+}
+
+// copy string from source code to memory
+ObjString* fei_string_copy(State* state, const char* chars, int length)
+{
+    uint32_t hash;
+    ObjString* interned;
+    hash = fei_string_gethash(state, chars, length);
+    interned = fei_table_findstring(state, &state->vmstate.strings, chars, length, hash);
+    if(interned != NULL)
+    {
+        return interned;
+    }
+    return fei_object_allocstring(state, chars, length, hash);
 }
 
 ObjClass* fei_object_makeclass(State* state, ObjString* name)
@@ -1181,54 +1361,6 @@ ObjNative* fei_object_makenativefunc(State* state, NativeFn function)
     return native;
 }
 
-// hash function, the FNV-1a
-uint32_t fei_object_hashstring(State* state, const char* key, int length)
-{
-    int i;
-    uint32_t hash;
-    (void)state;
-    hash = 2116136261u;
-    for(i = 0; i < length; i++)
-    {
-        // munge the bits from the string key to the hash value; ^= is a bitwise operator
-        hash ^= key[i];
-        hash *= 16777619;
-    }
-    return hash;
-}
-
-// shorten than fei_object_copystring because owernship of the char* itself is declared in concatenate(), hence no need to declare memory again
-ObjString* fei_object_takestring(State* state, char* chars, int length)
-{
-    uint32_t hash;
-    ObjString* interned;
-    hash = fei_object_hashstring(state, chars, length);
-    interned = fei_table_findstring(state, &state->vmstate.strings, chars, length, hash);
-    if(interned != NULL)
-    {
-        FREE_ARRAY(state, sizeof(char), chars, length + 1);
-        return interned;
-    }
-    return fei_object_allocstring(state, chars, length, hash);
-}
-
-// copy string from source code to memory
-ObjString* fei_object_copystring(State* state, const char* chars, int length)
-{
-    uint32_t hash;
-    char* heapchars;
-    ObjString* interned;
-    hash = fei_object_hashstring(state, chars, length);
-    interned = fei_table_findstring(state, &state->vmstate.strings, chars, length, hash);
-    if(interned != NULL)
-    {
-        return interned;
-    }
-    heapchars = (char*)ALLOCATE(state, sizeof(char), length + 1);
-    memcpy(heapchars, chars, length);
-    heapchars[length] = '\0';
-    return fei_object_allocstring(state, heapchars, length, hash);
-}
 
 
 ObjUpvalue* fei_object_makeupvalue(State* state, Value* slot)
@@ -1241,77 +1373,125 @@ ObjUpvalue* fei_object_makeupvalue(State* state, Value* slot)
     return upvalue;
 }
 
-void fei_value_printfunc(State* state, FILE* fh, ObjFunction* function)
+void fei_value_printfunc(State* state, Writer* wr, ObjFunction* function)
 {
     (void)state;
     if(function->name == NULL)
     {
-        fprintf(fh, "<script>");
-        return;
+        fei_writer_appendfmt(wr, "<script>");
     }
-    fprintf(fh, "fun %s(%d params)", function->name->chars, function->arity);// print name and number of parameters
+    else
+    {
+        fei_writer_appendfmt(wr, "<function '%s'(%d params)>", function->name->chars, function->arity);
+    }
+}
+
+void fei_value_printstring(State* state, Writer* wr, ObjString* ostr, bool withquot)
+{
+    size_t i;
+    size_t len;
+    char* str;
+    (void)state;
+    len = ostr->length;
+    str = ostr->chars;
+    if(withquot)
+    {
+        fei_writer_appendchar(wr, '"');
+        for(i=0; i<len; i++)
+        {
+            fei_writer_appendchar(wr, str[i]);
+        }
+        fei_writer_appendchar(wr, '"');
+    }
+    else
+    {
+        fei_writer_appendstringlen(wr, str, len);
+    }
 }
 
 // actual printing on the virtual machine is done here
-void fei_value_printvalue(State* state, FILE* fh, Value value, bool withquot)
+void fei_value_printvalue(State* state, Writer* wr, Value value, bool withquot)
 {
     switch(value.type)
     {
+        case VAL_UNDEF:
+            {
+                fei_writer_appendfmt(wr, "<uninitialized>");
+            }
+            break;
         case VAL_BOOL:
             {
-                fprintf(fh, fei_value_asbool(value) ? "true" : "false");
+                fei_writer_appendfmt(wr, fei_value_asbool(value) ? "true" : "false");
             }
             break;
         case VAL_NULL:
             {
-                fprintf(fh, "null");
+                fei_writer_appendfmt(wr, "null");
             }
             break;
         case VAL_NUMBER:
             {
-                fprintf(fh, "%g", fei_value_asnumber(value));
+                fei_writer_appendfmt(wr, "%g", fei_value_asnumber(value));
             }
             break;
         case VAL_OBJ:
             {
-                fei_value_printobject(state, fh, value, withquot);
+                fei_value_printobject(state, wr, value, withquot);
             }
             break;
     }
 }
 
-void fei_value_printobject(State* state, FILE* fh, Value value, bool withquot)
+void fei_value_printobject(State* state, Writer* wr, Value value, bool withquot)
 {
     (void)state;
     // first class objects can be printed; string and functions
     switch(OBJ_TYPE(value))
     {
         case OBJ_BOUND_METHOD:
-            fei_value_printfunc(state, fh, fei_value_asbound_method(value)->method->function);
+            {
+                fei_value_printfunc(state, wr, fei_value_asbound_method(value)->method->function);
+            }
             break;
         case OBJ_CLASS:
-            fprintf(fh, "%s", fei_value_asclass(value)->name->chars);
+            {
+                fei_writer_appendfmt(wr, "<class '%s'>", fei_value_asclass(value)->name->chars);
+            }
             break;
         case OBJ_INSTANCE:
-            fprintf(fh, "%s instance", fei_value_asinstance(value)->classobject->name->chars);
+            {
+                fei_writer_appendfmt(wr, "<instance '%s'>", fei_value_asinstance(value)->classobject->name->chars);
+            }
             break;
         case OBJ_CLOSURE:
-            fei_value_printfunc(state, fh, fei_value_asclosure(value)->function);
+            {
+                fei_value_printfunc(state, wr, fei_value_asclosure(value)->function);
+            }
             break;
         case OBJ_FUNCTION:
-            fei_value_printfunc(state, fh, fei_value_asfunction(value));
+            {
+                fei_value_printfunc(state, wr, fei_value_asfunction(value));
+            }
             break;
         case OBJ_NATIVE:
-            fprintf(fh, "<native fun>");
+            {
+                fei_writer_appendfmt(wr, "<function (native)>");
+            }
             break;
         case OBJ_STRING:
-            fprintf(fh, "%s", fei_value_ascstring(value));
+            {
+                fei_value_printstring(state, wr, fei_value_asstring(value), withquot);
+            }
             break;
         case OBJ_UPVALUE:
-            fprintf(fh, "upvalue");
+            {
+                fei_writer_appendfmt(wr, "<upvalue>");
+            }
             break;
         default:
-            return;
+            {
+            }
+            break;
     }
 }
 
@@ -1378,7 +1558,8 @@ TabEntry* fei_table_findentry(State* state, int count, TabEntry* entries, int ca
                 }
             }
         }
-        if(entry->key == key)// compare them in MEMORY
+        // compare them in MEMORY
+        if(entry->key == key)
         {
             return entry;
         }
@@ -1426,7 +1607,7 @@ void fei_table_adjustcapacity(State* state, Table* table, int capacity)
     if((table->count > 0) && (table->entries != NULL))
     {
         table->count = 0;
-        // travers through old array
+        // traverse through old array
         for(i = 0; i < table->capacity; i++)
         {
             entry = &table->entries[i];
@@ -1485,7 +1666,8 @@ bool fei_table_delete(State* state, Table* table, ObjString* key)
     }
     // place tombstone
     entry->key = NULL;
-    entry->value = BOOL_VAL(true);//BOOL_VAL(true) as the tombstone
+    //BOOL_VAL(true) as the tombstone
+    entry->value = BOOL_VAL(true);
     return true;
 }
 
@@ -1504,7 +1686,8 @@ void fei_table_mergefrom(State* state, Table* from, Table* to)
 }
 
 // used in VM to find the string
-ObjString* fei_table_findstring(State* state, Table* table, const char* chars, int length, uint32_t hash)// pass in raw character array
+// pass in raw character array
+ObjString* fei_table_findstring(State* state, Table* table, const char* chars, int length, uint32_t hash)
 {
     uint32_t index;
     TabEntry* entry;
@@ -1544,7 +1727,8 @@ void fei_table_removeunreachable(State* state, Table* table)
     for(i = 0; i < table->capacity; i++)
     {
         entry = &table->entries[i];
-        if(entry->key != NULL && !entry->key->obj.ismarked)// remove not marked (string) object pointers
+        // remove not marked (string) object pointers
+        if(entry->key != NULL && !entry->key->obj.ismarked)
         {
             fei_table_delete(state, table, entry->key);
         }
@@ -1644,7 +1828,7 @@ int fei_dbgutil_printconstir(State* state, const char* name, Chunk* chunk, int o
     // print out name of the opcode, then the constant index
     fprintf(stderr, "%-16s %4d '", name, constant);
     //	display the value of the constant,  user defined function
-    fei_value_printvalue(state, stderr, fei_valarray_get(state, &chunk->constants, constant), true);
+    fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(state, &chunk->constants, constant), true);
     fprintf(stderr, "'\n");
     //OP_RETURN is a single byte, and the other byte is the operand, hence offsets by 2
     return offset + 2;
@@ -1660,7 +1844,7 @@ int fei_dbgutil_printinvokeir(State* state, const char* name, Chunk* chunk, int 
     argcount = chunk->code[offset + 2];
     fprintf(stderr, "%-16s (%d args) %4d", name, argcount, constant);
     // print the method
-    fei_value_printvalue(state, stderr, fei_valarray_get(state, &chunk->constants, constant), true);
+    fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(state, &chunk->constants, constant), true);
     fprintf(stderr, "\n");
     return offset + 3;
 }
@@ -1699,8 +1883,9 @@ int fei_dbgdisas_instr(State* state, Chunk* chunk, int offset)
     // print byte offset of the given instruction, or the index
     fprintf(stderr, "%04d ", offset);
     // show source line each instruction was compiled from
-    if(offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1])// show a | for any instruction that comes from the
+    // show a | for any instruction that comes from the
     //same source as its preceding one
+    if(offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1])
     {
         fprintf(stderr, "    | ");
     }
@@ -1806,7 +1991,7 @@ int fei_dbgdisas_instr(State* state, Chunk* chunk, int offset)
                 offset++;
                 constant = chunk->code[offset++];// index for Value
                 fprintf(stderr, "%-16s %4d ", "OP_CLOSURE", constant);
-                fei_value_printvalue(state, stderr, fei_valarray_get(state, &chunk->constants, constant), true);// accessing the value using the index
+                fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(state, &chunk->constants, constant), true);// accessing the value using the index
                 fprintf(stderr, "\n");
                 function = fei_value_asfunction(fei_valarray_get(state, &chunk->constants, constant));
                 for(j = 0; j < function->upvaluecount; j++)// walk through upvalues
@@ -1835,7 +2020,7 @@ int fei_dbgdisas_instr(State* state, Chunk* chunk, int offset)
             break;
         case OP_RETURN:
             {
-                return fei_dbgutil_printsimpleir(state, "OP_RETURN", offset);// dispatch to a utility function to display it
+                return fei_dbgutil_printsimpleir(state, "OP_RETURN", offset);
             }
             break;
         case OP_LOOP:
@@ -1860,6 +2045,7 @@ int fei_dbgdisas_instr(State* state, Chunk* chunk, int offset)
             }
             break;
     }
+    return -1;
 }
 
 
@@ -1877,8 +2063,8 @@ bool fei_lexutil_isalpha(State* state, char c)
 {
     (void)state;
     return (
-        (c >= 'a' && c <= 'z') ||
-        (c >= 'A' && c <= 'Z') ||
+        ((c >= 'a') && (c <= 'z')) ||
+        ((c >= 'A') && (c <= 'Z')) ||
         (c == '_')
     );
 }
@@ -2600,6 +2786,7 @@ void fei_compiler_raiseat(State* state, Token* token, const char* message)
         return;
     }
     state->aststate.parser.panicmode = true;
+    fprintf(stderr, "!!!SYNTAX ERROR!!!\n");
     fprintf(stderr, "Error at [Line %d]", token->line);
     if(token->type == TOKEN_EOF)
     {
@@ -2824,7 +3011,6 @@ void fei_compiler_patchjump(State* state, int offset)
 void fei_compiler_init(State* state, Compiler* compiler, FuncType type)
 {
     size_t i;
-    Local stacklocal;
     Local* local;
     Compiler* astcc;
     // the 'outer' compiler
@@ -2839,18 +3025,14 @@ void fei_compiler_init(State* state, Compiler* compiler, FuncType type)
     if(type != TYPE_SCRIPT)
     {
         // function name handled here
-        astcc->programfunc->name = fei_object_copystring(state, state->aststate.parser.prevtoken.toksrc, state->aststate.parser.prevtoken.length);
+        astcc->programfunc->name = fei_string_copy(state, state->aststate.parser.prevtoken.toksrc, state->aststate.parser.prevtoken.length);
     }
-    //astcc->proglocals = da_make(state, astcc->proglocals, 0, sizeof(Local));
     for(i=0; i<CFG_MAX_COMPILERLOCALS; i++)
     {
         memset(&astcc->proglocals[i], 0, sizeof(Local));
-    }
-    
+    }    
     // compiler implicitly claims slot zero for local variables
     local = &astcc->proglocals[astcc->progloccount++];
-    //local = &stacklocal;
-    //da_push(state, astcc->proglocals, &stacklocal);
     local->iscaptured = false;
     // for this tags
     // for none function types, for class methods
@@ -2967,7 +3149,7 @@ void fei_compiler_patchbreakjumps(State* state)
 uint8_t fei_compiler_makeidentconst(State* state, Token* name)
 {
     // add to constant table
-    return fei_compiler_makeconst(state, OBJ_VAL(fei_object_copystring(state, name->toksrc, name->length)));
+    return fei_compiler_makeconst(state, OBJ_VAL(fei_string_copy(state, name->toksrc, name->length)));
 }
 
 bool fei_compiler_identsequal(State* state, Token* a, Token* b)
@@ -2985,22 +3167,10 @@ int fei_compiler_resolvelocal(State* state, Compiler* compiler, Token* name)
 {
     int i;
     Local* local;
-    Local stacklocal;
     // walk through the local variables
     for(i = compiler->progloccount - 1; i >= 0; i--)
     {
-        /*
-        if(i >= da_count(compiler->proglocals))
-        {
-            local = &stacklocal;
-            memset(local, 0, sizeof(Local));
-            da_push(state, compiler->proglocals, &stacklocal);
-        }
-        else
-        */
-        {
-            local = &compiler->proglocals[i];
-        }
+        local = &compiler->proglocals[i];
         if(fei_compiler_identsequal(state, name, &local->name))
         {
             if(local->depth == -1)
@@ -3297,7 +3467,6 @@ static void fei_comprule_binary(State* state, bool canassign)
     }
 }
 
-
 // for function calls
 static void fei_comprule_call(State* state, bool canassign)
 {
@@ -3421,7 +3590,7 @@ static void fei_comprule_string(State* state, bool canassign)
 {
     (void)canassign;
     // in a string, eg. "hitagi", the quotation marks are trimmed
-    fei_compiler_emitconst(state, OBJ_VAL(fei_object_copystring(state,
+    fei_compiler_emitconst(state, OBJ_VAL(fei_string_copy(state,
         state->aststate.parser.prevtoken.toksrc + 1,
         state->aststate.parser.prevtoken.length - 2)
     ));
@@ -4001,8 +4170,8 @@ void fei_compiler_parseswitchstmt(State* state)
     int* casesoffset;
     int oldcapacity;
     int casefalsejump;
-    // fei_compiler_consume(state, TOKEN_LEFTPAREN, "Expect '(' after 'switch'.");
-    if(!fei_compiler_check(state, TOKEN_IDENTIFIER))// check next token
+    // check next token
+    if(!fei_compiler_check(state, TOKEN_IDENTIFIER))
     {
         fei_compiler_raisehere(state, "Expect identifier after switch.");
     }
@@ -4027,15 +4196,16 @@ void fei_compiler_parseswitchstmt(State* state)
         }
         casescount++;
         fei_compiler_parseexpr(state);
-        fei_compiler_consume(state, TOKEN_COLON, "Expect ':' after case expression.");
-        fei_compiler_emitbyte(state, OP_SWITCH_EQUAL);// check if both values are equal
-        casefalsejump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE);// jump if false
-        //printf("\ncase false jump offset: %d", casefalsejump);
+        fei_compiler_consume(state, TOKEN_COLON, "expect ':' after 'case' expression");
+        // check if both values are equal
+        fei_compiler_emitbyte(state, OP_SWITCH_EQUAL);
+        // jump if false
+        casefalsejump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE);
         // parse the statment
         fei_compiler_parsestatement(state);
-        fei_compiler_emitbyte(state, OP_POP);// pop the 'true' from OP_SWITCH_EQUAL
+        // pop the 'true' from OP_SWITCH_EQUAL
+        fei_compiler_emitbyte(state, OP_POP);
         casesoffset[casescount] = fei_compiler_emitjump(state, OP_JUMP);
-        //printf("\ncase true jump offset: %d", casesoffset[casescount]);
         // jump to end of case if false
         fei_compiler_patchjump(state, casefalsejump);
         // pop the 'false' statment from OP_SWITCH_EQUAL
@@ -4043,11 +4213,10 @@ void fei_compiler_parseswitchstmt(State* state)
     } while(fei_compiler_match(state, TOKEN_KWCASE));
     if(fei_compiler_match(state, TOKEN_KWDEFAULT))
     {
-        fei_compiler_consume(state, TOKEN_COLON, "Expect ':' default case.");
+        fei_compiler_consume(state, TOKEN_COLON, "expect ':' after 'default'");
         // running the default statement
         fei_compiler_parsestatement(state);
     }
-    //fei_compiler_consume(state, TOKEN_KWDEFAULT, "Default case not provided for switch.");
     // fei_compiler_patchjump for each available jump
     for(i = 0; i <= casescount; i++)
     {
@@ -4055,9 +4224,8 @@ void fei_compiler_parseswitchstmt(State* state)
     }
     fei_compiler_emitbyte(state, OP_POP);// pop switch constant
     FREE_ARRAY(state, sizeof(int), casesoffset, capacity);
-    fei_compiler_consume(state, TOKEN_RIGHTBRACE, "Expect '}' at the end of switch statement");
+    fei_compiler_consume(state, TOKEN_RIGHTBRACE, "expect '}' at the end of switch statement");
 }
-
 
 void fei_compiler_parseprintstmt(State* state)
 {
@@ -4277,7 +4445,7 @@ void fei_compiler_parsedowhilestmt(State* state)
     fei_compiler_markcontinuejump(state);
     // process the statement
     fei_compiler_parsestatement(state);
-    fei_compiler_consume(state, TOKEN_KWWHILE, "Expect 'until' after repeat statement.");
+    fei_compiler_consume(state, TOKEN_KWWHILE, "expect 'until' after 'repeat'");
     // get true or false
     fei_compiler_parseexpr(state);
     // emit loop if true op code
@@ -4285,7 +4453,7 @@ void fei_compiler_parsedowhilestmt(State* state)
     // patch possible break jumps
     fei_compiler_patchbreakjumps(state);
     fei_compiler_endloopscope(state);
-    fei_compiler_consume(state, TOKEN_SEMICOLON, "Expect ';' after until exppression.");
+    fei_compiler_consume(state, TOKEN_SEMICOLON, "expect ';' after 'until'");
 }
 
 void fei_compiler_synchronize(State* state)
@@ -4456,42 +4624,10 @@ static Value cfn_clock(State* state, int argcount, Value* args)
 static Value cfn_print(State* state, int argc, Value* args)
 {
     int i;
-    Object* o;
-    ObjString* os;
     (void)state;
     for(i = 0; i < argc; i++)
     {
-        switch(args[i].type)
-        {
-            case VAL_BOOL:
-                fprintf(stdout, "%s", args[i].as.valbool ? "true" : "false");
-                break;
-            case VAL_NULL:
-                fprintf(stdout, "null");
-                break;
-            case VAL_NUMBER:
-                fprintf(stdout, "%g", args[i].as.valnumber);
-                break;
-            case VAL_OBJ:
-            {
-                o = args[i].as.valobjptr;
-                if(fei_value_isstring(args[i]))
-                {
-                    os = fei_value_asstring(args[i]);
-                    fprintf(stdout, "%.*s", os->length, os->chars);
-                }
-                else
-                {
-                    fprintf(stdout, "<obj %d>", o->type);
-                }
-            }
-            break;
-            default:
-            {
-                fprintf(stdout, "<val %d>", args[i].type);
-            }
-            break;
-        }
+        fei_value_printvalue(state, state->iowriter_stdout, args[i], false);
         fflush(stdout);
     }
     return NUMBER_VAL(0);
@@ -4518,9 +4654,8 @@ static Value cfn_chr(State* state, int argc, Value* args)
         return NULL_VAL;
     }
     ch = fei_value_asnumber(args[0]);
-    return OBJ_VAL(fei_object_copystring(state, &ch, 1));
+    return OBJ_VAL(fei_string_copy(state, &ch, 1));
 }
-
 
 
 // A void pointer is a pointer that has no associated data type with it.
@@ -4626,8 +4761,7 @@ void fei_gcmem_freeobject(State* state, Object* object)// to handle different ty
         case OBJ_STRING:
             {
                 string = (ObjString*)object;
-                FREE_ARRAY(state, sizeof(char), string->chars, string->length + 1);
-                FREE(state, sizeof(ObjString), object);
+                fei_string_destroy(state, string);
             }
             break;
         case OBJ_UPVALUE:
@@ -4669,7 +4803,7 @@ void fei_gcmem_markobject(State* state, Object* object)
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         fprintf(stderr, "%p marked ", (void*)object);
         // you cant print first class objects, like how you would print in the actual repl
-        fei_value_printvalue(state, stderr, OBJ_VAL(object), true);
+        fei_value_printvalue(state, state->iowriter_stderr, OBJ_VAL(object), true);
         fprintf(stderr, "\n");
     #endif
 }
@@ -4732,7 +4866,7 @@ void fei_gcmem_blackenobject(State* state, Object* object)
     ObjClosure* closure;
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         fprintf(stderr, "%p blackened ", (void*)object);
-        fei_value_printvalue(state, stderr, OBJ_VAL(object), true);
+        fei_value_printvalue(state, state->iowriter_stderr, OBJ_VAL(object), true);
         fprintf(stderr, "\n");
     #endif
     switch(object->type)
@@ -4897,6 +5031,7 @@ void fei_vm_raiseruntimeerror(State* state, const char* format, ...)
     va_list args;
     CallFrame* frame;
     ObjFunction* function;
+    fprintf(stderr, "!!!RUNTIME ERROR!!!\n");
     va_start(args, format);
     vfprintf(stderr, format, args);
     va_end(args);
@@ -4931,11 +5066,11 @@ void fei_vm_raiseruntimeerror(State* state, const char* format, ...)
 
 void fei_vm_defnative(State* state, const char* name, NativeFn function)
 {
-    fei_vm_stackpush(state, OBJ_VAL(fei_object_copystring(state, name, (int)strlen(name))));
-    fei_vm_stackpush(state, OBJ_VAL(fei_object_makenativefunc(state, function)));
-    fei_table_set(state, &state->vmstate.globals, fei_value_asstring(state->vmstate.stackvalues[0]), state->vmstate.stackvalues[1]);
-    fei_vm_stackpop(state);
-    fei_vm_stackpop(state);
+    ObjString* objname;
+    ObjNative* objnat;
+    objname = fei_string_copy(state, name, (int)strlen(name));
+    objnat = fei_object_makenativefunc(state, function);
+    fei_table_set(state, &state->vmstate.globals, objname, OBJ_VAL(objnat));        
 }
 
 void fei_vm_resetstack(State* state)
@@ -4950,12 +5085,13 @@ void fei_vm_resetstack(State* state)
 State* fei_state_init()
 {
     State* state;
+    CallFrame** dfa;
+    dfa = NULL;
     state = (State*)malloc(sizeof(State));
     memset(state, 0, sizeof(State));
     state->aststate.compiler = NULL;
     state->aststate.classcompiler = NULL;
-    // initialiing the Value stack, also initializing the callframe count
-    fei_vm_resetstack(state);
+
     {
         state->gcstate.objects = NULL;
         // initializing gray marked obj stack for garbage collection
@@ -4970,10 +5106,12 @@ State* fei_state_init()
     fei_table_initcapacity(state, &state->vmstate.globals, 32);
     fei_table_initcapacity(state, &state->vmstate.strings, 32);
     {
+        // initialiing the Value stack, also initializing the callframe count
+        fei_vm_resetstack(state);
+        dfa = da_make(dfa, 0, sizeof(CallFrame));
+        state->vmstate.frameobjects = dfa;
         // init initalizer string
-        state->vmstate.initstring = NULL;
-        state->vmstate.initstring = fei_object_copystring(state, "init", 4);
-        state->vmstate.frameobjects = da_make(state->vmstate.frameobjects, 24, sizeof(CallFrame));
+        state->vmstate.initstring = fei_string_copy(state, "init", 4);
     }
     {
         fei_vm_defnative(state, "clock", cfn_clock);
@@ -4981,19 +5119,22 @@ State* fei_state_init()
         fei_vm_defnative(state, "print", cfn_print);
         fei_vm_defnative(state, "println", cfn_println);
     }
-    state->outwriter = fei_writer_initfile(state, stdout, false);
+    state->iowriter_stdout = fei_writer_initfile(state, stdout, false);
+    state->iowriter_stderr = fei_writer_initfile(state, stderr, false);
+    
     return state;
 }
 
 void fei_state_destroy(State* state)
 {
-    int i;
+    size_t i;
     state->vmstate.initstring = NULL;
     // free all objects, from state->gcstate.objects
     fei_gcmem_freeobjects(state);
     fei_table_destroy(state, &state->vmstate.globals);
     fei_table_destroy(state, &state->vmstate.strings);
-    fei_writer_destroy(state, state->outwriter);
+    fei_writer_destroy(state, state->iowriter_stdout);
+    fei_writer_destroy(state, state->iowriter_stderr);
     for(i=0; i<da_count(state->vmstate.frameobjects); i++)
     {
         free(state->vmstate.frameobjects[i]);
@@ -5069,41 +5210,6 @@ ResultCode fei_vm_evalsource(State* state, const char* source, size_t len)
 }
 
 
-CallFrame* fei_vm_frameget(State* state, int idx)
-{
-    long cnt;
-    long cap;
-    bool mustalloc;
-    CallFrame* fr;
-    CallFrame** frobs;
-    frobs = state->vmstate.frameobjects;
-    cnt = da_count(frobs);
-    cap = da_capacity(frobs);
-    //fprintf(stderr, "fei_vm_frameget: idx=%d cnt=%d cap=%d\n", idx, cnt);
-    mustalloc = (
-        (
-            (idx >= cnt) ||
-            (cnt == 0)
-        )
-        #if 0
-        &&
-        (
-            (cap > 0) &&
-            (idx < cap)
-        )
-        #endif
-    );
-    if(mustalloc)
-    {
-        fr = (CallFrame*)malloc(sizeof(CallFrame));
-        memset(fr, 0, sizeof(CallFrame));
-        da_push(state->vmstate.frameobjects, sizeof(CallFrame), fr);
-    }
-    fr = state->vmstate.frameobjects[idx];
-    fr->level = idx;
-    fr->stackpos = state->vmstate.stackindex;
-    return fr;
-}
 
 
     /* info on the macros below
@@ -5141,141 +5247,125 @@ static inline uint16_t READ_SHORT(CallFrame* frame)
     return (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]);
 }
 
-#define ALSO_PRINTTOP 0
+CallFrame* fei_vm_frameget(State* state, int idx)
+{
+    long cnt;
+    long cap;
+    bool mustalloc;
+    CallFrame* fr;
+    CallFrame** frobs;
+    (void)cap;
+    frobs = state->vmstate.frameobjects;
+    cnt = da_count(frobs);
+    cap = da_capacity(frobs);
+    mustalloc = (
+        (
+            (idx >= cnt) ||
+            (cnt == 0)
+        )
+        #if 0
+        &&
+        (
+            (cap > 0) &&
+            (idx < cap)
+        )
+        #endif
+    );
+    fr = NULL;
+    /*
+    * do *NOT* initialize stuff anywhere inside these if-else clauses.
+    * their purpose is to either get an existing index, or allocate a new frame.
+    * NOTHING ELSE!
+    */
+    if(mustalloc)
+    {
+        fr = (CallFrame*)malloc(sizeof(CallFrame));
+        memset(fr, 0, sizeof(CallFrame));
+        da_push(state->vmstate.frameobjects, sizeof(CallFrame), fr);
+    }
+    else
+    {
+        fr = state->vmstate.frameobjects[idx];
+    }
+    fr->level = idx;
+    fr->stackpos = state->vmstate.stackindex;
+    fr->stackptr = state->vmstate.stackvalues;
+    return fr;
+}
+
+
+#if defined(USE_DYNVALUE) && (USE_DYNVALUE == 1)
+    #define ALSO_PRINTTOP 0
+#endif
 
 void dumpstack(State* state, const char* fmt, ...)
 {
     int i;
+    int len;
+    Value* itm;
+    Value* next;
     va_list va;
+    if(getenv("FEI_NODUMP") != NULL)
+    {
+        return;
+    }
     va_start(va, fmt);
     fprintf(stderr, "in ");
     vfprintf(stderr, fmt, va);
     va_end(va);
     fprintf(stderr, ": stackindex=%d:\n", state->vmstate.stackindex);
-    for(i=0; i!=da_count(state->vmstate.stackvalues); i++)
+    len = CFG_MAX_VMSTACK;
+    for(i=0; i!=len; i++)
     {
+        next = NULL;
+        itm = &state->vmstate.stackvalues[i];
+        next = &state->vmstate.stackvalues[i + 1];
+        if(itm->type == VAL_UNDEF && (next->type == VAL_UNDEF))
+        {
+            break;
+        }
         fprintf(stderr, "  stack(values/top)[%d] = ", i);
         #if defined(ALSO_PRINTTOP) && (ALSO_PRINTTOP == 1)
         fprintf(stderr, "{");
         #endif
-        fei_value_printvalue(state, stderr, state->vmstate.stackvalues[i], true);
+        fei_value_printvalue(state, state->iowriter_stderr, state->vmstate.stackvalues[i], true);
         #if defined(ALSO_PRINTTOP) && (ALSO_PRINTTOP == 1)
             fprintf(stderr, ", ");
-            fei_value_printvalue(state, stderr, state->vmstate.stacktop[i], true);
+            fei_value_printvalue(state, state->iowriter_stderr, state->vmstate.stacktop[i], true);
             fprintf(stderr, "}");
         #endif
         fprintf(stderr, "\n");
     }
 }
 
-/*
-    // pointer to the element just PAST the element containing the top value of the stack
-    // == stackvalues[size(stackvalues) - 2]
-    Value* stacktop;
-*/
+#define wrap_stackfunc(fn, ...) (fn)(__VA_ARGS__)
+
 
 /*
-void push(const Value& value)
-{
-    m_stackidx++;
-    m_stacktop++;
-    m_stack.reserve(m_stack.size() + 1);
-    m_stack[m_stacktop - 1] = value;
-}
+// pointer to the element just PAST the element containing the top value of the stack
+// == stackvalues[size(stackvalues) - 2]
+Value* stacktop;
 */
 static inline void fei_vm_stackpush_inline(State* state, Value value)
 {
     state->vmstate.stackindex++;
     // * in front of the pointer means the rvalue itself, assign value(parameter) to it
-    #if defined(USE_DYNVALUE) && (USE_DYNVALUE == 1)
-        int growsz;
-        int setidx;
-        growsz = state->vmstate.stackindex*2;
-        setidx = state->vmstate.stacktop - 1;
-        //setidx = da_count(state->vmstate.stackvalues) - 1;
-        if(setidx <= -1)
-        {
-            setidx = 0;
-        }
-        fprintf(stderr, "stackpush:growsz=%d, setidx=%d\n", growsz, setidx);
-        state->vmstate.stacktop++;
-        
-        //da_grow(state->vmstate.stackvalues, growsz, sizeof(Value));
-        da_need_to_grow_internal(state->vmstate.stackvalues, growsz);
-        da_push(state->vmstate.stackvalues, sizeof(Value), value);
-        state->vmstate.stackvalues[setidx] = value;
-    #else
-        *state->vmstate.stacktop = value;
-        state->vmstate.stacktop++;
-    #endif
+    *state->vmstate.stacktop = value;
+    state->vmstate.stacktop++;
 }
 
-/*
-Value pop()
-{
-    m_stackidx--;
-    if(m_stackidx < -1)
-    {
-        m_stackidx = 0;
-    }
-    Value top = m_stack[m_stackidx-0];
-    m_stacktop--;
-    m_stack.pop_back();
-    return top;
-}
-*/
 static inline Value fei_vm_stackpop_inline(State* state)
 {
     state->vmstate.stackindex--;
-    if(state->vmstate.stackindex < -1)
-    {
-        state->vmstate.stackindex = 0;
-    }
-    //dumpstack(state, "stackpop");
-    // first move the stack BACK to get the last element(stacktop points to ONE beyond the last element)
-    #if defined(USE_DYNVALUE) && (USE_DYNVALUE == 1)
-        Value retme;
-        retme = state->vmstate.stackvalues[state->vmstate.stackindex - 0];
-        state->vmstate.stacktop--;
-        da_pop(state->vmstate.stackvalues, sizeof(Value));
-        return retme;
-    #else
-        state->vmstate.stacktop--;
-        return *state->vmstate.stacktop;
-    #endif
+    // first move the stack BACK to get the last element(stacktop points to ONE beyond the last element)    
+    state->vmstate.stacktop--;
+    return *state->vmstate.stacktop;
 }
 
-/*
-Value& peek(int distance = 0)
-{
-    assert(distance >= 0);
-    dumpstack(Util::Join("peek(", distance, ", (m_stacktop-distance)=", (m_stacktop-distance), ")"));
-    //return *(m_stacktop - distance - 1);
-    //return m_stack[distance - 0];
-    return m_stack[m_stacktop - distance];
-}
-*/
 static inline Value fei_vm_stackpeek_inline(State* state, int distance)
 {
-    #if defined(USE_DYNVALUE) && (USE_DYNVALUE == 1)
-        int comp;
-        comp = state->vmstate.stacktop - distance - 2;
-        //comp = da_count(state->vmstate.stackvalues) - 3;
-        dumpstack(state, "stackpeek(distance=%d, comp=%d)", distance, comp);
-
-        //return state->vmstate.stackvalues[state->vmstate.stacktop - distance];
-        /*
-        if(distance==0)
-        {
-            distance+=1;
-        }
-        */
-        return state->vmstate.stackvalues[comp];
-    #else
-        return state->vmstate.stacktop[-1 - distance];
-    #endif
+    return state->vmstate.stacktop[-1 - distance];
 }
-
 
 void fei_vm_stackpush(State* state, Value value)
 {
@@ -5290,11 +5380,6 @@ Value fei_vm_stackpop(State* state)
 Value fei_vm_stackpeek(State* state, int distance)
 {
     return fei_vm_stackpeek_inline(state, distance);
-}
-
-Value fei_vm_stackget(State* state, int idx)
-{
-    return state->vmstate.stackvalues[idx];
 }
 
 
@@ -5320,7 +5405,7 @@ bool fei_vm_callclosure(State* state, ObjClosure* closure, int argcount)
     frame = fei_vm_frameget(state, state->vmstate.framecount++);
     frame->closure = closure;
     frame->ip = closure->function->chunk.code;
-    // set up slots pointer to give frame its window into the stack
+    // set up yn pointer to give frame its window into the stack
     // ensures everyting lines up
     // slots is the 'starting pointer' for the function cll
     frame->slots = state->vmstate.stacktop - argcount - 1;
@@ -5332,6 +5417,7 @@ bool fei_vm_callvalue(State* state, Value callee, int argcount)
     NativeFn natfn;
     Value result;
     Value initializer;
+    ObjInstance* instance;
     ObjClass* klass;
     ObjBoundMethod* bound;
     if(fei_value_isobj(callee))
@@ -5352,7 +5438,8 @@ bool fei_vm_callvalue(State* state, Value callee, int argcount)
                 {
                     klass = fei_value_asclass(callee);
                     // create new instance here
-                    state->vmstate.stacktop[-argcount - 1] = OBJ_VAL(fei_object_makeinstance(state, klass));
+                    instance = fei_object_makeinstance(state, klass);
+                    state->vmstate.stacktop[-argcount - 1] = OBJ_VAL(instance);
                     // if we find one from the table
                     if(fei_table_get(state, &klass->methods, state->vmstate.initstring, &initializer))
                     {
@@ -5379,7 +5466,7 @@ bool fei_vm_callvalue(State* state, Value callee, int argcount)
                     result = natfn(state, argcount, state->vmstate.stacktop - argcount);
                     // remove call and arguments from the stack
                     state->vmstate.stacktop -= argcount + 1;
-                    fei_vm_stackpush(state, result);
+                    wrap_stackfunc(fei_vm_stackpush, state, result);
                     return true;
                 }
                 break;
@@ -5401,7 +5488,7 @@ bool fei_vm_classinvokefromstack(State* state, ObjString* name, int argcount)
     Value receiver;
     ObjInstance* instance;
     // grab the receiver of the stack
-    receiver = fei_vm_stackpeek_inline(state, argcount);
+    receiver = wrap_stackfunc(fei_vm_stackpeek_inline, state, argcount);
     // call method with wrong type, not an objinstance type
     if(!fei_value_isinstance(receiver))
     {
@@ -5486,15 +5573,39 @@ void fei_vm_closeupvalues(State* state, Value* last)// takes pointer to stack sl
     }
 }
 
+bool fei_class_defmethod(State* state, ObjClass* klass, ObjString* name, Value method)
+{
+    return fei_table_set(state, &klass->methods, name, method);
+}
+
+bool fei_instance_setproperty(State* state, ObjInstance* instance, ObjString* name, Value val)
+{
+    return fei_table_set(state, &instance->fields, name, val);
+}
+
+bool fei_instance_getproperty(State* state, ObjInstance* instance, ObjString* name, Value* dest)
+{
+    Value val;
+    if(fei_table_get(state, &instance->fields, name, &val))
+    {
+        *dest = val;
+        return true;
+    }
+    return false;
+}
+
 // defining method for class type
 void fei_vm_classdefmethodfromstack(State* state, ObjString* name)
 {
     Value method;
     ObjClass* klassobj;
-    method = fei_vm_stackpeek_inline(state, 0);// method/closure is at the top of the stack
-    klassobj = fei_value_asclass(fei_vm_stackpeek_inline(state, 1));// class is at the 2nd top
-    fei_table_set(state, &klassobj->methods, name, method);// add to hashtable
-    fei_vm_stackpop_inline(state);// pop the method
+    // method/closure is at the top of the stack
+    method = wrap_stackfunc(fei_vm_stackpeek_inline, state, 0);
+    // class is at the 2nd top
+    klassobj = fei_value_asclass(wrap_stackfunc(fei_vm_stackpeek_inline, state, 1));
+    fei_class_defmethod(state, klassobj, name, method);
+    // pop the method
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
 }
 
 // string concatenation
@@ -5506,29 +5617,20 @@ void fei_vmdo_strconcat(State* state)
     ObjString* second;
     ObjString* result;
     // peek, so we do not pop it off if calling a GC is needed
-    second = fei_value_asstring(fei_vm_stackpeek_inline(state, 0));
-    first = fei_value_asstring(fei_vm_stackpeek_inline(state, 1));
-    length = first->length + second->length;
-    // dynamically allocate memory for the char, chars is now a NULL string
-    chars = (char*)ALLOCATE(state, sizeof(char), length + 1);
-    // IMPORTANt -> use memcpy when assinging to a char* pointer
-    // memcpy function, copy to chars, from first->chars, with second->length number of bits
-    memcpy(chars, first->chars, first->length);
-    // remember to add the first length of bits to chars again, so it will START AFTER the given offset
-    memcpy(chars + first->length, second->chars, second->length);
-    chars[length] = '\0';
-    result = fei_object_takestring(state, chars, length);
-    // pop the two strings, garbage collection
-    fei_vm_stackpop_inline(state);
-    fei_vm_stackpop_inline(state);
-    fei_vm_stackpush(state, OBJ_VAL(result));
+    second = fei_value_asstring(wrap_stackfunc(fei_vm_stackpeek_inline, state, 0));
+    first = fei_value_asstring(wrap_stackfunc(fei_vm_stackpeek_inline, state, 1));
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
+    result = fei_string_copy(state, first->chars, first->length);
+    fei_string_append(state, first, second->chars, second->length);
+    wrap_stackfunc(fei_vm_stackpush, state, OBJ_VAL(result));
 }
 
 
 bool fei_vmdo_return(State* state)
 {
     // if function returns a value, value will beon top of the stack
-    Value result = fei_vm_stackpop_inline(state);
+    Value result = wrap_stackfunc(fei_vm_stackpop_inline, state);
     // close lingering closed values
     fei_vm_closeupvalues(state, state->vmstate.topframe->slots);
     state->vmstate.framecount--;
@@ -5536,7 +5638,7 @@ bool fei_vmdo_return(State* state)
     if(state->vmstate.framecount == 0)
     {
         // pop main script function from the stack
-        fei_vm_stackpop_inline(state);
+        wrap_stackfunc(fei_vm_stackpop_inline, state);
         return false;
     }
     // for a function
@@ -5544,7 +5646,7 @@ bool fei_vmdo_return(State* state)
     // basically 're-assign'
     state->vmstate.stacktop = state->vmstate.topframe->slots;
     // push the return value
-    fei_vm_stackpush(state, result);
+    wrap_stackfunc(fei_vm_stackpush, state, result);
     // update run function's current frame
     state->vmstate.topframe = fei_vm_frameget(state, state->vmstate.framecount - 1);
     return true;
@@ -5557,7 +5659,7 @@ bool fei_vmdo_superinvoke(State* state)
     ObjString* method;
     method = READ_STRING(state, state->vmstate.topframe);
     count = READ_BYTE(state->vmstate.topframe);
-    parent = fei_value_asclass(fei_vm_stackpop_inline(state));
+    parent = fei_value_asclass(wrap_stackfunc(fei_vm_stackpop_inline, state));
     if(!fei_class_invokemethod(state, parent, method, count))
     {
         return false;
@@ -5573,7 +5675,7 @@ bool fei_vmdo_getsuper(State* state)
     // get method name/identifier
     name = READ_STRING(state, state->vmstate.topframe);
     // class identifier is at the top of the stack
-    parent = fei_value_asclass(fei_vm_stackpop_inline(state));
+    parent = fei_value_asclass(wrap_stackfunc(fei_vm_stackpop_inline, state));
     // if binding fails
     if(!fei_class_bindmethod(state, parent, name))
     {
@@ -5582,24 +5684,30 @@ bool fei_vmdo_getsuper(State* state)
     return true;
 }
 
+void fei_class_inherit(State* state, ObjClass* base, ObjClass* inheritme)
+{
+    fei_table_mergefrom(state, &inheritme->methods, &base->methods);
+}
+
 bool fei_vmdo_inherit(State* state)
 {
     Value parent;
     ObjClass* child;
     // parent class from 2nd top of the stack
     // ensure that parent identifier is a class
-    parent = fei_vm_stackpeek_inline(state, 1);
+    parent = wrap_stackfunc(fei_vm_stackpeek_inline, state, 1);
     if(!fei_value_isclass(parent))
     {
         fei_vm_raiseruntimeerror(state, "parent identifier is not a class");
         return false;
     }
     // child class at the top of the stack
-    child = fei_value_asclass(fei_vm_stackpeek_inline(state, 0));
+    child = fei_value_asclass(wrap_stackfunc(fei_vm_stackpeek_inline, state, 0));
     // add all methods from parent to child table
-    fei_table_mergefrom(state, &fei_value_asclass(parent)->methods, &child->methods);
+    //fei_table_mergefrom(state, &fei_value_asclass(parent)->methods, &child->methods);
+    fei_class_inherit(state, fei_value_asclass(parent), child);
     // pop the child class
-    fei_vm_stackpop_inline(state);
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
     return true;
 }
 
@@ -5628,7 +5736,7 @@ bool fei_vmdo_makeclosure(State* state)
     // load compiled function from table
     function = fei_value_asfunction(READ_CONSTANT(state, state->vmstate.topframe));
     closure = fei_object_makeclosure(state, function);
-    fei_vm_stackpush(state, OBJ_VAL(closure));
+    wrap_stackfunc(fei_vm_stackpush, state, OBJ_VAL(closure));
     // fill upvalue array over in the interpreter when a closure is created
     // to see upvalues in each slot
     for(i = 0; i < closure->upvaluecount; i++)
@@ -5652,26 +5760,32 @@ bool fei_vmdo_makeclosure(State* state)
     return true;
 }
 
+
 bool fei_vmdo_setproperty(State* state)
 {
+    Value val;
+    ObjString* name;
     ObjInstance* instance;
-    if(!fei_value_isinstance(fei_vm_stackpeek_inline(state, 1)))// if not an instance
+    if(!fei_value_isinstance(wrap_stackfunc(fei_vm_stackpeek_inline, state, 1)))// if not an instance
     {
         fei_vm_raiseruntimeerror(state, "setproperty() where parent symbol is not a class instance");
         return false;
     }
     // not top most, as the top most is reserved for the new value to be set
-    instance = fei_value_asinstance(fei_vm_stackpeek_inline(state, 1));
+    instance = fei_value_asinstance(wrap_stackfunc(fei_vm_stackpeek_inline, state, 1));
     //peek(0) is the new value
-    fei_table_set(state, &instance->fields, READ_STRING(state, state->vmstate.topframe), fei_vm_stackpeek_inline(state, 0));
+    name = READ_STRING(state, state->vmstate.topframe);
+    val = wrap_stackfunc(fei_vm_stackpeek_inline, state, 0);
+    fei_instance_setproperty(state, instance, name, val);
     // pop the already set value
-    Value value = fei_vm_stackpop_inline(state);
+    val = wrap_stackfunc(fei_vm_stackpop_inline, state);
     // pop the property instance itself
-    fei_vm_stackpop_inline(state);
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
     // push the value back again
-    fei_vm_stackpush(state, value);
+    wrap_stackfunc(fei_vm_stackpush, state, val);
     return true;
 }
+
 
 bool fei_vmdo_getproperty(State* state)
 {
@@ -5679,21 +5793,21 @@ bool fei_vmdo_getproperty(State* state)
     ObjString* name;
     ObjInstance* instance;
     // to make sure only instances are allowed to have fields
-    if(!fei_value_isinstance(fei_vm_stackpeek_inline(state, 0)))
+    if(!fei_value_isinstance(wrap_stackfunc(fei_vm_stackpeek_inline, state, 0)))
     {
         fei_vm_raiseruntimeerror(state, "only instances have properties");
         return false;
     }
     // get instance from top most stack
-    instance = fei_value_asinstance(fei_vm_stackpeek_inline(state, 0));
+    instance = fei_value_asinstance(wrap_stackfunc(fei_vm_stackpeek_inline, state, 0));
     // get identifier name
     name = READ_STRING(state, state->vmstate.topframe);
     // get from fields hash table, assign it to instance
-    if(fei_table_get(state, &instance->fields, name, &value))
+    if(fei_instance_getproperty(state, instance, name, &value))
     {
         // pop the instance itself
-        fei_vm_stackpop_inline(state);
-        fei_vm_stackpush(state, value);
+        wrap_stackfunc(fei_vm_stackpop_inline, state);
+        wrap_stackfunc(fei_vm_stackpush, state, value);
         return true;
     }
     // no method as well, error
@@ -5710,13 +5824,13 @@ bool fei_vmdo_unary(State* state, uint8_t instruc)
     double res;
     Value poked;
     Value popped;
-    poked = fei_vm_stackpeek_inline(state, 0);
+    poked = wrap_stackfunc(fei_vm_stackpeek_inline, state, 0);
     if(!fei_value_isnumber(poked))
     {
         fei_vm_raiseruntimeerror(state, "operand must be a number");
         return false;
     }
-    popped = fei_vm_stackpop_inline(state);
+    popped = wrap_stackfunc(fei_vm_stackpop_inline, state);
     dnum = fei_value_asnumber(popped);
     switch(instruc)
     {
@@ -5732,7 +5846,7 @@ bool fei_vmdo_unary(State* state, uint8_t instruc)
             }
             break;
     }
-    fei_vm_stackpush(state, NUMBER_VAL(res));
+    wrap_stackfunc(fei_vm_stackpush, state, NUMBER_VAL(res));
     return true;
 }
 
@@ -5746,8 +5860,8 @@ bool fei_vmdo_binary(State* state, uint8_t instruc)
     double fvright;
     int nvleft;
     int nvright;
-    pokeright = fei_vm_stackpeek_inline(state, 0);
-    pokeleft = fei_vm_stackpeek_inline(state, 1);
+    pokeright = wrap_stackfunc(fei_vm_stackpeek_inline, state, 0);
+    pokeleft = wrap_stackfunc(fei_vm_stackpeek_inline, state, 1);
     if((instruc == OP_ADD) && (fei_value_isstring(pokeright) && fei_value_isstring(pokeleft)))
     {
         fei_vmdo_strconcat(state);
@@ -5755,8 +5869,8 @@ bool fei_vmdo_binary(State* state, uint8_t instruc)
     }
     if(fei_value_isnumber(pokeright) && fei_value_isnumber(pokeleft))
     {
-        valright = fei_vm_stackpop_inline(state);
-        valleft = fei_vm_stackpop_inline(state);
+        valright = wrap_stackfunc(fei_vm_stackpop_inline, state);
+        valleft = wrap_stackfunc(fei_vm_stackpop_inline, state);
         // do NOT turn these into macros, since some of can be optimized further.
         // macros would make that much more difficult.
         switch(instruc)
@@ -5765,49 +5879,49 @@ bool fei_vmdo_binary(State* state, uint8_t instruc)
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, NUMBER_VAL(fvleft + fvright));
+                    wrap_stackfunc(fei_vm_stackpush, state, NUMBER_VAL(fvleft + fvright));
                 }
                 break;
             case OP_SUBTRACT:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, NUMBER_VAL(fvleft - fvright));
+                    wrap_stackfunc(fei_vm_stackpush, state, NUMBER_VAL(fvleft - fvright));
                 }
                 break;
             case OP_MULTIPLY:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, NUMBER_VAL(fvleft * fvright));
+                    wrap_stackfunc(fei_vm_stackpush, state, NUMBER_VAL(fvleft * fvright));
                 }
                 break;
             case OP_DIVIDE:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, NUMBER_VAL(fvleft / fvright));
+                    wrap_stackfunc(fei_vm_stackpush, state, NUMBER_VAL(fvleft / fvright));
                 }
                 break;
             case OP_MODULO:
                 {
                     nvright = (int)fei_value_asnumber(valright);
                     nvleft = (int)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, NUMBER_VAL(nvleft % nvright));
+                    wrap_stackfunc(fei_vm_stackpush, state, NUMBER_VAL(nvleft % nvright));
                 }
                 break;
             case OP_GREATER:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, BOOL_VAL(fvleft > fvright));
+                    wrap_stackfunc(fei_vm_stackpush, state, BOOL_VAL(fvleft > fvright));
                 }
                 break;
             case OP_LESS:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, BOOL_VAL(fvleft < fvright));
+                    wrap_stackfunc(fei_vm_stackpush, state, BOOL_VAL(fvleft < fvright));
                 }
                 break;
             default:
@@ -5830,7 +5944,7 @@ bool fei_vmdo_call(State* state)
     int argcount;
     argcount = READ_BYTE(state->vmstate.topframe);
     // call function; pass in the function name istelf[peek(depth)] and the number of arguments
-    if(!fei_vm_callvalue(state, fei_vm_stackpeek_inline(state, argcount), argcount))
+    if(!fei_vm_callvalue(state, wrap_stackfunc(fei_vm_stackpeek_inline, state, argcount), argcount))
     {
         return false;
     }
@@ -5844,10 +5958,10 @@ bool fei_vmdo_switchequal(State* state)
     Value a;
     Value b;
     // only pop second value
-    b = fei_vm_stackpop_inline(state);
+    b = wrap_stackfunc(fei_vm_stackpop_inline, state);
     // peek topmost, the first value
-    a = fei_vm_stackpeek_inline(state, 0);
-    fei_vm_stackpush(state, BOOL_VAL(fei_value_compare(state, a, b)));
+    a = wrap_stackfunc(fei_vm_stackpeek_inline, state, 0);
+    wrap_stackfunc(fei_vm_stackpush, state, BOOL_VAL(fei_value_compare(state, a, b)));
     return true;
 }
 
@@ -5855,9 +5969,9 @@ bool fei_vmdo_compare(State* state)
 {
     Value a;
     Value b;
-    b = fei_vm_stackpop_inline(state);
-    a = fei_vm_stackpop_inline(state);
-    fei_vm_stackpush(state, BOOL_VAL(fei_value_compare(state, a, b)));
+    b = wrap_stackfunc(fei_vm_stackpop_inline, state);
+    a = wrap_stackfunc(fei_vm_stackpop_inline, state);
+    wrap_stackfunc(fei_vm_stackpush, state, BOOL_VAL(fei_value_compare(state, a, b)));
     return true;
 }
 
@@ -5865,9 +5979,9 @@ bool fei_vmdo_logicalnot(State* state)
 {
     bool isfalsey;
     Value popped;
-    popped = fei_vm_stackpop_inline(state);
+    popped = wrap_stackfunc(fei_vm_stackpop_inline, state);
     isfalsey = fei_value_isfalsey(state, popped);
-    fei_vm_stackpush(state, BOOL_VAL(isfalsey));
+    wrap_stackfunc(fei_vm_stackpush, state, BOOL_VAL(isfalsey));
     return true;
 }
 
@@ -5877,8 +5991,8 @@ bool fei_vmdo_defineglobal(State* state)
     // get name from constant table
     name = READ_STRING(state, state->vmstate.topframe);
     // take value from the top of the stack
-    fei_table_set(state, &state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0));
-    fei_vm_stackpop_inline(state);
+    fei_table_set(state, &state->vmstate.globals, name, wrap_stackfunc(fei_vm_stackpeek_inline, state, 0));
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
     return true;
 }
 
@@ -5887,7 +6001,7 @@ bool fei_vmdo_setglobal(State* state)
     ObjString* name;
     name = READ_STRING(state, state->vmstate.topframe);
     // if key not in hash table
-    if(fei_table_set(state, &state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0)))
+    if(fei_table_set(state, &state->vmstate.globals, name, wrap_stackfunc(fei_vm_stackpeek_inline, state, 0)))
     {
         //fei_table_delete(state, &state->vmstate.globals, name);// delete the false name
         //fei_vm_raiseruntimeerror(state, "undefined variable '%s'", name->chars);
@@ -5908,7 +6022,7 @@ bool fei_vmdo_getglobal(State* state)
         fei_vm_raiseruntimeerror(state, "undefined variable '%s'", name->chars);
         return false;
     }
-    fei_vm_stackpush(state, value);
+    wrap_stackfunc(fei_vm_stackpush, state, value);
     return true;
 }
 
@@ -5918,7 +6032,7 @@ bool fei_vmdo_setlocal(State* state)
     slot = READ_BYTE(state->vmstate.topframe);
     // all the local var's VARIABLES are stored inside state->vmstate.stackvalues
     // takes from top of the stack and stores it in the stack slot
-    state->vmstate.topframe->slots[slot] = fei_vm_stackpeek_inline(state, 0);
+    state->vmstate.topframe->slots[slot] = wrap_stackfunc(fei_vm_stackpeek_inline, state, 0);
     return true;
 }
 
@@ -5927,7 +6041,7 @@ bool fei_vmdo_getlocal(State* state)
     uint8_t slot;
     slot = READ_BYTE(state->vmstate.topframe);
     // pushes the value to the stack where later instructions can read it
-    fei_vm_stackpush(state, state->vmstate.topframe->slots[slot]);
+    wrap_stackfunc(fei_vm_stackpush, state, state->vmstate.topframe->slots[slot]);
     return true;
 }
 
@@ -5936,7 +6050,7 @@ bool fei_vmdo_getconstant(State* state)
     Value constant;
     // READ the next line, which is the INDEX of the constant in the constants array
     constant = READ_CONSTANT(state, state->vmstate.topframe);
-    fei_vm_stackpush(state, constant);
+    wrap_stackfunc(fei_vm_stackpush, state, constant);
     return true;
 }
 
@@ -5946,7 +6060,7 @@ bool fei_vmdo_setupvalue(State* state)
     // read index
     slot = READ_BYTE(state->vmstate.topframe);
     // set to the topmost stack
-    *(state->vmstate.topframe->closure->upvalues[slot]->location) = fei_vm_stackpeek_inline(state, 0);
+    *(state->vmstate.topframe->closure->upvalues[slot]->location) = wrap_stackfunc(fei_vm_stackpeek_inline, state, 0);
     return true;
 }
 
@@ -5956,7 +6070,7 @@ bool fei_vmdo_getupvalue(State* state)
     // read index
     slot = READ_BYTE(state->vmstate.topframe);
     // push the value to the stack
-    fei_vm_stackpush(state, *(state->vmstate.topframe->closure->upvalues[slot]->location));
+    wrap_stackfunc(fei_vm_stackpush, state, *(state->vmstate.topframe->closure->upvalues[slot]->location));
     return true;
 }
 
@@ -5965,7 +6079,7 @@ bool fei_vmdo_closeupvalue(State* state)
     // put address to the slot
     fei_vm_closeupvalues(state, state->vmstate.stacktop - 1);
     // pop from the stack
-    fei_vm_stackpop_inline(state);
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
     return true;
 }
 
@@ -5984,7 +6098,7 @@ bool fei_vmdo_jumpiffalse(State* state)
     // offset already put in the stack
     offset = READ_SHORT(state->vmstate.topframe);
     // actual jump instruction is done here; skip over the instruction pointer
-    if(fei_value_isfalsey(state, fei_vm_stackpeek_inline(state, 0)))
+    if(fei_value_isfalsey(state, wrap_stackfunc(fei_vm_stackpeek_inline, state, 0)))
     {
         // if evaluated expression inside if statement is false jump
         state->vmstate.topframe->ip += offset;
@@ -6009,12 +6123,12 @@ bool fei_vmdo_loopiffalse(State* state)
     offset = READ_SHORT(state->vmstate.topframe);
     // bool state is at the top of the stack
     // if false loop back
-    if(fei_value_isfalsey(state, fei_vm_stackpeek_inline(state, 0)))
+    if(fei_value_isfalsey(state, wrap_stackfunc(fei_vm_stackpeek_inline, state, 0)))
     {
         state->vmstate.topframe->ip -= offset;
     }
     // pop the true/false
-    fei_vm_stackpop_inline(state);
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
     return true;
 }
 
@@ -6026,12 +6140,12 @@ bool fei_vmdo_loopiftrue(State* state)
     offset = READ_SHORT(state->vmstate.topframe);
     // bool state is at the top of the stack
     // if not false loop back
-    if(!fei_value_isfalsey(state, fei_vm_stackpeek_inline(state, 0)))
+    if(!fei_value_isfalsey(state, wrap_stackfunc(fei_vm_stackpeek_inline, state, 0)))
     {
         state->vmstate.topframe->ip -= offset;
     }
     // pop the true/false
-    fei_vm_stackpop_inline(state);
+    wrap_stackfunc(fei_vm_stackpop_inline, state);
     return true;
 }
 
@@ -6067,7 +6181,7 @@ ResultCode fei_vm_exec(State* state)
             for(Value* slot = state->vmstate.stackvalues; slot < state->vmstate.stacktop; slot++)
             {
                 fprintf(stderr, "[ ");
-                fei_value_printvalue(state, stderr, *slot, true);
+                fei_value_printvalue(state, state->iowriter_stderr, *slot, true);
                 fprintf(stderr, " ]");
             }
             fei_dbgdisas_instr(state, &state->vmstate.topframe->closure->function->chunk, (int)(state->vmstate.topframe->ip - state->vmstate.topframe->closure->function->chunk.code));
@@ -6092,17 +6206,17 @@ ResultCode fei_vm_exec(State* state)
             // literals
             case OP_NULL:
                 {
-                    fei_vm_stackpush(state, NULL_VAL);
+                    wrap_stackfunc(fei_vm_stackpush, state, NULL_VAL);
                 }
                 break;
             case OP_TRUE:
                 {
-                    fei_vm_stackpush(state, BOOL_VAL(true));
+                    wrap_stackfunc(fei_vm_stackpush, state, BOOL_VAL(true));
                 }
                 break;
             case OP_FALSE:
                 {
-                    fei_vm_stackpush(state, BOOL_VAL(false));
+                    wrap_stackfunc(fei_vm_stackpush, state, BOOL_VAL(false));
                 }
                 break;
             case OP_ADD:
@@ -6136,13 +6250,13 @@ ResultCode fei_vm_exec(State* state)
                 break;
             case OP_PRINT:
                 {
-                    fei_value_printvalue(state, stdout, fei_vm_stackpop_inline(state), false);
+                    fei_value_printvalue(state, state->iowriter_stdout, wrap_stackfunc(fei_vm_stackpop_inline, state), false);
                     printf("\n");
                 }
                 break;
             case OP_POP:
                 {
-                    fei_vm_stackpop_inline(state);
+                    wrap_stackfunc(fei_vm_stackpop_inline, state);
                 }
                 break;
             case OP_GET_LOCAL:
@@ -6238,7 +6352,7 @@ ResultCode fei_vm_exec(State* state)
             case OP_CLASS:
                 {
                     // load string for the class' name and push it onto the stack
-                    fei_vm_stackpush(state, OBJ_VAL(fei_object_makeclass(state, READ_STRING(state, state->vmstate.topframe))));
+                    wrap_stackfunc(fei_vm_stackpush, state, OBJ_VAL(fei_object_makeclass(state, READ_STRING(state, state->vmstate.topframe))));
                 }
                 break;
             case OP_METHOD:

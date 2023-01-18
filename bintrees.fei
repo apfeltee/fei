@@ -38,7 +38,8 @@ var stretchDepth = maxDepth + 1;
 
 var start = clock();
 
-println("stretch tree of depth:", stretchDepth, " check:", Tree(0, stretchDepth).check());
+var dep =  Tree(0, stretchDepth).check();
+println("stretch tree of depth:", stretchDepth, " check:",dep);
 
 var longLivedTree = Tree(0, maxDepth);
 

@@ -50,7 +50,7 @@
 
 #define da_make(arr, n, sz) \
     ( \
-        (arr) = da_grow_internal((arr), (n), sz) \
+        da_grow_internal((arr), (n), sz) \
     )
 
 #define da_count(arr) \

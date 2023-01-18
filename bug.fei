@@ -3,10 +3,20 @@ function add(one, two)
 {
     return one + two;
 }
+
+//a = 25, b = 5, c = 30, d = 60
+
 var a = 25
+println("a (should be 25) = ", a)
+
 var b = 5
+println("b (should be 5)  = ", b)
+
+
 var c = add(a, b);
-println("now: c=", c);
+println("c (should be 30) = ", c)
+
+
 var d = c * 2
-println("a = ", a, ", b = ", b, ", c = ", c, ", d = ", d)
+println("d (should be 60) = ", d)
 
