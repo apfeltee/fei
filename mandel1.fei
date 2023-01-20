@@ -33,7 +33,7 @@ while(y0 > bottom_edge)
             x = x_x - y_y + x0;
             i = i + 1;
         }
-        print(chr(the_char));
+        print(the_char.chr);
         x0 = x0 + x_step;
     }
     println();
