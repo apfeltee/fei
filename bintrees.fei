@@ -1,4 +1,9 @@
 
+function clock()
+{
+    return 0;
+}
+
 class Tree
 {
     init(item, depth)
@@ -32,34 +37,36 @@ class Tree
     }
 }
 
-var minDepth = 4;
-var maxDepth = 14;
-var stretchDepth = maxDepth + 1;
+var mindepth = 4;
+var maxdepth = 14;
+var stretchdepth = maxdepth + 1;
 
 var start = clock();
 
-var dep =  Tree(0, stretchDepth).check();
-println("stretch tree of depth:", stretchDepth, " check:",dep);
+var dep =  Tree(0, stretchdepth).check();
+println("stretch tree of depth:", stretchdepth, " check:",dep);
 
-var longLivedTree = Tree(0, maxDepth);
+var longlivedtree = Tree(0, maxdepth);
 
 
 var iterations = 1;
 var d = 0;
-while (d < maxDepth)
+while (d < maxdepth)
 {
     iterations = iterations * 2;
     d = d + 1;
 }
 
-var depth = minDepth;
-while (depth < stretchDepth)
+var depth = mindepth;
+while (depth < stretchdepth)
 {
     var check = 0;
     var i = 1;
     while (i <= iterations)
     {
-        check = check + Tree(i, depth).check() + Tree(-i, depth).check();
+        var t1 = Tree(i, depth).check();
+        var t2 = Tree(-i, depth).check();
+        check = check + t1 + t2;
         i = i + 1;
     }
     println("num trees:", iterations * 2, ", depth:", depth, ", check:", check);
@@ -67,4 +74,4 @@ while (depth < stretchDepth)
     depth = depth + 2;
 }
 
-println("long lived tree of depth:", maxDepth, ", check:", longLivedTree.check(), ", elapsed:", clock() - start);
+println("long lived tree of depth:", maxdepth, ", check:", longlivedtree.check(), ", elapsed:", clock() - start);
