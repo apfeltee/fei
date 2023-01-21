@@ -85,6 +85,12 @@
 // used to free eg. char arrays
 #define FREE_ARRAY(state, typsz, pointer, oldcount) fei_gcmem_reallocate(state, pointer, typsz * (oldcount), 0)
 
+#define fei_value_asnumber(v) \
+    ( \
+        ((v).isfixednumber) ? \
+        ((v).as.valfixednum) : \
+        ((v).as.valfloatnum) \
+    )
 
 enum FeiAstTokType
 {
@@ -354,10 +360,12 @@ struct Writer
 struct FeiValue
 {
     FeiValType type;
+    bool isfixednumber;
     union
     {
         bool valbool;
-        double valnumber;
+        int64_t valfixednum;
+        double valfloatnum;
         FeiObject* valobjptr;
     } as;
 };
@@ -931,8 +939,13 @@ void fei_value_printstring(FeiState *state, Writer *wr, ObjString *ostr, bool wi
 void fei_value_printvalue(FeiState *state, Writer *wr, FeiValue value, bool withquot);
 void fei_value_printobject(FeiState *state, Writer *wr, FeiValue value, bool withquot);
 /* value.c */
+
 bool fei_value_asbool(FeiValue v);
-double fei_value_asnumber(FeiValue v);
+
+
+int64_t fei_value_asfixednumber(FeiValue v);
+double fei_value_asfloatnumber(FeiValue v);
+
 FeiObject *fei_value_asobj(FeiValue v);
 FeiObjType OBJ_TYPE(FeiValue v);
 bool fei_object_istype(FeiValue value, FeiObjType type);
@@ -1024,17 +1037,29 @@ static inline FeiValue fei_value_makenull()
 {
     FeiValue v;
     v.type = VAL_NULL;
-    v.as.valnumber = 0;
+    v.as.valfloatnum = 0;
     return v;
 }
 
-static inline FeiValue fei_value_makenumber(double dn)
+static inline FeiValue fei_value_makefloatnumber(double dn)
 {
     FeiValue v;
     v.type = VAL_NUMBER;
-    v.as.valnumber = dn;
+    v.isfixednumber = false;
+    v.as.valfloatnum = dn;
     return v;
 }
+
+
+static inline FeiValue fei_value_makefixednumber(int64_t dn)
+{
+    FeiValue v;
+    v.type = VAL_NUMBER;
+    v.isfixednumber = true;
+    v.as.valfixednum = dn;
+    return v;
+}
+
 
 static inline FeiValue fei_value_makeobject_actual(void* obj)
 {

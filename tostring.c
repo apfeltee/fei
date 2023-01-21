@@ -10,7 +10,9 @@ void fei_value_printfunc(FeiState* state, Writer* wr, ObjFunction* function)
     }
     else
     {
-        fei_writer_appendfmt(wr, "<function '%s'(%d params)>", function->name->chars, function->arity);
+        //fei_writer_appendfmt(wr, "<function '%s'(%d params)>", function->name->chars, function->arity);
+        fei_writer_appendfmt(wr, "<function (%d params)>", function->arity);
+
     }
 }
 
@@ -59,7 +61,14 @@ void fei_value_printvalue(FeiState* state, Writer* wr, FeiValue value, bool with
             break;
         case VAL_NUMBER:
             {
-                fei_writer_appendfmt(wr, "%g", fei_value_asnumber(value));
+                if(value.isfixednumber)
+                {
+                    fei_writer_appendfmt(wr, "%ld", fei_value_asfixednumber(value));
+                }
+                else
+                {
+                    fei_writer_appendfmt(wr, "%g", fei_value_asfloatnumber(value));
+                }
             }
             break;
         case VAL_OBJ:

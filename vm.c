@@ -1,4 +1,5 @@
 
+#include <math.h>
 #include "fei.h"
 
 
@@ -708,7 +709,9 @@ bool fei_vmdo_getproperty(FeiState* state)
 bool fei_vmdo_unary(FeiState* state, uint8_t instruc)
 {
     double dnum;
-    double res;
+    double dres;
+    int64_t inum;
+    int64_t ires;
     FeiValue poked;
     FeiValue popped;
     poked = fei_vm_stackpeek_inline(state, 0);
@@ -718,12 +721,20 @@ bool fei_vmdo_unary(FeiState* state, uint8_t instruc)
         return false;
     }
     popped = fei_vm_stackpop_inline(state);
-    dnum = fei_value_asnumber(popped);
     switch(instruc)
     {
         case OP_NEGATE:
             {
-                res = -dnum;
+                if(popped.isfixednumber)
+                {
+                    inum = fei_value_asfixednumber(popped);
+                    ires = -inum;
+                }
+                else
+                {
+                    dnum = fei_value_asfloatnumber(popped);
+                    dres = -dnum;
+                }
             }
             break;
         default:
@@ -733,20 +744,28 @@ bool fei_vmdo_unary(FeiState* state, uint8_t instruc)
             }
             break;
     }
-    fei_vm_stackpush(state, fei_value_makenumber(res));
+    if(popped.isfixednumber)
+    {
+        fei_vm_stackpush(state, fei_value_makefixednumber(ires));
+    }
+    else
+    {
+        fei_vm_stackpush(state, fei_value_makefloatnumber(dres));
+    }
     return true;
 }
 
 bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
 {
+    FeiValue res;
     FeiValue valright;
     FeiValue valleft;
     FeiValue pokeright;
     FeiValue pokeleft;
     double fvleft;
     double fvright;
-    int nvleft;
-    int nvright;
+    int64_t nvleft;
+    int64_t nvright;
     pokeright = fei_vm_stackpeek_inline(state, 0);
     pokeleft = fei_vm_stackpeek_inline(state, 1);
     if((instruc == OP_ADD) && (fei_value_isstring(pokeright) && fei_value_isstring(pokeleft)))
@@ -760,55 +779,60 @@ bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
         valleft = fei_vm_stackpop_inline(state);
         // do NOT turn these into macros, since some of can be optimized further.
         // macros would make that much more difficult.
+        res = fei_value_makenull();
+        nvright = 0;
+        nvleft = 0;
+        fvright = 0;
+        fvleft = 0;
         switch(instruc)
         {
             case OP_ADD:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, fei_value_makenumber(fvleft + fvright));
+                    res = fei_value_makefloatnumber(fvleft + fvright);
                 }
                 break;
             case OP_SUBTRACT:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, fei_value_makenumber(fvleft - fvright));
+                    res = fei_value_makefloatnumber(fvleft - fvright);
                 }
                 break;
             case OP_MULTIPLY:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, fei_value_makenumber(fvleft * fvright));
+                    res = fei_value_makefloatnumber(fvleft * fvright);
                 }
                 break;
             case OP_DIVIDE:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, fei_value_makenumber(fvleft / fvright));
+                    res = fei_value_makefloatnumber(fvleft / fvright);
                 }
                 break;
             case OP_MODULO:
                 {
                     nvright = (int)fei_value_asnumber(valright);
                     nvleft = (int)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, fei_value_makenumber(nvleft % nvright));
+                    res = fei_value_makefloatnumber(nvleft % nvright);
                 }
                 break;
             case OP_GREATER:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, fei_value_makebool(fvleft > fvright));
+                    res = fei_value_makebool(fvleft > fvright);
                 }
                 break;
             case OP_LESS:
                 {
                     fvright = (double)fei_value_asnumber(valright);
                     fvleft = (double)fei_value_asnumber(valleft);
-                    fei_vm_stackpush(state, fei_value_makebool(fvleft < fvright));
+                    res = fei_value_makebool(fvleft < fvright);
                 }
                 break;
             default:
@@ -817,6 +841,7 @@ bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
                     return false;
                 }
         }
+        fei_vm_stackpush(state, res);
     }
     else
     {

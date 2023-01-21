@@ -8,13 +8,30 @@ bool fei_value_asbool(FeiValue v)
     return v.as.valbool;
 }
 
-double fei_value_asnumber(FeiValue v)
+double fei_value_asfloatnumber(FeiValue v)
 {
     if(v.type != VAL_NUMBER)
     {
         return 0;
     }
-    return v.as.valnumber;
+    if(v.isfixednumber)
+    {
+        return v.as.valfixednum;
+    }
+    return v.as.valfloatnum;
+}
+
+int64_t fei_value_asfixednumber(FeiValue v)
+{
+    if(v.type != VAL_NUMBER)
+    {
+        return 0;
+    }
+    if(!v.isfixednumber)
+    {
+        return v.as.valfloatnum;
+    }
+    return v.as.valfixednum;
 }
 
 FeiObject* fei_value_asobj(FeiValue v)
@@ -152,6 +169,14 @@ bool fei_value_compare(FeiState* state, FeiValue a, FeiValue b)
             break;
         case VAL_NUMBER:
             {
+                if(a.isfixednumber && b.isfixednumber)
+                {
+                    return fei_value_asfixednumber(a) == fei_value_asfixednumber(b);
+                }
+                else if(!a.isfixednumber && !b.isfixednumber)
+                {
+                    return fei_value_asfloatnumber(a) == fei_value_asfloatnumber(b);
+                }
                 return fei_value_asnumber(a) == fei_value_asnumber(b);
             }
             break;

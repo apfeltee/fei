@@ -1567,7 +1567,9 @@ static void fei_comprule_grouping(FeiState* state, bool canassign)
 /* parsing the tokens */
 static void fei_comprule_number(FeiState* state, bool canassign)
 {
-    double value;
+    FeiValue val;
+    int64_t fixed;
+    double dv;
     (void)canassign;
     // strtod below converts from string to double
     // assume that token for the number literal has already been consumed and is stored in previous
@@ -1577,9 +1579,20 @@ static void fei_comprule_number(FeiState* state, bool canassign)
     -> in scanner, if a digit exists after a digit, it advances() (skips) the current
     -> hence, we get that the start points to the START of the digit, and using strtod smartly it reaches until the last digit
     */
-    value = strtod(state->aststate.parser.prevtoken.toksrc, NULL);
+    dv = strtod(state->aststate.parser.prevtoken.toksrc, NULL);
+    fixed = (int64_t)dv;
+    if(fixed == dv)
+    {
+        fprintf(stderr, "making fixed: fixed=%d\n", fixed);
+        val = fei_value_makefixednumber(fixed);
+    }
+    else
+    {
+        fprintf(stderr, "making float: dv=%g\n", dv);
+        val = fei_value_makefloatnumber(dv);
+    }
     //printf("num %c\n", *state->aststate.parser.prevtoken.toksrc);
-    fei_compiler_emitconst(state, fei_value_makenumber(value));
+    fei_compiler_emitconst(state, val);
 }
 
 static void fei_comprule_logicalor(FeiState* state, bool canassign)
