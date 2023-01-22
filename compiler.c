@@ -1162,7 +1162,7 @@ void fei_compiler_patchbreakjumps(FeiState* state)
 uint8_t fei_compiler_makeidentconst(FeiState* state, FeiAstToken* name)
 {
     // add to constant table
-    return fei_compiler_makeconst(state, fei_value_makeobject(fei_string_copy(state, name->toksrc, name->length)));
+    return fei_compiler_makeconst(state, fei_value_makeobject(state, fei_string_copy(state, name->toksrc, name->length)));
 }
 
 bool fei_compiler_identsequal(FeiState* state, FeiAstToken* a, FeiAstToken* b)
@@ -1585,13 +1585,13 @@ static void fei_comprule_number(FeiState* state, bool canassign)
     if(fixed == dv)
     {
         fprintf(stderr, "making fixed: fixed=%d\n", fixed);
-        val = fei_value_makefixednumber(fixed);
+        val = fei_value_makefixednumber(state, fixed);
     }
     else
     #endif
     {
         fprintf(stderr, "making float: dv=%g\n", dv);
-        val = fei_value_makefloatnumber(dv);
+        val = fei_value_makefloatnumber(state, dv);
     }
     //printf("num %c\n", *state->aststate.parser.prevtoken.toksrc);
     fei_compiler_emitconst(state, val);
@@ -1618,7 +1618,7 @@ static void fei_comprule_string(FeiState* state, bool canassign)
 {
     (void)canassign;
     // in a string, eg. "hitagi", the quotation marks are trimmed
-    fei_compiler_emitconst(state, fei_value_makeobject(fei_string_copy(state,
+    fei_compiler_emitconst(state, fei_value_makeobject(state, fei_string_copy(state,
         state->aststate.parser.prevtoken.toksrc + 1,
         state->aststate.parser.prevtoken.length - 2)
     ));
@@ -2006,8 +2006,8 @@ void fei_compiler_parsefuncdecl(FeiState* state, FuncType type)
     // create function object
     function = fei_compiler_endcompiler(state);// ends the current compiler
     // compilers are treated like a stack; if current one is ended, like above, return to the previous one
-    // fei_compiler_emitbytes(state, OP_CONSTANT, fei_compiler_makeconst(state, fei_value_makeobject(function)));
-    fei_compiler_emitbytes(state, OP_CLOSURE, fei_compiler_makeconst(state, fei_value_makeobject(function)));
+    // fei_compiler_emitbytes(state, OP_CONSTANT, fei_compiler_makeconst(state, fei_value_makeobject(state, function)));
+    fei_compiler_emitbytes(state, OP_CLOSURE, fei_compiler_makeconst(state, fei_value_makeobject(state, function)));
     /*
     * by the time the compiler reaches the end of a function declaration,
     * every variable reference hass been resolved as either local, upvalue or global.

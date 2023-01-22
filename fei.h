@@ -53,7 +53,7 @@
 #define DEBUG_STRESS_GC 0
 #define DEBUG_LOG_GC 0
 
-#define fei_value_makeobject(object) fei_value_makeobject_actual((void*)(object))
+#define fei_value_makeobject(state, object) fei_value_makeobject_actual(state, (void*)(object))
 
 // pass in as a pointer to the object, receives the actual object
 
@@ -763,6 +763,8 @@ struct FeiState
         int64_t cntupval;
         int64_t cntclosure;
         int64_t cntnative;
+        int64_t cntnumfixed;
+        int64_t cntnumfloat;
     } ocount;
 };
 
@@ -1024,27 +1026,36 @@ void fei_writer_appendchar(Writer *wr, int c);
 void fei_writer_appendfmtva(Writer *wr, const char *fmt, va_list va);
 void fei_writer_appendfmt(Writer *wr, const char *fmt, ...);
 
+static inline void fei_value_setnull(FeiState* state, FeiValue* v)
+{
+    (void)state;
+    //memset(v, 0, sizeof(FeiValue));
+}
 
-static inline FeiValue fei_value_makebool(bool b)
+static inline FeiValue fei_value_makebool(FeiState* state, bool b)
 {
     FeiValue v;
+    fei_value_setnull(state, &v);
     v.type = VAL_BOOL;
     v.as.valbool = b;
     return v;
 }
 
-static inline FeiValue fei_value_makenull()
+static inline FeiValue fei_value_makenull(FeiState* state)
 {
     FeiValue v;
+    fei_value_setnull(state, &v);
     v.type = VAL_NULL;
     v.isfixednumber = true; 
     v.as.valfixednum = 0;
     return v;
 }
 
-static inline FeiValue fei_value_makefloatnumber(double dn)
+static inline FeiValue fei_value_makefloatnumber(FeiState* state, double dn)
 {
     FeiValue v;
+    fei_value_setnull(state, &v);
+    state->ocount.cntnumfloat++;
     v.type = VAL_NUMBER;
     v.isfixednumber = false;
     v.as.valfloatnum = dn;
@@ -1052,9 +1063,11 @@ static inline FeiValue fei_value_makefloatnumber(double dn)
 }
 
 
-static inline FeiValue fei_value_makefixednumber(int64_t dn)
+static inline FeiValue fei_value_makefixednumber(FeiState* state, int64_t dn)
 {
     FeiValue v;
+    fei_value_setnull(state, &v);
+    state->ocount.cntnumfixed++;
     v.type = VAL_NUMBER;
     v.isfixednumber = true;
     v.as.valfixednum = dn;
@@ -1062,9 +1075,10 @@ static inline FeiValue fei_value_makefixednumber(int64_t dn)
 }
 
 
-static inline FeiValue fei_value_makeobject_actual(void* obj)
+static inline FeiValue fei_value_makeobject_actual(FeiState* state, void* obj)
 {
     FeiValue v;
+    fei_value_setnull(state, &v);
     v.type = VAL_OBJ;
     v.as.valobjptr = (FeiObject*)obj;
     return v;

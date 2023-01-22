@@ -106,7 +106,7 @@ void fei_table_adjustcapacity(FeiState* state, Table* table, int capacity)
     for(i = 0; i < capacity; i++)
     {
         entries[i].key = NULL;
-        entries[i].value = fei_value_makenull();
+        entries[i].value = fei_value_makenull(state);
     }
     // do not copy tombstones over when growing
     // NOTE: entries may end up in different buckets
@@ -174,8 +174,8 @@ bool fei_table_delete(FeiState* state, Table* table, ObjString* key)
     }
     // place tombstone
     entry->key = NULL;
-    //fei_value_makebool(true) as the tombstone
-    entry->value = fei_value_makebool(true);
+    //bool(true) as the tombstone
+    entry->value = fei_value_makebool(state, true);
     return true;
 }
 
@@ -213,7 +213,7 @@ ObjString* fei_table_findstring(FeiState* state, Table* table, const char* chars
             // stop if found empty non-tombstone entry
             if(fei_value_isnull(entry->value))
             {
-                // return null if not tombstone(tombstone value is fei_value_makebool(true))
+                // return null if not tombstone(tombstone value is bool(true))
                 return NULL;
             }
         }

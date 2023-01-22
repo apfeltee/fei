@@ -7,7 +7,7 @@ static FeiValue cfn_clock(FeiState* state, FeiValue instance, int argcount, FeiV
     (void)instance;
     (void)argcount;
     (void)args;
-    return fei_value_makefloatnumber((double)clock() / CLOCKS_PER_SEC);
+    return fei_value_makefloatnumber(state, (double)clock() / CLOCKS_PER_SEC);
 }
 
 static FeiValue cfn_print(FeiState* state, FeiValue instance, int argc, FeiValue* args)
@@ -20,7 +20,7 @@ static FeiValue cfn_print(FeiState* state, FeiValue instance, int argc, FeiValue
         fei_value_printvalue(state, state->iowriter_stdout, args[i], false);
         fflush(stdout);
     }
-    return fei_value_makenull();
+    return fei_value_makenull(state);
 }
 
 static FeiValue cfn_println(FeiState* state, FeiValue instance, int argc, FeiValue* args)
@@ -37,7 +37,7 @@ static FeiValue objfn_string_length(FeiState* state, FeiValue instance, int argc
     (void)state;
     (void)argc;
     (void)argv;
-    return fei_value_makefixednumber(fei_value_asstring(instance)->length);
+    return fei_value_makefixednumber(state, fei_value_asstring(instance)->length);
 }
 
 static FeiValue objfn_string_size(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
@@ -48,7 +48,7 @@ static FeiValue objfn_string_size(FeiState* state, FeiValue instance, int argc, 
     fprintf(stderr, "in objfn_string_size:instance=[[[");
     fei_value_printvalue(state, state->iowriter_stderr, instance, true);
     fprintf(stderr, "]]]\n");
-    return fei_value_makenull();
+    return fei_value_makenull(state);
 }
 
 static FeiValue objfn_number_chr(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
@@ -57,9 +57,8 @@ static FeiValue objfn_number_chr(FeiState* state, FeiValue instance, int argc, F
     (void)state;
     (void)argc;
     (void)argv;
-    
     c = fei_value_asnumber(instance);
-    return fei_value_makeobject(fei_string_copy(state, &c, 1));
+    return fei_value_makeobject(state, fei_string_copy(state, &c, 1));
 }
 
 void fei_state_setupglobals(FeiState* state)

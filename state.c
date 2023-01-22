@@ -52,7 +52,7 @@ void fei_vm_defnative(FeiState* state, const char* name, NativeFn function)
     ObjNative* objnat;
     objname = fei_string_copy(state, name, (int)strlen(name));
     objnat = fei_object_makenativefunc(state, function);
-    fei_table_set(state, &state->vmstate.globals, objname, fei_value_makeobject(objnat));        
+    fei_table_set(state, &state->vmstate.globals, objname, fei_value_makeobject(state, objnat));        
 }
 
 void fei_vm_resetstack(FeiState* state)
@@ -110,15 +110,8 @@ FeiState* fei_state_init()
 void print_counts(FeiState* state)
 {
     /*
-
-        int64_t cntstring;
-        int64_t cntfunction;
-        int64_t cntclass;
-        int64_t cntinstance;
-        int64_t cntbound;
-        int64_t cntupval;
-        int64_t cntclosure;
-        int64_t cntnative;
+    * useful to figure out what gets created how often, etc.
+    * especially when debugging numbers.
     */
     int64_t total;
     total = 0;
@@ -135,6 +128,8 @@ void print_counts(FeiState* state)
     print_count_for(cntupval, "ObjUpval");
     print_count_for(cntclosure, "ObjClosure");
     print_count_for(cntnative, "ObjNative");
+    print_count_for(cntnumfloat, "floating point number");
+    print_count_for(cntnumfixed, "fixed point number");
     fprintf(stderr, "which makes %zd objects in total\n", total);
 
 }
@@ -169,12 +164,12 @@ ResultCode fei_vm_evalsource(FeiState* state, const char* source, size_t len)
     {
         return STATUS_SYNTAXERROR;
     }
-    fei_vm_stackpush(state, fei_value_makeobject(function));
+    fei_vm_stackpush(state, fei_value_makeobject(state, function));
     closure = fei_object_makeclosure(state, function);
     fei_vm_stackpop(state);
-    fei_vm_stackpush(state, fei_value_makeobject(closure));
+    fei_vm_stackpush(state, fei_value_makeobject(state, closure));
     // 0 params for main()
-    fei_vm_callvalue(state, fei_value_makenull(), fei_value_makeobject(closure), 0);
+    fei_vm_callvalue(state, fei_value_makenull(state), fei_value_makeobject(state, closure), 0);
     return fei_vm_exec(state);
 }
 

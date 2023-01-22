@@ -147,7 +147,7 @@ void fei_gcmem_markobject(FeiState* state, FeiObject* object)
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         fprintf(stderr, "%p marked ", (void*)object);
         // you cant print first class objects, like how you would print in the actual repl
-        fei_value_printvalue(state, state->iowriter_stderr, fei_value_makeobject(object), true);
+        fei_value_printvalue(state, state->iowriter_stderr, fei_value_makeobject(state, object), true);
         fprintf(stderr, "\n");
     #endif
 }
@@ -210,7 +210,7 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
     ObjClosure* closure;
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         fprintf(stderr, "%p blackened ", (void*)object);
-        fei_value_printvalue(state, state->iowriter_stderr, fei_value_makeobject(object), true);
+        fei_value_printvalue(state, state->iowriter_stderr, fei_value_makeobject(state, object), true);
         fprintf(stderr, "\n");
     #endif
     switch(object->type)

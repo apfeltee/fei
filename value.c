@@ -15,7 +15,7 @@ double fei_value_asfloatnumber(FeiValue v)
     {
         return 0;
     }
-    #if 0
+    #if 1
     if(v.isfixednumber)
     {
         return v.as.valfixednum;
@@ -30,13 +30,15 @@ int64_t fei_value_asfixednumber(FeiValue v)
     {
         return 0;
     }
-    #if 0
+    #if 1
     if(!v.isfixednumber)
     {
+        #if 0
         if(isnan(v.as.valfloatnum))
         {
             return -1;
         }
+        #endif
         return v.as.valfloatnum;
     }
     #endif

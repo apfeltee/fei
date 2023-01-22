@@ -82,7 +82,7 @@ bool fei_class_bindmethod(FeiState* state, ObjClass* klassobj, ObjString* name, 
         bound = fei_object_makeboundmethod(state, val, fei_value_asfunction(method));
     }
     // pop the class instance
-    fei_vm_stackpush(state, fei_value_makeobject(bound));
+    fei_vm_stackpush(state, fei_value_makeobject(state, bound));
     return true;
 }
 
@@ -107,7 +107,7 @@ bool fei_class_defmethod(FeiState* state, ObjClass* klassobj, const char* strnam
     ObjNative* ofn;
     name = fei_string_copy(state, strname, strlen(strname));
     ofn = fei_object_makenativefunc(state, fn);
-    ofv = fei_value_makeobject(ofn);
+    ofv = fei_value_makeobject(state, ofn);
     fei_vm_stackpush(state, ofv);
     return fei_class_bindmethod(state, klassobj, name, ofv, isfield, true);
 }

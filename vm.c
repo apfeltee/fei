@@ -227,7 +227,7 @@ bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int ar
                     klass = fei_value_asclass(callee);
                     // create new instance here
                     instance = fei_object_makeinstance(state, klass);
-                    state->vmstate.stacktop[-argcount - 1] = fei_value_makeobject(instance);
+                    state->vmstate.stacktop[-argcount - 1] = fei_value_makeobject(state, instance);
                     // if we find one from the table
                     if(fei_table_get(state, &klass->methods, state->vmstate.initstring, &initializer))
                     {
@@ -373,7 +373,7 @@ void fei_vmdo_strconcat(FeiState* state)
     fei_vm_stackpop_inline(state);
     result = fei_string_copy(state, first->chars, first->length);
     fei_string_append(state, first, second->chars, second->length);
-    fei_vm_stackpush(state, fei_value_makeobject(result));
+    fei_vm_stackpush(state, fei_value_makeobject(state, result));
 }
 
 
@@ -486,7 +486,7 @@ bool fei_vmdo_makeclosure(FeiState* state)
     // load compiled function from table
     function = fei_value_asfunction(READ_CONSTANT(state, state->vmstate.topframe));
     closure = fei_object_makeclosure(state, function);
-    fei_vm_stackpush(state, fei_value_makeobject(closure));
+    fei_vm_stackpush(state, fei_value_makeobject(state, closure));
     // fill upvalue array over in the interpreter when a closure is created
     // to see upvalues in each slot
     for(i = 0; i < closure->upvaluecount; i++)
@@ -543,7 +543,7 @@ bool fei_vmdo_call(FeiState* state)
     int argcount;
     FeiValue peeked;
     FeiValue instance;
-    instance = fei_value_makenull();
+    instance = fei_value_makenull(state);
     //dumpstack(state, "vmdo_call");
     argcount = READ_BYTE(state->vmstate.topframe);
     peeked = fei_vm_stackpeek_inline(state, argcount);
@@ -630,7 +630,7 @@ bool fei_vm_classinvoke(FeiState* state, FeiValue receiver, ObjString* name, int
     if(fei_table_get(state, &instance->fields, name, &value))
     {
         state->vmstate.stacktop[-argcount - 1] = value;
-        return fei_vm_callvalue(state, fei_value_makenull(), value, argcount);
+        return fei_vm_callvalue(state, fei_value_makenull(state), value, argcount);
     }
     // actual function that searches for method and calls it
     return fei_class_invokemethod(state, instance->classobject, name, argcount);
@@ -773,14 +773,12 @@ bool fei_vmdo_unary(FeiState* state, uint8_t instruc)
     {
         case OP_NEGATE:
             {
-                #if 1
                 if(popped.isfixednumber)
                 {
                     inum = fei_value_asfixednumber(popped);
                     ires = -inum;
                 }
                 else
-                #endif
                 {
                     dnum = fei_value_asfloatnumber(popped);
                     dres = -dnum;
@@ -796,17 +794,31 @@ bool fei_vmdo_unary(FeiState* state, uint8_t instruc)
     }
     if(popped.isfixednumber)
     {
-        fei_vm_stackpush(state, fei_value_makefixednumber(ires));
+        fei_vm_stackpush(state, fei_value_makefixednumber(state, ires));
     }
     else
     {
-        fei_vm_stackpush(state, fei_value_makefloatnumber(dres));
+        fei_vm_stackpush(state, fei_value_makefloatnumber(state, dres));
     }
     return true;
 }
 
+ //compares if the float f1 is equal with f2 and returns 1 if true and 0 if false
+int compare_float(double f1, double f2)
+{
+    float precision = 0.00001;
+    if(((f1 - precision) < f2) && ((f1 + precision) > f2))
+    {
+        return 1;
+    }
+    return 0;
+}
+
 bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
 {
+    bool leftfixed;
+    bool rightfixed;
+    bool isfloat;
     FeiValue res;
     FeiValue valright;
     FeiValue valleft;
@@ -829,137 +841,134 @@ bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
         valleft = fei_vm_stackpop_inline(state);
         // do NOT turn these into macros, since some of can be optimized further.
         // macros would make that much more difficult.
-        res = fei_value_makenull();
+        res = fei_value_makenull(state);
         nvright = 0;
         nvleft = 0;
         fvright = 0;
         fvleft = 0;
-
+        leftfixed = valleft.isfixednumber;
+        rightfixed = valright.isfixednumber;
+        isfloat = (!leftfixed && !rightfixed);
+        /*
+        * first, attempt to do cheaper, faster fixed-point arithmetics.
+        * *IF* that fails, "fall back" to floating point:
+        * the crucial part here is that fei_value_asfixednumber will fall back to
+        * implicitly converting the stored floating point, and likewise, fei_value_asfloatnumber
+        * will implicitly convert the stored fixed point.
+        * that's not exactly ideal, but is, at least as of now, the cheapest
+        * form to have both fixed point and floating point numbers.
+        */
         switch(instruc)
         {
             case OP_ADD:
                 {
-                    #if 1
-                    if(valleft.isfixednumber && valright.isfixednumber)
+                    if(!isfloat)
                     {
                         nvright = fei_value_asfixednumber(valright);
                         nvleft = fei_value_asfixednumber(valleft);
-                        res = fei_value_makefixednumber(nvleft + nvright);
+                        res = fei_value_makefixednumber(state, nvleft + nvright);
                     }
                     else
-                    #endif
                     {
                         fvright = fei_value_asfloatnumber(valright);
                         fvleft = fei_value_asfloatnumber(valleft);
-                        res = fei_value_makefloatnumber(fvleft + fvright);
+                        res = fei_value_makefloatnumber(state, fvleft + fvright);
                     }
                 }
                 break;
             case OP_SUBTRACT:
                 {
-                    #if 1
-                    if(valleft.isfixednumber && valright.isfixednumber)
+                    if(leftfixed && rightfixed)
                     {
                         nvright = fei_value_asfixednumber(valright);
                         nvleft = fei_value_asfixednumber(valleft);
-                        res = fei_value_makefixednumber(nvleft - nvright);
+                        res = fei_value_makefixednumber(state, nvleft - nvright);
                     }
                     else
-                    #endif
                     {
                         fvright = fei_value_asfloatnumber(valright);
                         fvleft = fei_value_asfloatnumber(valleft);
-                        res = fei_value_makefloatnumber(fvleft - fvright);
+                        res = fei_value_makefloatnumber(state, fvleft - fvright);
                     }
                 }
                 break;
             case OP_MULTIPLY:
                 {
-                    #if 1
-                    if(valleft.isfixednumber && valright.isfixednumber)
+                    if(leftfixed && rightfixed)
                     {
                         nvright = fei_value_asfixednumber(valright);
                         nvleft = fei_value_asfixednumber(valleft);
-                        res = fei_value_makefixednumber(nvleft * nvright);
+                        res = fei_value_makefixednumber(state, nvleft * nvright);
                     }
                     else
-                    #endif
                     {
                         fvright = fei_value_asfloatnumber(valright);
                         fvleft = fei_value_asfloatnumber(valleft);
-                        res = fei_value_makefloatnumber(fvleft * fvright);
+                        res = fei_value_makefloatnumber(state, fvleft * fvright);
                     }
                 }
                 break;
             case OP_DIVIDE:
                 {
-                    #if 1
-                    if(valleft.isfixednumber && valright.isfixednumber)
+                    if(leftfixed && rightfixed)
                     {
                         nvright = fei_value_asfixednumber(valright);
                         nvleft = fei_value_asfixednumber(valleft);
-                        res = fei_value_makefixednumber(nvleft / nvright);
+                        res = fei_value_makefixednumber(state, nvleft / nvright);
                     }
                     else
-                    #endif
                     {
                         fvright = fei_value_asfloatnumber(valright);
                         fvleft = fei_value_asfloatnumber(valleft);
-                        res = fei_value_makefloatnumber(fvleft / fvright);
+                        res = fei_value_makefloatnumber(state, fvleft / fvright);
                     }
                 }
                 break;
             case OP_MODULO:
                 {
-                    #if 1
-                    if(valleft.isfixednumber && valright.isfixednumber)
+                    if(leftfixed && rightfixed)
                     {
                         nvright = fei_value_asfixednumber(valright);
                         nvleft = fei_value_asfixednumber(valleft);
-                        res = fei_value_makefixednumber(nvleft % nvright);
+                        res = fei_value_makefixednumber(state, nvleft % nvright);
                     }
                     else
-                    #endif
                     {
                         fvright = fei_value_asfloatnumber(valright);
                         fvleft = fei_value_asfloatnumber(valleft);
-                        res = fei_value_makefloatnumber(fmod(fvleft, fvright));
+                        res = fei_value_makefloatnumber(state, fmod(fvleft, fvright));
                     }
                 }
                 break;
             case OP_GREATER:
                 {
-                    #if 1
-                    if(valleft.isfixednumber && valright.isfixednumber)
+                    if(leftfixed && rightfixed)
                     {
                         nvright = fei_value_asfixednumber(valright);
                         nvleft = fei_value_asfixednumber(valleft);
-                        res = fei_value_makefixednumber(nvleft > nvright);
+                        res = fei_value_makefixednumber(state, nvleft > nvright);
                     }
                     else
-                    #endif
                     {
                         fvright = fei_value_asfloatnumber(valright);
                         fvleft = fei_value_asfloatnumber(valleft);
-                        res = fei_value_makebool(fvleft > fvright);
+                        res = fei_value_makebool(state, fvleft > fvright);
                     }
                 }
                 break;
             case OP_LESS:
                 {
-                    #if 1
-                    if(valleft.isfixednumber && valright.isfixednumber)
+                    if(leftfixed && rightfixed)
                     {
                         nvright = fei_value_asfixednumber(valright);
                         nvleft = fei_value_asfixednumber(valleft);
-                        res = fei_value_makebool(nvleft < nvright);
+                        res = fei_value_makebool(state, nvleft < nvright);
                     }
                     else
-                    #endif
                     {
                         fvright = fei_value_asfloatnumber(valright);
                         fvleft = fei_value_asfloatnumber(valleft);
-                        res = fei_value_makebool(fvleft < fvright);
+                        res = fei_value_makebool(state, fvleft < fvright);
                     }
                 }
                 break;
@@ -998,7 +1007,7 @@ bool fei_vmdo_switchequal(FeiState* state)
     b = fei_vm_stackpop_inline(state);
     // peek topmost, the first value
     a = fei_vm_stackpeek_inline(state, 0);
-    fei_vm_stackpush(state, fei_value_makebool(fei_value_compare(state, a, b)));
+    fei_vm_stackpush(state, fei_value_makebool(state, fei_value_compare(state, a, b)));
     return true;
 }
 
@@ -1008,7 +1017,7 @@ bool fei_vmdo_compare(FeiState* state)
     FeiValue b;
     b = fei_vm_stackpop_inline(state);
     a = fei_vm_stackpop_inline(state);
-    fei_vm_stackpush(state, fei_value_makebool(fei_value_compare(state, a, b)));
+    fei_vm_stackpush(state, fei_value_makebool(state, fei_value_compare(state, a, b)));
     return true;
 }
 
@@ -1018,7 +1027,7 @@ bool fei_vmdo_logicalnot(FeiState* state)
     FeiValue popped;
     popped = fei_vm_stackpop_inline(state);
     isfalsey = fei_value_isfalsey(state, popped);
-    fei_vm_stackpush(state, fei_value_makebool(isfalsey));
+    fei_vm_stackpush(state, fei_value_makebool(state, isfalsey));
     return true;
 }
 
@@ -1245,17 +1254,17 @@ ResultCode fei_vm_exec(FeiState* state)
             // literals
             case OP_NULL:
                 {
-                    fei_vm_stackpush(state, fei_value_makenull());
+                    fei_vm_stackpush(state, fei_value_makenull(state));
                 }
                 break;
             case OP_TRUE:
                 {
-                    fei_vm_stackpush(state, fei_value_makebool(true));
+                    fei_vm_stackpush(state, fei_value_makebool(state, true));
                 }
                 break;
             case OP_FALSE:
                 {
-                    fei_vm_stackpush(state, fei_value_makebool(false));
+                    fei_vm_stackpush(state, fei_value_makebool(state, false));
                 }
                 break;
             case OP_ADD:
@@ -1391,7 +1400,7 @@ ResultCode fei_vm_exec(FeiState* state)
             case OP_CLASS:
                 {
                     // load string for the class' name and push it onto the stack
-                    fei_vm_stackpush(state, fei_value_makeobject(fei_object_makeclass(state, READ_STRING(state, state->vmstate.topframe))));
+                    fei_vm_stackpush(state, fei_value_makeobject(state, fei_object_makeclass(state, READ_STRING(state, state->vmstate.topframe))));
                 }
                 break;
             case OP_METHOD:

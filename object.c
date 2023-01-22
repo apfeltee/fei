@@ -81,7 +81,7 @@ ObjUpvalue* fei_object_makeupvalue(FeiState* state, FeiValue* slot)
     upvalue = (ObjUpvalue*)fei_object_allocobject(state, sizeof(ObjUpvalue), OBJ_UPVALUE);
     upvalue->location = slot;
     upvalue->next = NULL;
-    upvalue->closed = fei_value_makenull();
+    upvalue->closed = fei_value_makenull(state);
     return upvalue;
 }
 

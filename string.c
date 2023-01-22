@@ -99,10 +99,10 @@ ObjString* fei_object_allocstring(FeiState* state, const char* chars, int length
     fei_string_append(state, objstr, chars, length);
     objstr->hash = hash;
     // garbage collection
-    fei_vm_stackpush(state, fei_value_makeobject(objstr));
+    fei_vm_stackpush(state, fei_value_makeobject(state, objstr));
     //printf("allocate\n");
     // for string interning
-    fei_table_set(state, &state->vmstate.strings, objstr, fei_value_makenull());
+    fei_table_set(state, &state->vmstate.strings, objstr, fei_value_makenull(state));
     // garbage collection
     fei_vm_stackpop(state);
     return objstr;
