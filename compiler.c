@@ -1581,12 +1581,14 @@ static void fei_comprule_number(FeiState* state, bool canassign)
     */
     dv = strtod(state->aststate.parser.prevtoken.toksrc, NULL);
     fixed = (int64_t)dv;
+    #if 1
     if(fixed == dv)
     {
         fprintf(stderr, "making fixed: fixed=%d\n", fixed);
         val = fei_value_makefixednumber(fixed);
     }
     else
+    #endif
     {
         fprintf(stderr, "making float: dv=%g\n", dv);
         val = fei_value_makefloatnumber(dv);

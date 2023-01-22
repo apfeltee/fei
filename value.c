@@ -1,4 +1,5 @@
 
+#include <math.h>
 #include "fei.h"
 
 // from VALUE STRUCT to RAW  C nicely used in printing
@@ -14,10 +15,12 @@ double fei_value_asfloatnumber(FeiValue v)
     {
         return 0;
     }
+    #if 0
     if(v.isfixednumber)
     {
         return v.as.valfixednum;
     }
+    #endif
     return v.as.valfloatnum;
 }
 
@@ -27,10 +30,16 @@ int64_t fei_value_asfixednumber(FeiValue v)
     {
         return 0;
     }
+    #if 0
     if(!v.isfixednumber)
     {
+        if(isnan(v.as.valfloatnum))
+        {
+            return -1;
+        }
         return v.as.valfloatnum;
     }
+    #endif
     return v.as.valfixednum;
 }
 
@@ -89,17 +98,36 @@ bool fei_value_isobject(FeiValue v)
     return v.type == VAL_OBJ;
 }
 
+bool fei_value_numberisnull(FeiState* state, FeiValue val)
+{
+    if(val.type == VAL_NUMBER)
+    {
+        if(val.isfixednumber)
+        {
+            return fei_value_asfixednumber(val) == 0;
+        }
+        return fei_value_asfloatnumber(val) == 0.0;
+    }
+    return false;
+}
+
 // comparison for OP_NOT
 bool fei_value_isfalsey(FeiState* state, FeiValue value)
 {
-    bool test;
     (void)state;
-    // return true if value is the null type or if it is a false bool type
-    test = (
-        fei_value_isnull(value) ||
-        (fei_value_isbool(value) && !fei_value_asbool(value))
-    );
-    return test;
+    if(fei_value_isnull(value))
+    {
+        return true;
+    }
+    if(fei_value_numberisnull(state, value))
+    {
+        return true;
+    }
+    if(fei_value_isbool(value))
+    {
+        return !fei_value_asbool(value);
+    }
+    return false;
 }
 
 int fei_value_gettype(FeiValue v)
@@ -173,11 +201,7 @@ bool fei_value_compare(FeiState* state, FeiValue a, FeiValue b)
                 {
                     return fei_value_asfixednumber(a) == fei_value_asfixednumber(b);
                 }
-                else if(!a.isfixednumber && !b.isfixednumber)
-                {
-                    return fei_value_asfloatnumber(a) == fei_value_asfloatnumber(b);
-                }
-                return fei_value_asnumber(a) == fei_value_asnumber(b);
+                return fei_value_asfloatnumber(a) == fei_value_asfloatnumber(b);
             }
             break;
         case VAL_NULL:

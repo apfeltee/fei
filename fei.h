@@ -88,8 +88,8 @@
 #define fei_value_asnumber(v) \
     ( \
         ((v).isfixednumber) ? \
-        ((v).as.valfixednum) : \
-        ((v).as.valfloatnum) \
+        (fei_value_asfixednumber(v)) : \
+        (fei_value_asfloatnumber(v)) \
     )
 
 enum FeiAstTokType
@@ -361,7 +361,7 @@ struct FeiValue
 {
     FeiValType type;
     bool isfixednumber;
-    union
+    struct
     {
         bool valbool;
         int64_t valfixednum;
@@ -1037,7 +1037,8 @@ static inline FeiValue fei_value_makenull()
 {
     FeiValue v;
     v.type = VAL_NULL;
-    v.as.valfloatnum = 0;
+    v.isfixednumber = true; 
+    v.as.valfixednum = 0;
     return v;
 }
 

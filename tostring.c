@@ -69,6 +69,7 @@ void fei_value_printvalue(FeiState* state, Writer* wr, FeiValue value, bool with
                 {
                     fei_writer_appendfmt(wr, "%g", fei_value_asfloatnumber(value));
                 }
+
             }
             break;
         case VAL_OBJ:

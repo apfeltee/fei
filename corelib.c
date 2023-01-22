@@ -57,6 +57,7 @@ static FeiValue objfn_number_chr(FeiState* state, FeiValue instance, int argc, F
     (void)state;
     (void)argc;
     (void)argv;
+    
     c = fei_value_asnumber(instance);
     return fei_value_makeobject(fei_string_copy(state, &c, 1));
 }
