@@ -210,7 +210,7 @@ bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int ar
     ObjBoundMethod* bound;
     if(fei_value_isobj(callee))
     {
-        switch(OBJ_TYPE(callee))
+        switch(fei_value_objtype(callee))
         {
             case OBJ_BOUND_METHOD:
                 {
@@ -562,9 +562,9 @@ ObjClass* fei_vm_getclassfor(FeiState* state, int typ)
     switch(typ)
     {
         case OBJ_STRING:
-            return state->objstringclass;
+            return state->objstring.classobj;
         case VAL_NUMBER:
-            return state->objnumberclass;
+            return state->objnumber.classobj;
         default:
             break;
     }

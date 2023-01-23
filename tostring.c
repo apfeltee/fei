@@ -84,7 +84,7 @@ void fei_value_printobject(FeiState* state, Writer* wr, FeiValue value, bool wit
 {
     (void)state;
     // first class objects can be printed; string and functions
-    switch(OBJ_TYPE(value))
+    switch(fei_value_objtype(value))
     {
         case OBJ_BOUND_METHOD:
             {

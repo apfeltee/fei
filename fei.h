@@ -108,6 +108,12 @@ enum FeiAstTokType
     TOKEN_SLASH,
     TOKEN_STAR,
     TOKEN_MODULO,
+    TOKEN_SHIFTLEFT,
+    TOKEN_SHIFTRIGHT,
+    TOKEN_BITXOR,
+    TOKEN_BITNOT,
+    TOKEN_BITOR,
+    TOKEN_BITAND,
 
     // one or two compare operators
     TOKEN_LOGICALNOT,
@@ -162,7 +168,7 @@ enum FeiAstTokType
 
 // for precedence in unary operations
 // ordered from lowest precedence to highest precedence
-typedef enum
+enum Precedence
 {
     PREC_NONE,
     PREC_ASSIGNMENT,// =
@@ -175,22 +181,18 @@ typedef enum
     PREC_UNARY,// ! -
     PREC_CALL,// . ()
     PREC_PRIMARY
-} Precedence;
+};
 
-typedef enum
+enum FuncType
 {
     TYPE_FUNCTION,
     TYPE_SCRIPT,// top level main()
     TYPE_INITIALIZER,// class constructors
     TYPE_METHOD,// class methods
-} FuncType;
+};
 
 
-// in bytecode format, each instruction has a one-byte operation code(opcode)
-// the number controls what kind of instruction we're dealing with- add, subtract, etc
-// typedef enums are bytes apparently
-// these are INSTRUCTIONS
-typedef enum
+enum OpCode
 {
     OP_CONSTANT,// chunk needs to know when to produce constants and print them in the right order
     // they have operands, to eg. identify which variable to load
@@ -222,6 +224,12 @@ typedef enum
     OP_MULTIPLY,
     OP_DIVIDE,
     OP_MODULO,
+    OP_SHIFTLEFT,
+    OP_SHIFTRIGHT,
+    OP_BITNOT,
+    OP_BITXOR,
+    OP_BITOR,
+    OP_BITAND,
 
     // logical, unary
     OP_NOT,
@@ -250,9 +258,7 @@ typedef enum
     OP_SUPER_INVOKE,
 
     OP_RETURN,// means return from current function
-} OpCode;// basically a typdef call to an enum
-// in C, you cannot have enums called simply by their rvalue 'string' names, use typdef to define them
-
+};
 
 /*
 * types of the most primitive types, stuff that can be stored directly as a FeiValue on the stack.
@@ -294,6 +300,9 @@ enum ResultCode
     STATUS_RTERROR
 };
 
+typedef enum /**/ FuncType FuncType;
+typedef enum /**/ OpCode OpCode;
+typedef enum /**/ Precedence Precedence;
 typedef enum /**/ FeiObjType FeiObjType;
 typedef enum /**/ FeiAstTokType FeiAstTokType;
 typedef enum /**/ FeiValType FeiValType;
@@ -326,6 +335,8 @@ typedef struct /**/ FeiBytecodeList FeiBytecodeList;
 typedef struct /**/ TabEntry TabEntry;
 typedef struct /**/ Table Table;
 typedef struct /**/ Writer Writer;
+typedef struct /**/ FeiPrimitive FeiPrimitive;
+
 
 /*
 * callback function type used in the parser.
@@ -731,7 +742,11 @@ struct VMState
     FeiVMFrame** frameobjects;
 };
 
-
+struct FeiPrimitive
+{
+    ObjClass* classobj;
+    ObjInstance* instobj;
+};
 
 struct FeiState
 {
@@ -741,8 +756,9 @@ struct FeiState
     /* a Writer instance that writes to standard error */
     Writer* iowriter_stderr;
 
-    ObjClass* objstringclass;
-    ObjClass* objnumberclass;
+
+    FeiPrimitive objstring;
+    FeiPrimitive objnumber;
 
     /* the virtualmachine state */
     VMState vmstate;
@@ -784,16 +800,18 @@ ObjClass *fei_object_makeclass(FeiState *state, ObjString *name);
 ObjClass *fei_object_makeclass_str(FeiState *state, const char *name);
 ObjInstance *fei_object_makeinstance(FeiState *state, ObjClass *klassobj);
 /* compiler.c */
+/* compiler.c */
 void fei_chunk_init(FeiState *state, FeiBytecodeList *chunk);
 void fei_chunk_pushbyte(FeiState *state, FeiBytecodeList *chunk, uint8_t byte, int line);
 void fei_chunk_destroy(FeiState *state, FeiBytecodeList *chunk);
 int fei_chunk_pushconst(FeiState *state, FeiBytecodeList *chunk, FeiValue value);
 void fei_lexer_initsource(FeiState *state, const char *source, size_t len);
-bool fei_lexutil_isalpha(FeiState *state, char c);
-bool fei_lexutil_isdigit(FeiState *state, char c);
-bool fei_lexer_isatend(FeiState *state);
+_Bool fei_lexutil_isalpha(FeiState *state, char c);
+_Bool fei_lexutil_isdigit(FeiState *state, char c);
+const char *fei_lexer_tokenname(int t);
+_Bool fei_lexer_isatend(FeiState *state);
 char fei_lexer_advance(FeiState *state);
-bool fei_lexer_match(FeiState *state, char expected);
+_Bool fei_lexer_match(FeiState *state, char expected);
 FeiAstToken fei_lexer_maketoken(FeiState *state, FeiAstTokType type);
 FeiAstToken fei_lexer_errortoken(FeiState *state, const char *message);
 char fei_lexer_peekcurrent(FeiState *state);
@@ -806,18 +824,21 @@ FeiAstToken fei_lexer_scannumber(FeiState *state);
 FeiAstToken fei_lexer_scanstring(FeiState *state);
 FeiAstToken fei_lexer_scantoken(FeiState *state);
 FeiBytecodeList *fei_compiler_currentchunk(FeiState *state);
-void fei_compiler_raiseat(FeiState *state, FeiAstToken *token, const char *message);
-void fei_compiler_raiseerror(FeiState *state, const char *message);
-void fei_compiler_raisehere(FeiState *state, const char *message);
+void fei_compiler_raiseatv(FeiState *state, FeiAstToken *token, const char *message, va_list va);
+void fei_compiler_raiseat(FeiState *state, FeiAstToken *token, const char *message, ...);
+void fei_compiler_raiseerrorv(FeiState *state, const char *fmt, va_list va);
+void fei_compiler_raiseerror(FeiState *state, const char *fmt, ...);
+void fei_compiler_raiseherev(FeiState *state, const char *fmt, va_list va);
+void fei_compiler_raisehere(FeiState *state, const char *fmt, ...);
 void fei_compiler_advancenext(FeiState *state);
 void fei_compiler_advanceskipping(FeiState *state, FeiAstTokType type);
 void fei_compiler_consume(FeiState *state, FeiAstTokType type, const char *message);
-bool fei_compiler_check(FeiState *state, FeiAstTokType type);
-bool fei_compiler_match(FeiState *state, FeiAstTokType type);
+_Bool fei_compiler_check(FeiState *state, FeiAstTokType type);
+_Bool fei_compiler_match(FeiState *state, FeiAstTokType type);
 void fei_compiler_emitbyte(FeiState *state, uint8_t byte);
 void fei_compiler_emitbytes(FeiState *state, uint8_t byte1, uint8_t byte2);
 void fei_compiler_emitloop(FeiState *state, int loopstart);
-void fei_compiler_emitcondloop(FeiState *state, int loopstart, bool condstate);
+void fei_compiler_emitcondloop(FeiState *state, int loopstart, _Bool condstate);
 int fei_compiler_emitjump(FeiState *state, uint8_t instruction);
 void fei_compiler_emitreturn(FeiState *state);
 uint8_t fei_compiler_makeconst(FeiState *state, FeiValue value);
@@ -832,9 +853,9 @@ void fei_compiler_endloopscope(FeiState *state);
 void fei_compiler_markcontinuejump(FeiState *state);
 void fei_compiler_patchbreakjumps(FeiState *state);
 uint8_t fei_compiler_makeidentconst(FeiState *state, FeiAstToken *name);
-bool fei_compiler_identsequal(FeiState *state, FeiAstToken *a, FeiAstToken *b);
+_Bool fei_compiler_identsequal(FeiState *state, FeiAstToken *a, FeiAstToken *b);
 int fei_compiler_resolvelocal(FeiState *state, FeiAstCompiler *compiler, FeiAstToken *name);
-int fei_compiler_addupvalue(FeiState *state, FeiAstCompiler *compiler, uint8_t index, bool islocal);
+int fei_compiler_addupvalue(FeiState *state, FeiAstCompiler *compiler, uint8_t index, _Bool islocal);
 int fei_compiler_resolveupvalue(FeiState *state, FeiAstCompiler *compiler, FeiAstToken *name);
 void fei_compiler_addlocal(FeiState *state, FeiAstToken name);
 void fei_compiler_declvarfromcurrent(FeiState *state);
@@ -842,7 +863,7 @@ uint8_t fei_compiler_parsevarfromcurrent(FeiState *state, const char *errormessa
 void fei_compiler_markinit(FeiState *state);
 void fei_compiler_defvarindex(FeiState *state, uint8_t global);
 uint8_t fei_compiler_parsearglist(FeiState *state);
-void fei_compiler_declnamedvar(FeiState *state, FeiAstToken name, bool canassign);
+void fei_compiler_declnamedvar(FeiState *state, FeiAstToken name, _Bool canassign);
 FeiAstToken fei_compiler_makesyntoken(FeiState *state, const char *text);
 void fei_compiler_parseprec(FeiState *state, Precedence precedence);
 FeiAstRule *fei_compiler_getrule(FeiState *state, FeiAstTokType type);
@@ -869,6 +890,7 @@ void fei_compiler_parsedeclaration(FeiState *state);
 void fei_compiler_parsestatement(FeiState *state);
 ObjFunction *fei_compiler_compilesource(FeiState *state, const char *source, size_t len);
 void fei_compiler_markroots(FeiState *state);
+
 /* corelib.c */
 void fei_state_setupglobals(FeiState *state);
 void fei_state_setupstring(FeiState *state);
@@ -942,33 +964,6 @@ void fei_value_printvalue(FeiState *state, Writer *wr, FeiValue value, bool with
 void fei_value_printobject(FeiState *state, Writer *wr, FeiValue value, bool withquot);
 /* value.c */
 
-bool fei_value_asbool(FeiValue v);
-
-
-int64_t fei_value_asfixednumber(FeiValue v);
-double fei_value_asfloatnumber(FeiValue v);
-
-FeiObject *fei_value_asobj(FeiValue v);
-FeiObjType OBJ_TYPE(FeiValue v);
-bool fei_object_istype(FeiValue value, FeiObjType type);
-bool fei_value_isboundmethod(FeiValue v);
-bool fei_value_isclass(FeiValue v);
-bool fei_value_isfunction(FeiValue v);
-bool fei_value_isinstance(FeiValue v);
-bool fei_value_isnative(FeiValue v);
-bool fei_value_isstring(FeiValue v);
-bool fei_value_isclosure(FeiValue v);
-bool fei_value_isobject(FeiValue v);
-bool fei_value_isfalsey(FeiState *state, FeiValue value);
-int fei_value_gettype(FeiValue v);
-ObjBoundMethod *fei_value_asbound_method(FeiValue v);
-ObjClass *fei_value_asclass(FeiValue v);
-ObjInstance *fei_value_asinstance(FeiValue v);
-ObjClosure *fei_value_asclosure(FeiValue v);
-ObjString *fei_value_asstring(FeiValue v);
-char *fei_value_ascstring(FeiValue v);
-ObjFunction *fei_value_asfunction(FeiValue v);
-NativeFn fei_value_asnative(FeiValue v);
 bool fei_value_compare(FeiState *state, FeiValue a, FeiValue b);
 /* vm.c */
 FeiVMFrame *fei_vm_frameget(FeiState *state, int idx);
@@ -1026,16 +1021,10 @@ void fei_writer_appendchar(Writer *wr, int c);
 void fei_writer_appendfmtva(Writer *wr, const char *fmt, va_list va);
 void fei_writer_appendfmt(Writer *wr, const char *fmt, ...);
 
-static inline void fei_value_setnull(FeiState* state, FeiValue* v)
-{
-    (void)state;
-    //memset(v, 0, sizeof(FeiValue));
-}
-
 static inline FeiValue fei_value_makebool(FeiState* state, bool b)
 {
     FeiValue v;
-    fei_value_setnull(state, &v);
+    (void)state;
     v.type = VAL_BOOL;
     v.as.valbool = b;
     return v;
@@ -1044,7 +1033,7 @@ static inline FeiValue fei_value_makebool(FeiState* state, bool b)
 static inline FeiValue fei_value_makenull(FeiState* state)
 {
     FeiValue v;
-    fei_value_setnull(state, &v);
+    (void)state;
     v.type = VAL_NULL;
     v.isfixednumber = true; 
     v.as.valfixednum = 0;
@@ -1054,7 +1043,6 @@ static inline FeiValue fei_value_makenull(FeiState* state)
 static inline FeiValue fei_value_makefloatnumber(FeiState* state, double dn)
 {
     FeiValue v;
-    fei_value_setnull(state, &v);
     state->ocount.cntnumfloat++;
     v.type = VAL_NUMBER;
     v.isfixednumber = false;
@@ -1066,7 +1054,6 @@ static inline FeiValue fei_value_makefloatnumber(FeiState* state, double dn)
 static inline FeiValue fei_value_makefixednumber(FeiState* state, int64_t dn)
 {
     FeiValue v;
-    fei_value_setnull(state, &v);
     state->ocount.cntnumfixed++;
     v.type = VAL_NUMBER;
     v.isfixednumber = true;
@@ -1078,8 +1065,188 @@ static inline FeiValue fei_value_makefixednumber(FeiState* state, int64_t dn)
 static inline FeiValue fei_value_makeobject_actual(FeiState* state, void* obj)
 {
     FeiValue v;
-    fei_value_setnull(state, &v);
+    (void)state;
     v.type = VAL_OBJ;
     v.as.valobjptr = (FeiObject*)obj;
     return v;
 }
+
+static inline bool fei_value_asbool(FeiValue v)
+{
+    return v.as.valbool;
+}
+
+static inline double fei_value_asfloatnumber(FeiValue v)
+{
+    if(v.type != VAL_NUMBER)
+    {
+        return 0;
+    }
+    #if 1
+    if(v.isfixednumber)
+    {
+        return v.as.valfixednum;
+    }
+    #endif
+    return v.as.valfloatnum;
+}
+
+static inline int64_t fei_value_asfixednumber(FeiValue v)
+{
+    if(v.type != VAL_NUMBER)
+    {
+        return 0;
+    }
+    #if 1
+    if(!v.isfixednumber)
+    {
+        #if 0
+        if(isnan(v.as.valfloatnum))
+        {
+            return -1;
+        }
+        #endif
+        return v.as.valfloatnum;
+    }
+    #endif
+    return v.as.valfixednum;
+}
+
+static inline FeiObject* fei_value_asobj(FeiValue v)
+{
+    return v.as.valobjptr;
+}
+
+static inline FeiObjType fei_value_objtype(FeiValue v)
+{
+    return fei_value_asobj(v)->type;
+}
+
+static inline bool fei_object_istype(FeiValue value, FeiObjType type)
+{
+    return fei_value_isobj(value) && fei_value_asobj(value)->type == type;
+}
+
+static inline bool fei_value_isboundmethod(FeiValue v)
+{
+    return fei_object_istype(v, OBJ_BOUND_METHOD);
+}
+
+static inline bool fei_value_isclass(FeiValue v)
+{
+    return fei_object_istype(v, OBJ_CLASS);
+}
+
+static inline bool fei_value_isfunction(FeiValue v)
+{
+    return fei_object_istype(v, OBJ_FUNCTION);
+}
+
+static inline bool fei_value_isinstance(FeiValue v)
+{
+    return (
+        fei_object_istype(v, OBJ_INSTANCE)
+    );
+}
+
+static inline bool fei_value_isnative(FeiValue v)
+{
+    return fei_object_istype(v, OBJ_NATIVE);
+}
+
+static inline bool fei_value_isstring(FeiValue v)
+{
+    return fei_object_istype(v, OBJ_STRING);
+}
+
+static inline bool fei_value_isclosure(FeiValue v)
+{
+    return fei_object_istype(v, OBJ_CLOSURE);
+}
+
+static inline bool fei_value_isobject(FeiValue v)
+{
+    return v.type == VAL_OBJ;
+}
+
+static inline bool fei_value_numberisnull(FeiState* state, FeiValue val)
+{
+    (void)state;
+    if(val.type == VAL_NUMBER)
+    {
+        if(val.isfixednumber)
+        {
+            return fei_value_asfixednumber(val) == 0;
+        }
+        return fei_value_asfloatnumber(val) == 0.0;
+    }
+    return false;
+}
+
+static inline bool fei_value_isfalsey(FeiState* state, FeiValue value)
+{
+    (void)state;
+    if(fei_value_isnull(value))
+    {
+        return true;
+    }
+    if(fei_value_numberisnull(state, value))
+    {
+        return true;
+    }
+    if(fei_value_isbool(value))
+    {
+        return !fei_value_asbool(value);
+    }
+    return false;
+}
+
+static inline int fei_value_gettype(FeiValue v)
+{
+    if(fei_value_isobject(v))
+    {
+        return v.as.valobjptr->type;
+    }
+    return v.type;
+}
+
+static inline ObjBoundMethod* fei_value_asbound_method(FeiValue v)
+{
+    return (ObjBoundMethod*)fei_value_asobj(v);
+}
+
+static inline ObjClass* fei_value_asclass(FeiValue v)
+{
+    return (ObjClass*)fei_value_asobj(v);
+}
+
+static inline ObjInstance* fei_value_asinstance(FeiValue v)
+{
+    return (ObjInstance*)fei_value_asobj(v);
+}
+
+static inline ObjClosure* fei_value_asclosure(FeiValue v)
+{
+    return (ObjClosure*)fei_value_asobj(v);
+}
+
+static inline ObjString* fei_value_asstring(FeiValue v)
+{
+    return (ObjString*)fei_value_asobj(v);
+}
+
+static inline char* fei_value_ascstring(FeiValue v)
+{
+    return fei_value_asstring(v)->chars;
+}
+
+static inline ObjFunction* fei_value_asfunction(FeiValue v)
+{
+    return (ObjFunction*)fei_value_asobj(v);
+}
+
+static inline NativeFn fei_value_asnative(FeiValue v)
+{
+    return ((ObjNative*)fei_value_asobj(v))->function;
+}
+

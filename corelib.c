@@ -70,11 +70,11 @@ void fei_state_setupglobals(FeiState* state)
 
 void fei_state_setupstring(FeiState* state)
 {
-    fei_class_defmethod(state, state->objstringclass, "length", objfn_string_length, true);
-    fei_class_defmethod(state, state->objstringclass, "size", objfn_string_size, false);
+    fei_class_defmethod(state, state->objstring.classobj, "length", objfn_string_length, true);
+    fei_class_defmethod(state, state->objstring.classobj, "size", objfn_string_size, false);
 }
 
 void fei_state_setupnumber(FeiState* state)
 {
-    fei_class_defmethod(state, state->objnumberclass, "chr", objfn_number_chr, true);
+    fei_class_defmethod(state, state->objnumber.classobj, "chr", objfn_number_chr, true);
 }

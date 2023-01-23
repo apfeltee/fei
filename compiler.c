@@ -82,6 +82,74 @@ bool fei_lexutil_isdigit(FeiState* state, char c)
     );
 }
 
+const char* fei_lexer_tokenname(int t)
+{
+    switch(t)
+    {
+        case TOKEN_LEFTPAREN: return "(";
+        case TOKEN_RIGHTPAREN: return ")";
+        case TOKEN_LEFTBRACE: return "{";
+        case TOKEN_RIGHTBRACE: return "}";
+        case TOKEN_COMMA: return ",";
+        case TOKEN_DOT: return ".";
+        case TOKEN_MINUS: return "-";
+        case TOKEN_PLUS: return "+";
+        case TOKEN_SEMICOLON: return ";";
+        case TOKEN_COLON: return ":";
+        case TOKEN_SLASH: return "/";
+        case TOKEN_STAR: return "*";
+        case TOKEN_MODULO: return "%";
+        case TOKEN_SHIFTLEFT: return "<<";
+        case TOKEN_SHIFTRIGHT: return ">>";
+        case TOKEN_BITXOR: return "^";
+        case TOKEN_BITNOT: return "~";
+        case TOKEN_BITOR: return "|";
+        case TOKEN_BITAND: return "&";
+        case TOKEN_LOGICALNOT: return "!";
+        case TOKEN_NOTEQUAL: return "!=";
+        case TOKEN_ASSIGN: return "=";
+        case TOKEN_EQUAL: return "==";
+        case TOKEN_GREATERTHAN: return ">";
+        case TOKEN_GREATEREQUAL: return ">=";
+        case TOKEN_LESSTHAN: return "<";
+        case TOKEN_LESSEQUAL: return "<=";
+        case TOKEN_IDENTIFIER: return "identifier";
+        case TOKEN_STRING: return "string";
+        case TOKEN_NUMBER: return "number";
+        case TOKEN_KWAND: return "and";
+        case TOKEN_KWCLASS: return "class";
+        case TOKEN_KWELF: return "elf";
+        case TOKEN_KWELSE: return "else";
+        case TOKEN_KWFALSE: return "false";
+        case TOKEN_KWFOR: return "for";
+        case TOKEN_KWFUN: return "fun";
+        case TOKEN_KWIF: return "if";
+        case TOKEN_KWNULL: return "null";
+        case TOKEN_KWOR: return "or";
+        case TOKEN_KWPRINT: return "print";
+        case TOKEN_KWRETURN: return "return";
+        case TOKEN_KWSUPER: return "super";
+        case TOKEN_KWSWITCH: return "switch";
+        case TOKEN_KWDEFAULT: return "default";
+        case TOKEN_KWCASE: return "case";
+        case TOKEN_KWTHIS: return "this";
+        case TOKEN_KWTRUE: return "true";
+        case TOKEN_KWVAR: return "var";
+        case TOKEN_KWWHILE: return "while";
+        case TOKEN_KWBREAK: return "break";
+        case TOKEN_KWCONTINUE: return "continue";
+        case TOKEN_KWDO: return "do";
+        case TOKEN_KWREPEAT: return "repeat";
+        case TOKEN_KWUNTIL: return "until";
+        case TOKEN_KWFROM: return "from";
+        case TOKEN_ERROR: return "error";
+        case TOKEN_EOF: return "eof";
+        default:
+            break;
+    }
+    return "unknown/illegal";
+}
+
 // to get EOF symbol -> '\0'
 bool fei_lexer_isatend(FeiState* state)
 {
@@ -715,6 +783,32 @@ FeiAstToken fei_lexer_scantoken(FeiState* state)
             }
             break;
         // for two characters
+        case '&':
+            {
+                if(fei_lexer_match(state, '&'))
+                {
+                    /* just reuse the keyword 'and' */
+                    return fei_lexer_maketoken(state, TOKEN_KWAND);
+                }
+                else
+                {
+                    return fei_lexer_maketoken(state, TOKEN_BITAND);
+                }
+            }
+            break;
+        case '|':
+            {
+                if(fei_lexer_match(state, '|'))
+                {
+                    /* reuse keyword 'or' */
+                    return fei_lexer_maketoken(state, TOKEN_KWOR);
+                }
+                else
+                {
+                    return fei_lexer_maketoken(state, TOKEN_BITOR);
+                }
+            }
+            break;
         case '!':
             {
                 if(fei_lexer_match(state, '='))
@@ -741,7 +835,11 @@ FeiAstToken fei_lexer_scantoken(FeiState* state)
             break;
         case '>':
             {
-                if(fei_lexer_match(state, '='))
+                if(fei_lexer_match(state, '>'))
+                {
+                    return fei_lexer_maketoken(state, TOKEN_SHIFTRIGHT);
+                }
+                else if(fei_lexer_match(state, '='))
                 {
                     return fei_lexer_maketoken(state, TOKEN_GREATEREQUAL);
                 }
@@ -753,7 +851,11 @@ FeiAstToken fei_lexer_scantoken(FeiState* state)
             break;
         case '<':
             {
-                if(fei_lexer_match(state, '='))
+                if(fei_lexer_match(state, '<'))
+                {
+                    return fei_lexer_maketoken(state, TOKEN_SHIFTLEFT);
+                }
+                else if(fei_lexer_match(state, '='))
                 {
                     return fei_lexer_maketoken(state, TOKEN_LESSEQUAL);
                 }
@@ -791,7 +893,7 @@ FeiBytecodeList* fei_compiler_currentchunk(FeiState* state)
 }
 
 // to handle syntax errors
-void fei_compiler_raiseat(FeiState* state, FeiAstToken* token, const char* message)
+void fei_compiler_raiseatv(FeiState* state, FeiAstToken* token, const char* fmt, va_list va)
 {
     // if an error already exists, no need to run other errors
     if(state->aststate.parser.panicmode)
@@ -813,23 +915,49 @@ void fei_compiler_raiseat(FeiState* state, FeiAstToken* token, const char* messa
     {
         fprintf(stderr, " at '%.*s'", token->length, token->toksrc);
     }
-    fprintf(stderr, ": %s\n", message);
+    fprintf(stderr, ": ");
+    vfprintf(stderr, fmt, va);
+    fprintf(stderr, "\n");
     state->aststate.parser.haderror = true;
 }
 
-// error from token most recently CONSUMED
-void fei_compiler_raiseerror(FeiState* state, const char* message)
+void fei_compiler_raiseat(FeiState* state, FeiAstToken* token, const char* fmt, ...)
 {
-    fei_compiler_raiseat(state, &state->aststate.parser.prevtoken, message);
+    va_list va;
+    va_start(va, fmt);
+    fei_compiler_raiseatv(state, token, fmt, va);
+    va_end(va);
 }
+
+// error from token most recently CONSUMED
+void fei_compiler_raiseerrorv(FeiState* state, const char* fmt, va_list va)
+{
+    fei_compiler_raiseatv(state, &state->aststate.parser.prevtoken, fmt, va);
+}
+
+void fei_compiler_raiseerror(FeiState* state, const char* fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    fei_compiler_raiseerrorv(state, fmt, va);
+    va_end(va);
+}
+
 
 // handling error from token, the most current one being handed, not yet consumed
-void fei_compiler_raisehere(FeiState* state, const char* message)
+void fei_compiler_raiseherev(FeiState* state, const char* fmt, va_list va)
 {
     // pass in the current parser
-    fei_compiler_raiseat(state, &state->aststate.parser.currtoken, message);
+    fei_compiler_raiseatv(state, &state->aststate.parser.currtoken, fmt, va);
 }
 
+void fei_compiler_raisehere(FeiState* state, const char* fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    fei_compiler_raiseherev(state, fmt, va);
+    va_end(va);
+}
 
 /* main compile functions */
 
@@ -1731,7 +1859,7 @@ static void fei_comprule_this(FeiState* state, bool canassign)
     // if not inside a class
     if(state->aststate.classcompiler == NULL)
     {
-        fei_compiler_raiseerror(state, "Cannot use 'this' outside of class.");
+        fei_compiler_raiseerror(state, "cannot use 'this' outside of class");
         return;
     }
     // always false
@@ -1781,7 +1909,9 @@ static void fei_comprule_unary(FeiState* state, bool canassign)
 // ubt not or, and or assignment operators as they are lower. Basically parse anything that is ABOVE the given precedence
 void fei_compiler_parseprec(FeiState* state, Precedence precedence)
 {
+    int nowtyp;
     bool canassign;
+    FeiAstRule* rule;
     ParseFn prefixrule;
     ParseFn infixrule;
     /*
@@ -1790,10 +1920,11 @@ void fei_compiler_parseprec(FeiState* state, Precedence precedence)
     */
     fei_compiler_advancenext(state);// again, go next first then use previous type as the 'current' token
     // the way the compiler is designed is that it has to always have a prefix
-    prefixrule = fei_compiler_getrule(state, state->aststate.parser.prevtoken.type)->prefix;
+    nowtyp = state->aststate.parser.prevtoken.type;
+    prefixrule = fei_compiler_getrule(state, nowtyp)->prefix;
     if(prefixrule == NULL)
     {
-        fei_compiler_raiseerror(state, "Expect expression.");
+        fei_compiler_raiseerror(state, "expect expression before '%s'", fei_lexer_tokenname(nowtyp));
         return;
     }
     canassign = precedence <= PREC_ASSIGNMENT;// for assignment precedence
@@ -1803,17 +1934,31 @@ void fei_compiler_parseprec(FeiState* state, Precedence precedence)
     * IMPORTANT: infix only runs if given precedence is LOWER than the operator for the infix
     * or more nicely if NEXT/INFIX PRECEDENCE IS HIGHER THAN PREC ASSIGNMENT(parameter above_
     */
-    while(precedence <= fei_compiler_getrule(state, state->aststate.parser.currtoken.type)->precedence)
+    while(true)
     {
-        fei_compiler_advancenext(state);
-        infixrule = fei_compiler_getrule(state, state->aststate.parser.prevtoken.type)->infix;
-        infixrule(state, canassign);
+        nowtyp = state->aststate.parser.currtoken.type;
+        rule = fei_compiler_getrule(state, nowtyp);
+        if(rule == NULL)
+        {
+            fei_compiler_raiseerror(state, "cannot get parser rule for token '%s' (%d)", fei_lexer_tokenname(nowtyp), nowtyp);
+            break;
+        }
+        if(precedence <= rule->precedence)
+        {
+            fei_compiler_advancenext(state);
+            infixrule = fei_compiler_getrule(state, state->aststate.parser.prevtoken.type)->infix;
+            infixrule(state, canassign);
+        }
+        else
+        {
+            break;
+        }
     }
     //consume(TOKEN_KWAND, "consume and failed");
     // if = is not consumed as part of the expression, nothing will , hence an error
     if(canassign && fei_compiler_match(state, TOKEN_ASSIGN))
     {
-        fei_compiler_raiseerror(state, "Invalid Assignment target.");
+        fei_compiler_raiseerror(state, "invalid assignment target");
     }
 }
 

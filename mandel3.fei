@@ -17,7 +17,7 @@ while(cy <= ymax)
         var y = 0;
         var x2 = 0;
         var y2 = 0;
-        var iter=0;
+        var iter = 0;
         while(iter < maxiter)
         {
             if((x2 + y2) > 16384)
@@ -28,14 +28,14 @@ while(cy <= ymax)
             x = x2 - y2 + cx;
             x2 = ((x * x) >> 12);
             y2 = ((y * y) >> 12);
-            iter +=1;
+            iter = iter + 1;
         }
         print((32 + iter).chr());
-        cx += dx;
+        cx = cx + dx;
     }
     print("\n");
     line = "";
-    cy += dy;
+    cy = cy + dy;
 }
 
 

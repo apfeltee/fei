@@ -64,6 +64,11 @@ void fei_vm_resetstack(FeiState* state)
     state->vmstate.openupvalues = NULL;
 }
 
+void fei_state_makeprimitive(FeiState* state, FeiPrimitive* pm, const char* name)
+{
+    pm->classobj = fei_object_makeclass_str(state, name);
+    pm->instobj = fei_object_makeinstance(state, pm->classobj);
+}
 
 FeiState* fei_state_init()
 {
@@ -99,8 +104,8 @@ FeiState* fei_state_init()
     state->iowriter_stdout = fei_writer_initfile(state, stdout, false);
     state->iowriter_stderr = fei_writer_initfile(state, stderr, false);
     {
-        state->objstringclass = fei_object_makeclass_str(state, "String");
-        state->objnumberclass = fei_object_makeclass_str(state, "Number");
+        fei_state_makeprimitive(state, &state->objstring, "String");
+        fei_state_makeprimitive(state, &state->objnumber, "Number");
     }
     fei_state_setupstring(state);
     fei_state_setupnumber(state);
