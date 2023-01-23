@@ -814,6 +814,66 @@ int compare_float(double f1, double f2)
     return 0;
 }
 
+bool fei_vmdo_intbinary(FeiState* state, uint8_t instruc, FeiValue* pvalleft, FeiValue* pvalright, FeiValue* res)
+{
+    bool leftfixed;
+    bool rightfixed;
+    int64_t nvright;
+    int64_t nvleft;
+    int64_t nvres;
+    leftfixed = pvalleft->isfixednumber;
+    rightfixed = pvalright->isfixednumber;
+    
+    if(leftfixed && rightfixed)
+    {
+        nvright = fei_value_asfixednumber(*pvalright);
+        nvleft = fei_value_asfixednumber(*pvalleft);
+    }
+    else
+    {
+        nvright = fei_value_asfloatnumber(*pvalright);
+        nvleft = fei_value_asfloatnumber(*pvalleft);
+    }
+    switch(instruc)
+    {
+        case OP_SHIFTLEFT:
+            {
+                nvres = (nvleft << nvright);
+            }
+            break;
+        case OP_SHIFTRIGHT:
+            {
+                nvres = (nvleft >> nvright);
+            }
+            break;
+        case OP_BITAND:
+            {
+                nvres = (nvleft & nvright);
+            }
+            break;
+        case OP_BITXOR:
+            {
+                nvres = (nvleft ^ nvright);
+            }
+            break;
+        case OP_BITOR:
+            {
+                nvres = (nvleft | nvright);
+            }
+            break;
+        default:
+            {
+                fei_vm_raiseruntimeerror(state, "invalid instruction '%d' for int binary", instruc);
+                return false;
+            }
+            break;
+    }
+
+    *res = fei_value_makefixednumber(state, nvres);
+
+    return true;
+}
+
 bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
 {
     bool leftfixed;
@@ -937,6 +997,19 @@ bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
                         fvright = fei_value_asfloatnumber(valright);
                         fvleft = fei_value_asfloatnumber(valleft);
                         res = fei_value_makefloatnumber(state, fmod(fvleft, fvright));
+                    }
+                }
+                break;
+            case OP_SHIFTLEFT:
+            case OP_SHIFTRIGHT:
+            case OP_BITAND:
+            case OP_BITXOR:
+            case OP_BITOR:
+                {
+                    //void fei_vmdo_intbinary(FeiState* state, uint8_t instruc, FeiValue* pvalleft, FeiValue* pvalright, FeiValue* res)
+                    if(!fei_vmdo_intbinary(state, instruc, &valleft, &valright, &res))
+                    {
+                        return false;
                     }
                 }
                 break;
@@ -1272,6 +1345,11 @@ ResultCode fei_vm_exec(FeiState* state)
             case OP_MULTIPLY:
             case OP_DIVIDE:
             case OP_MODULO:
+            case OP_SHIFTLEFT:
+            case OP_SHIFTRIGHT:
+            case OP_BITXOR:
+            case OP_BITOR:
+            case OP_BITAND:
             case OP_LESS:
             case OP_GREATER:
                 {
@@ -1437,6 +1515,10 @@ ResultCode fei_vm_exec(FeiState* state)
                     }
                 }
                 break;
+            default:
+                {
+                    fei_vm_raiseruntimeerror(state, "illegal instruction '%d'", instruction);
+                }
         }
     }
 }

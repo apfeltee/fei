@@ -30,10 +30,10 @@ while(cy <= ymax)
             y2 = ((y * y) >> 12);
             iter = iter + 1;
         }
-        print((32 + iter).chr());
+        print((32 + iter).chr);
         cx = cx + dx;
     }
-    print("\n");
+    println();
     line = "";
     cy = cy + dy;
 }

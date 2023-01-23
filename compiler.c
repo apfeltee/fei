@@ -1574,6 +1574,32 @@ static void fei_comprule_binary(FeiState* state, bool canassign)
                 fei_compiler_emitbytes(state, OP_GREATER, OP_NOT);
             }
             break;
+        case TOKEN_SHIFTLEFT:
+            {
+                fei_compiler_emitbyte(state, OP_SHIFTLEFT);
+            }
+            break;
+        case TOKEN_SHIFTRIGHT:
+            {
+                fei_compiler_emitbyte(state, OP_SHIFTRIGHT);
+            }
+            break;
+        case TOKEN_BITXOR:
+            {
+                fei_compiler_emitbyte(state, OP_BITXOR);
+            }
+            break;
+        case TOKEN_BITAND:
+            {
+                fei_compiler_emitbyte(state, OP_BITAND);
+            }
+            break;
+        case TOKEN_BITOR:
+            {
+                fei_compiler_emitbyte(state, OP_BITOR);
+            }
+            break;
+
         case TOKEN_PLUS:
             {
                 fei_compiler_emitbyte(state, OP_ADD);
@@ -1997,12 +2023,13 @@ FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
             rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
             break;
         case TOKEN_SLASH:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_FACTOR };
-            break;
-        case TOKEN_STAR:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_FACTOR };
-            break;
         case TOKEN_MODULO:
+        case TOKEN_STAR:
+        case TOKEN_SHIFTLEFT:
+        case TOKEN_SHIFTRIGHT:
+        case TOKEN_BITOR:
+        case TOKEN_BITXOR:
+        case TOKEN_BITAND:
             rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_FACTOR };
             break;
         case TOKEN_LOGICALNOT:

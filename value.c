@@ -2,7 +2,6 @@
 #include <math.h>
 #include "fei.h"
 
-
 // comparison function used in VM run()
 // used in ALL types of data(num, string, bools)
 bool fei_value_compare(FeiState* state, FeiValue a, FeiValue b)
@@ -47,5 +46,3 @@ bool fei_value_compare(FeiState* state, FeiValue a, FeiValue b)
     }
     return false;
 }
-
-
