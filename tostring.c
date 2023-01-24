@@ -39,6 +39,33 @@ void fei_value_printstring(FeiState* state, Writer* wr, ObjString* ostr, bool wi
     }
 }
 
+void fei_value_printarray(FeiState* state, Writer* wr, ObjArray* arr, bool withquot)
+{
+    size_t i;
+    size_t len;
+    FeiValue val;
+    len = fei_array_count(arr);
+    fei_writer_appendchar(wr, '[');
+    for(i=0; i<len; i++)
+    {
+        val = fei_valarray_get(state, &arr->items, i);
+        if(fei_value_isarray(val) && (fei_value_asarray(val) == arr))
+        {
+            fei_writer_appendfmt(wr, "(recursion)");
+        }
+        else
+        {
+            fei_value_printvalue(state, wr, val, withquot);
+        }
+        if((i+1) < len)
+        {
+            fei_writer_appendchar(wr, ',');
+        }
+    }
+    fei_writer_appendchar(wr, ']');
+}
+
+
 // actual printing on the virtual machine is done here
 void fei_value_printvalue(FeiState* state, Writer* wr, FeiValue value, bool withquot)
 {
@@ -69,7 +96,6 @@ void fei_value_printvalue(FeiState* state, Writer* wr, FeiValue value, bool with
                 {
                     fei_writer_appendfmt(wr, "%g", fei_value_asfloatnumber(value));
                 }
-
             }
             break;
         case VAL_OBJ:
@@ -126,8 +152,14 @@ void fei_value_printobject(FeiState* state, Writer* wr, FeiValue value, bool wit
                 fei_writer_appendfmt(wr, "<upvalue>");
             }
             break;
+        case OBJ_ARRAY:
+            {
+                fei_value_printarray(state, wr, fei_value_asarray(value), withquot);
+            }
+            break;
         default:
             {
+                fei_writer_appendfmt(wr, "<object '%s'>", fei_value_typename(value));
             }
             break;
     }

@@ -43,7 +43,7 @@
 #define TABLE_MAX_LOAD 0.75
 
 // track the compiler
-#define DEBUG_PRINT_CODE 1
+#define DEBUG_PRINT_CODE 0
 
 // execution tracing of the VM
 #define DEBUG_TRACE_EXECUTION 0
@@ -61,7 +61,6 @@
 #define fei_value_isbool(value) ((value).type == VAL_BOOL)
 #define fei_value_isnull(value) ((value).type == VAL_NULL)
 #define fei_value_isnumber(value) ((value).type == VAL_NUMBER)
-#define fei_value_isobj(value) ((value).type == VAL_OBJ)
 
 // macro to allocate memory, usedin obj/heap
 // use fei_gcmem_reallocate as malloc here; start from null pointer, old size is 0, and new size is count
@@ -293,7 +292,8 @@ enum FeiObjType
     OBJ_FUNCTION = 9,
     OBJ_NATIVE = 10,
     OBJ_STRING = 11,
-    OBJ_UPVALUE = 12
+    OBJ_UPVALUE = 12,
+    OBJ_ARRAY = 13,
 };
 
 /*
@@ -323,6 +323,7 @@ typedef struct /**/ ObjBoundMethod ObjBoundMethod;
 typedef struct /**/ ObjUpvalue ObjUpvalue;
 typedef struct /**/ ObjClosure ObjClosure;
 typedef struct /**/ ObjNative ObjNative;
+typedef struct /**/ ObjArray ObjArray;
 typedef struct /**/ FeiAstLocal FeiAstLocal;
 typedef struct /**/ FeiAstUpvalue FeiAstUpvalue;
 typedef struct /**/ ASTState ASTState;
@@ -647,6 +648,12 @@ struct ObjBoundMethod
     ObjClosure* method;
 };
 
+struct ObjArray
+{
+    FeiObject obj;
+    ValArray items;
+};
+
 // the call stack
 // keep track where on the stack a function's local begin, where the caller should resume, etc.
 // a call frame represents a single ongoing function call
@@ -791,6 +798,7 @@ struct FeiState
         int64_t cntupval;
         int64_t cntclosure;
         int64_t cntnative;
+        int64_t cntarray;
         int64_t cntnumfixed;
         int64_t cntnumfloat;
     } ocount;
@@ -802,6 +810,12 @@ size_t fei_valarray_count(ValArray *arr);
 FeiValue fei_valarray_get(FeiState *state, ValArray *arr, int idx);
 void fei_valarray_push(FeiState *state, ValArray *array, FeiValue value);
 void fei_valarray_destroy(FeiState *state, ValArray *array);
+ObjArray* fei_object_makearray(FeiState* state);
+size_t fei_array_count(ObjArray* arr);
+bool fei_array_push(FeiState* state, ObjArray* arr, FeiValue val);
+bool fei_array_destroy(FeiState* state, ObjArray* arr);
+
+
 /* class.c */
 bool fei_class_invokemethod(FeiState *state, ObjClass *klassobj, ObjString *name, int argcount);
 bool fei_class_bindmethod(FeiState *state, ObjClass *klassobj, ObjString *name, FeiValue val, bool isfield, bool force);
@@ -811,7 +825,7 @@ bool fei_class_defmethod(FeiState *state, ObjClass *klassobj, const char *strnam
 ObjClass *fei_object_makeclass(FeiState *state, ObjString *name);
 ObjClass *fei_object_makeclass_str(FeiState *state, const char *name);
 ObjInstance *fei_object_makeinstance(FeiState *state, ObjClass *klassobj);
-/* compiler.c */
+
 /* compiler.c */
 void fei_chunk_init(FeiState *state, FeiBytecodeList *chunk);
 void fei_chunk_pushbyte(FeiState *state, FeiBytecodeList *chunk, uint8_t byte, int line);
@@ -908,6 +922,7 @@ void fei_compiler_markroots(FeiState *state);
 void fei_state_setupglobals(FeiState *state);
 void fei_state_setupstring(FeiState *state);
 void fei_state_setupnumber(FeiState *state);
+
 /* debug.c */
 int fei_dbgutil_printsimpleir(FeiState *state, const char *name, int offset);
 int fei_dbgutil_printbyteir(FeiState *state, const char *name, FeiBytecodeList *chunk, int offset);
@@ -916,11 +931,8 @@ int fei_dbgutil_printinvokeir(FeiState *state, const char *name, FeiBytecodeList
 int fei_dbgutil_printjumpir(FeiState *state, const char *name, int sign, FeiBytecodeList *chunk, int offset);
 void fei_dbgdisas_chunk(FeiState *state, FeiBytecodeList *chunk, const char *name);
 int fei_dbgdisas_instr(FeiState *state, FeiBytecodeList *chunk, int offset);
-/* main.c */
-char *readhandle(FILE *hnd, size_t *dlen);
-char *readfile(const char *filename, size_t *dlen);
-void runfile(FeiState *state, const char *path);
-int main(int argc, char *argv[]);
+
+
 /* mem.c */
 void *fei_gcmem_reallocate(FeiState *state, void *pointer, size_t oldsize, size_t newsize);
 void fei_gcmem_freeobject(FeiState *state, FeiObject *object);
@@ -933,6 +945,7 @@ void fei_gcmem_tracerefs(FeiState *state);
 void fei_gcmem_sweep(FeiState *state);
 void fei_gcmem_collectgarbage(FeiState *state);
 void fei_gcmem_freeobjects(FeiState *state);
+
 /* object.c */
 FeiObject *fei_object_allocobject(FeiState *state, size_t size, FeiObjType type);
 ObjBoundMethod *fei_object_makeboundmethod(FeiState *state, FeiValue receiver, FeiObject *method);
@@ -940,6 +953,8 @@ ObjClosure *fei_object_makeclosure(FeiState *state, ObjFunction *function);
 ObjFunction *fei_object_makefunction(FeiState *state);
 ObjNative *fei_object_makenativefunc(FeiState *state, NativeFn function);
 ObjUpvalue *fei_object_makeupvalue(FeiState *state, FeiValue *slot);
+
+
 /* state.c */
 void fei_vm_raiseruntimeerror(FeiState *state, const char *format, ...);
 void fei_vm_defnative(FeiState *state, const char *name, NativeFn function);
@@ -1087,6 +1102,7 @@ static inline FeiValue fei_value_makeobject_actual(FeiState* state, void* obj)
     return v;
 }
 
+
 static inline bool fei_value_asbool(FeiValue v)
 {
     return v.as.valbool;
@@ -1128,19 +1144,24 @@ static inline int64_t fei_value_asfixednumber(FeiValue v)
     return v.as.valfixednum;
 }
 
-static inline FeiObject* fei_value_asobj(FeiValue v)
+static inline FeiObject* fei_value_asobject(FeiValue v)
 {
     return v.as.valobjptr;
 }
 
 static inline FeiObjType fei_value_objtype(FeiValue v)
 {
-    return fei_value_asobj(v)->type;
+    return fei_value_asobject(v)->type;
+}
+
+static inline bool fei_value_isobject(FeiValue v)
+{
+    return v.type == VAL_OBJ;
 }
 
 static inline bool fei_object_istype(FeiValue value, FeiObjType type)
 {
-    return fei_value_isobj(value) && fei_value_asobj(value)->type == type;
+    return fei_value_isobject(value) && fei_value_asobject(value)->type == type;
 }
 
 static inline bool fei_value_isboundmethod(FeiValue v)
@@ -1180,9 +1201,10 @@ static inline bool fei_value_isclosure(FeiValue v)
     return fei_object_istype(v, OBJ_CLOSURE);
 }
 
-static inline bool fei_value_isobject(FeiValue v)
+
+static inline bool fei_value_isarray(FeiValue v)
 {
-    return v.type == VAL_OBJ;
+    return fei_object_istype(v, OBJ_ARRAY);
 }
 
 static inline bool fei_value_numberisnull(FeiState* state, FeiValue val)
@@ -1226,29 +1248,34 @@ static inline int fei_value_gettype(FeiValue v)
     return v.type;
 }
 
+static inline ObjArray* fei_value_asarray(FeiValue v)
+{
+    return (ObjArray*)fei_value_asobject(v);
+}
+
 static inline ObjBoundMethod* fei_value_asbound_method(FeiValue v)
 {
-    return (ObjBoundMethod*)fei_value_asobj(v);
+    return (ObjBoundMethod*)fei_value_asobject(v);
 }
 
 static inline ObjClass* fei_value_asclass(FeiValue v)
 {
-    return (ObjClass*)fei_value_asobj(v);
+    return (ObjClass*)fei_value_asobject(v);
 }
 
 static inline ObjInstance* fei_value_asinstance(FeiValue v)
 {
-    return (ObjInstance*)fei_value_asobj(v);
+    return (ObjInstance*)fei_value_asobject(v);
 }
 
 static inline ObjClosure* fei_value_asclosure(FeiValue v)
 {
-    return (ObjClosure*)fei_value_asobj(v);
+    return (ObjClosure*)fei_value_asobject(v);
 }
 
 static inline ObjString* fei_value_asstring(FeiValue v)
 {
-    return (ObjString*)fei_value_asobj(v);
+    return (ObjString*)fei_value_asobject(v);
 }
 
 static inline char* fei_value_ascstring(FeiValue v)
@@ -1258,11 +1285,10 @@ static inline char* fei_value_ascstring(FeiValue v)
 
 static inline ObjFunction* fei_value_asfunction(FeiValue v)
 {
-    return (ObjFunction*)fei_value_asobj(v);
+    return (ObjFunction*)fei_value_asobject(v);
 }
 
 static inline NativeFn fei_value_asnative(FeiValue v)
 {
-    return ((ObjNative*)fei_value_asobj(v))->function;
+    return ((ObjNative*)fei_value_asobject(v))->function;
 }
-

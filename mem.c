@@ -48,7 +48,7 @@ void* fei_gcmem_reallocate(FeiState* state, void* pointer, size_t oldsize, size_
 
 
 // you can pass in a'lower' struct pointer, in this case FeiObject*, and get the higher level which is ObjFunction
-void fei_gcmem_freeobject(FeiState* state, FeiObject* object)// to handle different types
+void fei_gcmem_freeobject(FeiState* state, FeiObject* object)
 {
     ObjClass* klassobj;
     ObjInstance* instance;
@@ -61,6 +61,11 @@ void fei_gcmem_freeobject(FeiState* state, FeiObject* object)// to handle differ
     #endif
     switch(object->type)
     {
+        case OBJ_ARRAY:
+            {
+                fei_array_destroy(state, (ObjArray*)object);
+            }
+            break;
         case OBJ_BOUND_METHOD:
             {
                 FREE(state, sizeof(ObjBoundMethod), object);
@@ -155,11 +160,11 @@ void fei_gcmem_markobject(FeiState* state, FeiObject* object)
 void fei_gcmem_markvalue(FeiState* state, FeiValue value)
 {
     // if value is not first class Objtype return
-    if(!fei_value_isobj(value))
+    if(!fei_value_isobject(value))
     {
         return;
     }
-    fei_gcmem_markobject(state, fei_value_asobj(value));
+    fei_gcmem_markobject(state, fei_value_asobject(value));
 }
 
 // marking array of values/constants of a function, used in fei_gcmem_blackenobject, case OBJ_FUNCTION
@@ -203,6 +208,7 @@ void fei_gcmem_markroots(FeiState* state)
 void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
 {
     int i;
+    ObjArray* arr;
     ObjBoundMethod* bound;
     ObjClass* klassobj;
     ObjInstance* instance;
@@ -215,6 +221,12 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
     #endif
     switch(object->type)
     {
+        case OBJ_ARRAY:
+            {
+                arr = (ObjArray*)object;
+                fei_gcmem_markarray(state, &arr->items);
+            }
+            break;
         case OBJ_BOUND_METHOD:
             {
                 bound = (ObjBoundMethod*)object;

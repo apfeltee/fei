@@ -46,6 +46,11 @@ const char* fei_object_typename(FeiObject* v)
                 return "upvalue";
             }
             break;
+        case OBJ_ARRAY:
+            {
+                return "array";
+            }
+            break;
         default:
             {
             }
@@ -125,7 +130,7 @@ bool fei_value_compare(FeiState* state, FeiValue a, FeiValue b)
         case VAL_OBJ:
             {
                 // already interned, occupies the same address
-                return fei_value_asobj(a) == fei_value_asobj(b);
+                return fei_value_asobject(a) == fei_value_asobject(b);
             }
             break;
         default:

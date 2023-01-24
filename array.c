@@ -40,4 +40,35 @@ void fei_valarray_destroy(FeiState* state, ValArray* array)
     fei_valarray_init(state, array);
 }
 
+ObjArray* fei_object_makearray(FeiState* state)
+{
+    ObjArray* arr;
+    state->ocount.cntarray++;
+    arr = (ObjArray*)fei_object_allocobject(state, sizeof(ObjBoundMethod), OBJ_ARRAY);
+    fei_valarray_init(state, &arr->items);
+    return arr;
+}
+
+size_t fei_array_count(ObjArray* arr)
+{
+    return fei_valarray_count(&arr->items);
+}
+
+bool fei_array_push(FeiState* state, ObjArray* arr, FeiValue val)
+{
+    fei_valarray_push(state, &arr->items, val);
+    return true;
+}
+
+bool fei_array_destroy(FeiState* state, ObjArray* arr)
+{
+    if(arr != NULL)
+    {
+        fei_valarray_destroy(state, &arr->items);
+        fei_gcmem_reallocate(state, arr, sizeof(ObjArray), 0);
+        return true;
+    }
+    return false;
+}
+
 

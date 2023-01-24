@@ -236,6 +236,19 @@ int fei_dbgdisas_instr(FeiState* state, FeiBytecodeList* chunk, int offset)
                 return fei_dbgutil_printjumpir(state, "OP_LOOP_IF_FALSE", -1, chunk, offset);
             }
             break;
+
+        case OP_INDEX:
+            {
+                return fei_dbgutil_printsimpleir(state, "OP_INDEX", offset);
+            }
+            break;
+
+        case OP_MAKEARRAY:
+            {
+                return fei_dbgutil_printsimpleir(state, "OP_MAKEARRAY", offset);
+            }
+            break;
+
         default:
             {
                 fprintf(stderr, "Unknown opcode %d\n", instruction);

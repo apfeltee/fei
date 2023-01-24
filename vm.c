@@ -208,7 +208,7 @@ bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int ar
     ObjInstance* instance;
     ObjClass* klass;
     ObjBoundMethod* bound;
-    if(fei_value_isobj(callee))
+    if(fei_value_isobject(callee))
     {
         switch(fei_value_objtype(callee))
         {
@@ -750,6 +750,8 @@ const char* op2name(int op)
         case OP_GET_SUPER: return "OP_GET_SUPER";
         case OP_SUPER_INVOKE: return "OP_SUPER_INVOKE";
         case OP_RETURN: return "OP_RETURN";
+        case OP_INDEX: return "OP_INDEX";
+        case OP_MAKEARRAY: return "OP_MAKEARRAY";
     }
     return "?unknown?";
 }
@@ -1280,15 +1282,6 @@ bool fei_vmdo_index(FeiState* state)
     fei_vm_stackpop_inline(state);
     fei_vm_stackpop_inline(state);
 
-
-
-
-    fprintf(stderr, "value: ");
-    fei_value_printvalue(state, state->iowriter_stderr, peeked, true);
-    fprintf(stderr, ", index: ");
-    fei_value_printvalue(state, state->iowriter_stderr, index, true);
-    fprintf(stderr, "\n");
-
     if(fei_value_isstring(peeked))
     {
         if(!fei_value_isnumber(index))
@@ -1317,8 +1310,36 @@ bool fei_vmdo_index(FeiState* state)
         return false;
     }
     return true;
-
 }
+
+
+
+
+bool fei_vmdo_makearray(FeiState* state)
+{
+    int16_t i;
+    int16_t cnt;
+    FeiValue val;
+    ObjArray* arr;
+    cnt = READ_BYTE(state->vmstate.topframe);
+    arr = fei_object_makearray(state);
+    #if 0
+        fprintf(stderr, "in makearray: cnt=%d\n", cnt);
+    #endif
+    for(i=0; i<cnt; i++)
+    {
+        val = fei_vm_stackpop_inline(state);
+        #if 0
+        fprintf(stderr, "value: ");
+        fei_value_printvalue(state, state->iowriter_stderr, val, true);
+        fprintf(stderr, "\n");
+        #endif
+        fei_array_push(state, arr, val);
+    }
+    fei_vm_stackpush_inline(state, fei_value_makeobject(state, arr));
+    return true;
+}
+
 
 typedef bool(*VMPrimitive)(FeiState*);
 
@@ -1568,6 +1589,11 @@ ResultCode fei_vm_exec(FeiState* state)
             case OP_INDEX:
                 {
                     exec_vmprim(fei_vmdo_index);
+                }
+                break;
+            case OP_MAKEARRAY:
+                {
+                    exec_vmprim(fei_vmdo_makearray);
                 }
                 break;
             default:
