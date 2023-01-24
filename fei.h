@@ -43,7 +43,7 @@
 #define TABLE_MAX_LOAD 0.75
 
 // track the compiler
-#define DEBUG_PRINT_CODE 0
+#define DEBUG_PRINT_CODE 1
 
 // execution tracing of the VM
 #define DEBUG_TRACE_EXECUTION 0
@@ -95,12 +95,12 @@
 enum FeiAstTokType
 {
     // single character
-    TOKEN_LEFTPAREN,
-    TOKEN_RIGHTPAREN,// ( )
+    TOKEN_OPENPAREN,
+    TOKEN_CLOSEPAREN,// ( )
     TOKEN_LEFTBRACE,
     TOKEN_RIGHTBRACE,// { }
-    TOKEN_LEFTBRACKET,
-    TOKEN_RIGHTBRACKET,
+    TOKEN_OPENBRACKET,
+    TOKEN_CLOSEBRACKET,
     TOKEN_COMMA,
     TOKEN_DOT,
     TOKEN_MINUS,
@@ -844,7 +844,8 @@ void fei_compiler_raiseherev(FeiState *state, const char *fmt, va_list va);
 void fei_compiler_raisehere(FeiState *state, const char *fmt, ...);
 void fei_compiler_advancenext(FeiState *state);
 void fei_compiler_advanceskipping(FeiState *state, FeiAstTokType type);
-void fei_compiler_consume(FeiState *state, FeiAstTokType type, const char *message);
+void fei_compiler_consumev(FeiState *state, FeiAstTokType type, const char* fmt, va_list va);
+void fei_compiler_consume(FeiState *state, FeiAstTokType type, const char* fmt, ...);
 _Bool fei_compiler_check(FeiState *state, FeiAstTokType type);
 _Bool fei_compiler_match(FeiState *state, FeiAstTokType type);
 void fei_compiler_emitbyte(FeiState *state, uint8_t byte);
@@ -874,7 +875,7 @@ void fei_compiler_declvarfromcurrent(FeiState *state);
 uint8_t fei_compiler_parsevarfromcurrent(FeiState *state, const char *errormessage);
 void fei_compiler_markinit(FeiState *state);
 void fei_compiler_defvarindex(FeiState *state, uint8_t global);
-uint8_t fei_compiler_parsearglist(FeiState *state);
+uint8_t fei_compiler_parsearglist(FeiState* state, const char* contextname, FeiAstTokType tokbegin, FeiAstTokType tokend);
 void fei_compiler_declnamedvar(FeiState *state, FeiAstToken name, _Bool canassign);
 FeiAstToken fei_compiler_makesyntoken(FeiState *state, const char *text);
 void fei_compiler_parseprec(FeiState *state, Precedence precedence);

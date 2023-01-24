@@ -252,6 +252,7 @@ int main(int argc, char* argv[])
     cmdfailed = false;
     state = fei_state_init();
     populate_flags(argc, 1, argv, "ed", &fx);
+    #if 0
     {
         ptyp(FeiValue);
         ptyp(FeiObject);
@@ -281,7 +282,7 @@ int main(int argc, char* argv[])
         ptyp(TabEntry);
         ptyp(Table);
     }
-
+    #endif
     if(!parse_options(&opts, fx.flags, fx.fcnt))
     {
         cmdfailed = true;

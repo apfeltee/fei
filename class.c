@@ -75,11 +75,11 @@ bool fei_class_bindmethod(FeiState* state, ObjClass* klassobj, ObjString* name, 
     if(fei_value_isboundmethod(method))
     {
         // wrap method in a new ObjBoundMethodd
-        bound = fei_object_makeboundmethod(state, val, fei_value_asclosure(method));
+        bound = fei_object_makeboundmethod(state, val, (FeiObject*)fei_value_asclosure(method));
     }
     else
     {
-        bound = fei_object_makeboundmethod(state, val, fei_value_asfunction(method));
+        bound = fei_object_makeboundmethod(state, val, (FeiObject*)fei_value_asfunction(method));
     }
     // pop the class instance
     fei_vm_stackpush(state, fei_value_makeobject(state, bound));

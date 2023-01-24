@@ -86,12 +86,12 @@ const char* fei_lexer_tokenname(int t)
 {
     switch(t)
     {
-        case TOKEN_LEFTPAREN: return "(";
-        case TOKEN_RIGHTPAREN: return ")";
+        case TOKEN_OPENPAREN: return "(";
+        case TOKEN_CLOSEPAREN: return ")";
         case TOKEN_LEFTBRACE: return "{";
         case TOKEN_RIGHTBRACE: return "}";
-        case TOKEN_LEFTBRACKET: return "[";
-        case TOKEN_RIGHTBRACKET: return "]";
+        case TOKEN_OPENBRACKET: return "[";
+        case TOKEN_CLOSEBRACKET: return "]";
         case TOKEN_COMMA: return ",";
         case TOKEN_DOT: return ".";
         case TOKEN_MINUS: return "-";
@@ -721,12 +721,12 @@ FeiAstToken fei_lexer_scantoken(FeiState* state)
         // for single characters
         case '(':
             {
-                return fei_lexer_maketoken(state, TOKEN_LEFTPAREN);
+                return fei_lexer_maketoken(state, TOKEN_OPENPAREN);
             }
             break;
         case ')':
             {
-                return fei_lexer_maketoken(state, TOKEN_RIGHTPAREN);
+                return fei_lexer_maketoken(state, TOKEN_CLOSEPAREN);
             }
             break;
         case '{':
@@ -741,12 +741,12 @@ FeiAstToken fei_lexer_scantoken(FeiState* state)
             break;
         case '[':
             {
-                return fei_lexer_maketoken(state, TOKEN_LEFTBRACKET);
+                return fei_lexer_maketoken(state, TOKEN_OPENBRACKET);
             }
             break;
         case ']':
             {
-                return fei_lexer_maketoken(state, TOKEN_RIGHTBRACKET);
+                return fei_lexer_maketoken(state, TOKEN_CLOSEBRACKET);
             }
             break;
         case ';':
@@ -1004,7 +1004,7 @@ void fei_compiler_advanceskipping(FeiState* state, FeiAstTokType type)
 
 // SIMILAR to advance but there is a validation for a certain type
 // syntax error comes from here, where it is known/expected what the next token will be
-void fei_compiler_consume(FeiState* state, FeiAstTokType type, const char* message)
+void fei_compiler_consumev(FeiState* state, FeiAstTokType type, const char* fmt, va_list va)
 {
     // if current token is equal to the token type being compared to
     if(state->aststate.parser.currtoken.type == type)
@@ -1013,7 +1013,15 @@ void fei_compiler_consume(FeiState* state, FeiAstTokType type, const char* messa
         return;
     }
     // if consumes a different type, error
-    fei_compiler_raisehere(state, message);
+    fei_compiler_raiseherev(state, fmt, va);
+}
+
+void fei_compiler_consume(FeiState* state, FeiAstTokType type, const char* fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    fei_compiler_consumev(state, type, fmt, va);
+    va_end(va);
 }
 
 bool fei_compiler_check(FeiState* state, FeiAstTokType type)
@@ -1484,12 +1492,12 @@ void fei_compiler_defvarindex(FeiState* state, uint8_t global)
 
 // for function arguments, returns number of arguments
 // each argument expression generates code which leaves value on the stack in preparation for the call
-uint8_t fei_compiler_parsearglist(FeiState* state)
+uint8_t fei_compiler_parsearglist(FeiState* state, const char* contextname, FeiAstTokType tokbegin, FeiAstTokType tokend)
 {
     uint8_t argcount;
     argcount = 0;
     // if ) has not been reached
-    if(!fei_compiler_check(state, TOKEN_RIGHTPAREN))
+    if(!fei_compiler_check(state, tokend))
     {
         do
         {
@@ -1503,15 +1511,19 @@ uint8_t fei_compiler_parsearglist(FeiState* state)
             argcount++;
         } while(fei_compiler_match(state, TOKEN_COMMA));
     }
-    fei_compiler_consume(state, TOKEN_RIGHTPAREN, "expect ')' after argument list");
+    fei_compiler_consume(state, tokend, "expect '%s' after %s", fei_lexer_tokenname(tokend));
     return argcount;
 }
 
 static void fei_comprule_index(FeiState* state, bool canassign)
 {
     (void)canassign;
+    /*
     fei_compiler_parseexpr(state);
-    fei_compiler_consume(state, TOKEN_RIGHTBRACKET, "expect ']' after index expression");
+    fei_compiler_consume(state, TOKEN_OPENBRACKET, "expect '[' before index expression");
+    */
+    fei_compiler_parseexpr(state);
+    fei_compiler_consume(state, TOKEN_CLOSEBRACKET, "expect ']' after index expression");
     fei_compiler_emitbyte(state, OP_INDEX);
 }
 
@@ -1519,18 +1531,17 @@ static void fei_comprule_arraylit(FeiState* state, bool canassign)
 {
     int itemcount;
     (void)canassign;
+    fprintf(stderr, "in comprule_arraylit...\n");
     itemcount = 0;
-    if(!fei_compiler_check(state, TOKEN_RIGHTBRACKET))
-    {
-        do
-        {
-            fei_compiler_parseexpr(state);
-            itemcount++;
-        } while(fei_compiler_match(state, TOKEN_COMMA));
-        fei_compiler_parseexpr(state);
-    }
-    fei_compiler_consume(state, TOKEN_RIGHTBRACKET, "expect ']' after array literal expression");
+
+    itemcount = fei_compiler_parsearglist(state, "array literal", TOKEN_OPENBRACKET, TOKEN_CLOSEBRACKET);
+
+    fei_compiler_advancenext(state);
+    fprintf(stderr, "post array?\n");
+    
+
     fei_compiler_emitbytes(state, OP_MAKEARRAY, itemcount);
+
 }
 
 
@@ -1668,7 +1679,7 @@ static void fei_comprule_grouping(FeiState* state, bool canassign)
     // and recursively call to fei_compiler_parseexpr() to compile between the parentheses
     fei_compiler_parseexpr(state);
     // expects a right parentheses, if not received then  error
-    fei_compiler_consume(state, TOKEN_RIGHTPAREN, "Expect ')' after expression.");
+    fei_compiler_consume(state, TOKEN_CLOSEPAREN, "Expect ')' after expression.");
 }
 
 // for function calls
@@ -1676,7 +1687,7 @@ static void fei_comprule_call(FeiState* state, bool canassign)
 {
     (void)canassign;
     // again, assumes the function itself(its call name) has been placed on the codestream stack
-    uint8_t argcount = fei_compiler_parsearglist(state);
+    uint8_t argcount = fei_compiler_parsearglist(state, "call arguments", TOKEN_OPENPAREN, TOKEN_CLOSEPAREN);
     fei_compiler_emitbytes(state, OP_CALL, argcount);
 }
 
@@ -1696,9 +1707,9 @@ static void fei_comprule_dot(FeiState* state, bool canassign)
         fei_compiler_emitbytes(state, OP_SET_PROPERTY, name);
     }
     // for running class methods, access the method and call it at the same time
-    else if(fei_compiler_match(state, TOKEN_LEFTPAREN))
+    else if(fei_compiler_match(state, TOKEN_OPENPAREN))
     {
-        argcount = fei_compiler_parsearglist(state);
+        argcount = fei_compiler_parsearglist(state, "dot-function call", TOKEN_OPENPAREN, TOKEN_CLOSEPAREN);
         /*
         * new OP_INVOKE opcode that takes two operands:
         * 1. the index of the property name in the constant table
@@ -1890,9 +1901,9 @@ static void fei_comprule_super(FeiState* state, bool canassign)
     */
     fei_compiler_declnamedvar(state, fei_compiler_makesyntoken(state, "this"), false);
     // if there is a parameter list, invoke super method
-    if(fei_compiler_match(state, TOKEN_LEFTPAREN))
+    if(fei_compiler_match(state, TOKEN_OPENPAREN))
     {
-        argcount = fei_compiler_parsearglist(state);
+        argcount = fei_compiler_parsearglist(state, "super invoke params", TOKEN_OPENPAREN, TOKEN_CLOSEPAREN);
         fei_compiler_declnamedvar(state, fei_compiler_makesyntoken(state, "super"), false);
         // super invoke opcode
         fei_compiler_emitbytes(state, OP_SUPER_INVOKE, name);
@@ -2039,43 +2050,17 @@ FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
     (void)state;
     switch(type)
     {
-        case TOKEN_LEFTPAREN:
-            rule = (FeiAstRule){ fei_comprule_grouping, fei_comprule_call, PREC_CALL };
-            break;
-        case TOKEN_RIGHTPAREN:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
-            break;
-        case TOKEN_LEFTBRACE:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
-            break;
-        case TOKEN_RIGHTBRACE:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
-            break;
-        case TOKEN_LEFTBRACKET:
-            {
-                rule = (FeiAstRule) { fei_comprule_arraylit, fei_comprule_index, PREC_CALL };
-            }
-            break;
-        case TOKEN_RIGHTBRACKET:
-            {
-                rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
-            }
-            break;
-        case TOKEN_COMMA:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
-            break;
-        case TOKEN_DOT:
-            rule = (FeiAstRule){ NULL, fei_comprule_dot, PREC_CALL };
-            break;
-        case TOKEN_MINUS:
-            rule = (FeiAstRule){ fei_comprule_unary, fei_comprule_binary, PREC_TERM };
-            break;
-        case TOKEN_PLUS:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_TERM };
-            break;
-        case TOKEN_SEMICOLON:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
-            break;
+        case TOKEN_OPENPAREN: rule = (FeiAstRule){ fei_comprule_grouping, fei_comprule_call, PREC_CALL }; break;
+        case TOKEN_CLOSEPAREN: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
+        case TOKEN_LEFTBRACE: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
+        case TOKEN_RIGHTBRACE: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
+        case TOKEN_OPENBRACKET: rule = (FeiAstRule) { fei_comprule_arraylit, fei_comprule_index, PREC_TERM }; break;
+        case TOKEN_CLOSEBRACKET: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
+        case TOKEN_COMMA: rule = (FeiAstRule){ NULL, NULL, PREC_NONE };break;
+        case TOKEN_DOT: rule = (FeiAstRule){ NULL, fei_comprule_dot, PREC_CALL }; break;
+        case TOKEN_MINUS: rule = (FeiAstRule){ fei_comprule_unary, fei_comprule_binary, PREC_TERM }; break;
+        case TOKEN_PLUS: rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_TERM }; break;
+        case TOKEN_SEMICOLON: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
         case TOKEN_SLASH:
         case TOKEN_MODULO:
         case TOKEN_STAR:
@@ -2086,9 +2071,7 @@ FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
         case TOKEN_BITAND:
             rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_FACTOR };
             break;
-        case TOKEN_LOGICALNOT:
-            rule = (FeiAstRule){ fei_comprule_unary, NULL, PREC_NONE };
-            break;
+        case TOKEN_LOGICALNOT: rule = (FeiAstRule){ fei_comprule_unary, NULL, PREC_NONE }; break;
         case TOKEN_NOTEQUAL:
             rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_EQUALITY };
             break;// equality precedence
@@ -2213,8 +2196,8 @@ void fei_compiler_parsefuncdecl(FeiState* state, FuncType type)
     fei_compiler_init(state, &compiler, type);
     fei_compiler_beginscope(state);
     // compile parameters
-    fei_compiler_consume(state, TOKEN_LEFTPAREN, "Expect '(' after function name.");
-    if(!fei_compiler_check(state, TOKEN_RIGHTPAREN))// if end ) has not been reached
+    fei_compiler_consume(state, TOKEN_OPENPAREN, "Expect '(' after function name.");
+    if(!fei_compiler_check(state, TOKEN_CLOSEPAREN))// if end ) has not been reached
     {
         do
         {
@@ -2227,7 +2210,7 @@ void fei_compiler_parsefuncdecl(FeiState* state, FuncType type)
             fei_compiler_defvarindex(state, paramconstant);// scope handled here already
         } while(fei_compiler_match(state, TOKEN_COMMA));
     }
-    fei_compiler_consume(state, TOKEN_RIGHTPAREN, "Expect ')' after parameter list.");
+    fei_compiler_consume(state, TOKEN_CLOSEPAREN, "Expect ')' after parameter list.");
     // body
     fei_compiler_consume(state, TOKEN_LEFTBRACE, "Expect '{' before function body.");
     fei_compiler_parseblock(state);
@@ -2382,10 +2365,10 @@ void fei_compiler_parseifstmt(FeiState* state)
 {
     int elsejump;
     int thenjump;
-    //fei_compiler_consume(state, TOKEN_LEFTPAREN, "Expect '(' after 'if'.");
+    //fei_compiler_consume(state, TOKEN_OPENPAREN, "Expect '(' after 'if'.");
     // compile the expression statment inside; fei_compiler_parseprec()
     // after compiling expression above conditon value will be left at the top of the stack
-    //fei_compiler_consume(state, TOKEN_RIGHTPAREN, "Expect ')' after condition.");
+    //fei_compiler_consume(state, TOKEN_CLOSEPAREN, "Expect ')' after condition.");
     // gives an operand on how much to offset the ip; how many bytes of code to skip
     // if falsey, simply adjusts the ip by that amount
     // offset to jump to next (potentially else or elf) statment
@@ -2528,7 +2511,7 @@ void fei_compiler_parseforstmt(FeiState* state)
     // for possible variable declarations in clause
     fei_compiler_beginscope(state);
     fei_compiler_beginloopscope(state);
-    fei_compiler_consume(state, TOKEN_LEFTPAREN, "Expect '(' after 'for'.");
+    fei_compiler_consume(state, TOKEN_OPENPAREN, "Expect '(' after 'for'.");
     // initializer clause
     if(fei_compiler_match(state, TOKEN_SEMICOLON))
     {
@@ -2561,7 +2544,7 @@ void fei_compiler_parseforstmt(FeiState* state)
     }
     // the increment clause
     // if there is something else before the terminating ')'
-    if(!fei_compiler_match(state, TOKEN_RIGHTPAREN))
+    if(!fei_compiler_match(state, TOKEN_CLOSEPAREN))
     {
         /*
         * INCEREMENT CLAUSE
@@ -2581,7 +2564,7 @@ void fei_compiler_parseforstmt(FeiState* state)
         fei_compiler_parseexpr(state);
         // pop expression constant
         fei_compiler_emitbyte(state, OP_POP);
-        fei_compiler_consume(state, TOKEN_RIGHTPAREN, "Expect ')' after for clauses.");
+        fei_compiler_consume(state, TOKEN_CLOSEPAREN, "Expect ')' after for clauses.");
         // running the loop
         // goes back to the start of the CONDITION clause of the for loop
         fei_compiler_emitloop(state, loopstart);

@@ -1,8 +1,7 @@
 
 arr = [1, 2, 3];
-itm = arr[2];
 
-println(itm);
+println(arr);
 
 
 
