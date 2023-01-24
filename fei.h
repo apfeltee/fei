@@ -99,6 +99,8 @@ enum FeiAstTokType
     TOKEN_RIGHTPAREN,// ( )
     TOKEN_LEFTBRACE,
     TOKEN_RIGHTBRACE,// { }
+    TOKEN_LEFTBRACKET,
+    TOKEN_RIGHTBRACKET,
     TOKEN_COMMA,
     TOKEN_DOT,
     TOKEN_MINUS,
@@ -236,6 +238,10 @@ enum OpCode
     OP_EQUAL,
     OP_GREATER,
     OP_LESS,
+
+    OP_INDEX,
+
+    OP_MAKEARRAY,
 
     OP_SWITCH_EQUAL,
     OP_CLOSE_UPVALUE,
@@ -742,6 +748,12 @@ struct VMState
     FeiVMFrame** frameobjects;
 };
 
+/*
+* wraps class + instance of a builtin, primitive type,
+* such as string, number, function, etc.
+* right now, methods are stored in classobj, making instobj pointless,
+* but that will be changed. eventually.
+*/
 struct FeiPrimitive
 {
     ObjClass* classobj;
@@ -962,9 +974,12 @@ void fei_value_printfunc(FeiState *state, Writer *wr, ObjFunction *function);
 void fei_value_printstring(FeiState *state, Writer *wr, ObjString *ostr, bool withquot);
 void fei_value_printvalue(FeiState *state, Writer *wr, FeiValue value, bool withquot);
 void fei_value_printobject(FeiState *state, Writer *wr, FeiValue value, bool withquot);
-/* value.c */
 
+/* value.c */
+const char* fei_value_typename(FeiValue v);
+const char* fei_object_typename(FeiObject* v);
 bool fei_value_compare(FeiState *state, FeiValue a, FeiValue b);
+
 /* vm.c */
 FeiVMFrame *fei_vm_frameget(FeiState *state, int idx);
 void dumpstack(FeiState *state, const char *fmt, ...);

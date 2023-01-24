@@ -823,7 +823,6 @@ bool fei_vmdo_intbinary(FeiState* state, uint8_t instruc, FeiValue* pvalleft, Fe
     int64_t nvres;
     leftfixed = pvalleft->isfixednumber;
     rightfixed = pvalright->isfixednumber;
-    
     if(leftfixed && rightfixed)
     {
         nvright = fei_value_asfixednumber(*pvalright);
@@ -868,9 +867,7 @@ bool fei_vmdo_intbinary(FeiState* state, uint8_t instruc, FeiValue* pvalleft, Fe
             }
             break;
     }
-
     *res = fei_value_makefixednumber(state, nvres);
-
     return true;
 }
 
@@ -1270,6 +1267,59 @@ bool fei_vmdo_loopiftrue(FeiState* state)
     return true;
 }
 
+bool fei_vmdo_index(FeiState* state)
+{
+    FeiValue index;
+    FeiValue peeked;
+    char ch;
+    ObjString* rs;
+    ObjString* obs;
+    int64_t nidx;
+    index = fei_vm_stackpeek_inline(state, 0);
+    peeked = fei_vm_stackpeek_inline(state, 1);
+    fei_vm_stackpop_inline(state);
+    fei_vm_stackpop_inline(state);
+
+
+
+
+    fprintf(stderr, "value: ");
+    fei_value_printvalue(state, state->iowriter_stderr, peeked, true);
+    fprintf(stderr, ", index: ");
+    fei_value_printvalue(state, state->iowriter_stderr, index, true);
+    fprintf(stderr, "\n");
+
+    if(fei_value_isstring(peeked))
+    {
+        if(!fei_value_isnumber(index))
+        {
+            fei_vm_raiseruntimeerror(state, "cannot use a '%s' to index a '%s'", fei_value_typename(index), fei_value_typename(peeked));
+            return false;
+        }
+        nidx = fei_value_asnumber(index);
+        obs = fei_value_asstring(peeked);
+        if(nidx < obs->length)
+        {
+            ch = obs->chars[nidx];
+            rs = fei_string_copy(state, &ch, 1);
+            fei_vm_stackpush_inline(state, fei_value_makeobject(state, rs));
+            return true;
+        }
+        else
+        {
+            fei_vm_raiseruntimeerror(state, "string index %ld out of bounds of %ld", nidx, obs->length);
+            return false;
+        }
+    }
+    else
+    {
+        fei_vm_raiseruntimeerror(state, "cannot index a %s", fei_value_typename(peeked));
+        return false;
+    }
+    return true;
+
+}
+
 typedef bool(*VMPrimitive)(FeiState*);
 
 #define exec_vmprim(fn) \
@@ -1513,6 +1563,11 @@ ResultCode fei_vm_exec(FeiState* state)
                     {
                         return STATUS_OK;                        
                     }
+                }
+                break;
+            case OP_INDEX:
+                {
+                    exec_vmprim(fei_vmdo_index);
                 }
                 break;
             default:

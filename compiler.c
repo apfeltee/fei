@@ -90,6 +90,8 @@ const char* fei_lexer_tokenname(int t)
         case TOKEN_RIGHTPAREN: return ")";
         case TOKEN_LEFTBRACE: return "{";
         case TOKEN_RIGHTBRACE: return "}";
+        case TOKEN_LEFTBRACKET: return "[";
+        case TOKEN_RIGHTBRACKET: return "]";
         case TOKEN_COMMA: return ",";
         case TOKEN_DOT: return ".";
         case TOKEN_MINUS: return "-";
@@ -737,6 +739,16 @@ FeiAstToken fei_lexer_scantoken(FeiState* state)
                 return fei_lexer_maketoken(state, TOKEN_RIGHTBRACE);
             }
             break;
+        case '[':
+            {
+                return fei_lexer_maketoken(state, TOKEN_LEFTBRACKET);
+            }
+            break;
+        case ']':
+            {
+                return fei_lexer_maketoken(state, TOKEN_RIGHTBRACKET);
+            }
+            break;
         case ';':
             {
                 return fei_lexer_maketoken(state, TOKEN_SEMICOLON);
@@ -872,20 +884,6 @@ FeiAstToken fei_lexer_scantoken(FeiState* state)
     }
     return fei_lexer_errortoken(state, "Unexpected character.");
 }
-
-static void fei_comprule_logicaland(FeiState* state, bool canassign);
-static void fei_comprule_binary(FeiState* state, bool canassign);
-static void fei_comprule_call(FeiState* state, bool canassign);
-static void fei_comprule_dot(FeiState* state, bool canassign);
-static void fei_comprule_literal(FeiState* state, bool canassign);
-static void fei_comprule_grouping(FeiState* state, bool canassign);
-static void fei_comprule_number(FeiState* state, bool canassign);
-static void fei_comprule_logicalor(FeiState* state, bool canassign);
-static void fei_comprule_string(FeiState* state, bool canassign);
-static void fei_comprule_variable(FeiState* state, bool canassign);
-static void fei_comprule_super(FeiState* state, bool canassign);
-static void fei_comprule_this(FeiState* state, bool canassign);
-static void fei_comprule_unary(FeiState* state, bool canassign);
 
 FeiBytecodeList* fei_compiler_currentchunk(FeiState* state)
 {
@@ -1505,9 +1503,36 @@ uint8_t fei_compiler_parsearglist(FeiState* state)
             argcount++;
         } while(fei_compiler_match(state, TOKEN_COMMA));
     }
-    fei_compiler_consume(state, TOKEN_RIGHTPAREN, "Expect ')' after argument list.");
+    fei_compiler_consume(state, TOKEN_RIGHTPAREN, "expect ')' after argument list");
     return argcount;
 }
+
+static void fei_comprule_index(FeiState* state, bool canassign)
+{
+    (void)canassign;
+    fei_compiler_parseexpr(state);
+    fei_compiler_consume(state, TOKEN_RIGHTBRACKET, "expect ']' after index expression");
+    fei_compiler_emitbyte(state, OP_INDEX);
+}
+
+static void fei_comprule_arraylit(FeiState* state, bool canassign)
+{
+    int itemcount;
+    (void)canassign;
+    itemcount = 0;
+    if(!fei_compiler_check(state, TOKEN_RIGHTBRACKET))
+    {
+        do
+        {
+            fei_compiler_parseexpr(state);
+            itemcount++;
+        } while(fei_compiler_match(state, TOKEN_COMMA));
+        fei_compiler_parseexpr(state);
+    }
+    fei_compiler_consume(state, TOKEN_RIGHTBRACKET, "expect ']' after array literal expression");
+    fei_compiler_emitbytes(state, OP_MAKEARRAY, itemcount);
+}
+
 
 static void fei_comprule_logicaland(FeiState* state, bool canassign)
 {
@@ -1634,13 +1659,25 @@ static void fei_comprule_binary(FeiState* state, bool canassign)
     }
 }
 
+
+// parentheses for grouping
+static void fei_comprule_grouping(FeiState* state, bool canassign)
+{
+    (void)canassign;
+    // assume initial ( has already been consumed,
+    // and recursively call to fei_compiler_parseexpr() to compile between the parentheses
+    fei_compiler_parseexpr(state);
+    // expects a right parentheses, if not received then  error
+    fei_compiler_consume(state, TOKEN_RIGHTPAREN, "Expect ')' after expression.");
+}
+
 // for function calls
 static void fei_comprule_call(FeiState* state, bool canassign)
 {
     (void)canassign;
     // again, assumes the function itself(its call name) has been placed on the codestream stack
-    uint8_t argcount = fei_compiler_parsearglist(state);// compile arguments using fei_compiler_parsearglist
-    fei_compiler_emitbytes(state, OP_CALL, argcount);// write on the chunk
+    uint8_t argcount = fei_compiler_parsearglist(state);
+    fei_compiler_emitbytes(state, OP_CALL, argcount);
 }
 
 // class members/fields/properties
@@ -1707,16 +1744,6 @@ static void fei_comprule_literal(FeiState* state, bool canassign)
     }
 }
 
-// parentheses for grouping
-static void fei_comprule_grouping(FeiState* state, bool canassign)
-{
-    (void)canassign;
-    // assume initial ( has already been consumed,
-    // and recursively call to fei_compiler_parseexpr() to compile between the parentheses
-    fei_compiler_parseexpr(state);
-    // expects a right parentheses, if not received then  error
-    fei_compiler_consume(state, TOKEN_RIGHTPAREN, "Expect ')' after expression.");
-}
 
 /* parsing the tokens */
 static void fei_comprule_number(FeiState* state, bool canassign)
@@ -1950,7 +1977,7 @@ void fei_compiler_parseprec(FeiState* state, Precedence precedence)
     prefixrule = fei_compiler_getrule(state, nowtyp)->prefix;
     if(prefixrule == NULL)
     {
-        fei_compiler_raiseerror(state, "expect expression before '%s'", fei_lexer_tokenname(nowtyp));
+        fei_compiler_raiseerror(state, "no parse rule for prefix '%s'", fei_lexer_tokenname(nowtyp));
         return;
     }
     canassign = precedence <= PREC_ASSIGNMENT;// for assignment precedence
@@ -1988,6 +2015,23 @@ void fei_compiler_parseprec(FeiState* state, Precedence precedence)
     }
 }
 
+
+static void fei_comprule_logicaland(FeiState* state, bool canassign);
+static void fei_comprule_binary(FeiState* state, bool canassign);
+static void fei_comprule_call(FeiState* state, bool canassign);
+static void fei_comprule_dot(FeiState* state, bool canassign);
+static void fei_comprule_literal(FeiState* state, bool canassign);
+static void fei_comprule_grouping(FeiState* state, bool canassign);
+static void fei_comprule_number(FeiState* state, bool canassign);
+static void fei_comprule_logicalor(FeiState* state, bool canassign);
+static void fei_comprule_string(FeiState* state, bool canassign);
+static void fei_comprule_variable(FeiState* state, bool canassign);
+static void fei_comprule_super(FeiState* state, bool canassign);
+static void fei_comprule_this(FeiState* state, bool canassign);
+static void fei_comprule_unary(FeiState* state, bool canassign);
+static void fei_comprule_index(FeiState* state, bool canassign);
+static void fei_comprule_arraylit(FeiState* state, bool canassign);
+
 // get pointer to FeiAstRule struct according to type parameter
 FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
 {
@@ -2006,6 +2050,16 @@ FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
             break;
         case TOKEN_RIGHTBRACE:
             rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            break;
+        case TOKEN_LEFTBRACKET:
+            {
+                rule = (FeiAstRule) { fei_comprule_arraylit, fei_comprule_index, PREC_CALL };
+            }
+            break;
+        case TOKEN_RIGHTBRACKET:
+            {
+                rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            }
             break;
         case TOKEN_COMMA:
             rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
@@ -2130,9 +2184,11 @@ FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
     return &rule;
 }
 
-void fei_compiler_parseexpr(FeiState* state)// a single 'statement' or line
+// a single 'statement' or line
+void fei_compiler_parseexpr(FeiState* state)
 {
-    fei_compiler_parseprec(state, PREC_ASSIGNMENT);// as assignment is the 2nd lowest, parses evrything
+    // as assignment is the 2nd lowest, parses evrything
+    fei_compiler_parseprec(state, PREC_ASSIGNMENT);
 }
 
 void fei_compiler_parseblock(FeiState* state)
@@ -2327,22 +2383,24 @@ void fei_compiler_parseifstmt(FeiState* state)
     int elsejump;
     int thenjump;
     //fei_compiler_consume(state, TOKEN_LEFTPAREN, "Expect '(' after 'if'.");
-    fei_compiler_parseexpr(state);// compile the expression statment inside; fei_compiler_parseprec()
+    // compile the expression statment inside; fei_compiler_parseprec()
     // after compiling expression above conditon value will be left at the top of the stack
     //fei_compiler_consume(state, TOKEN_RIGHTPAREN, "Expect ')' after condition.");
     // gives an operand on how much to offset the ip; how many bytes of code to skip
     // if falsey, simply adjusts the ip by that amount
     // offset to jump to next (potentially else or elf) statment
     // insert to opcode the then branch statment first, then get offset
+    fei_compiler_parseexpr(state);
     /* this gets distance */
     thenjump = fei_compiler_emitjump(state, OP_JUMP_IF_FALSE);
     fei_compiler_emitbyte(state, OP_POP);
     /* use BACKPATCHING: emit jump first with a placeholder offset, and get how far to jump */
     fei_compiler_parsestatement(state);
     // below jump wil SURELY jump; this is skipped if the first fei_compiler_emitjump is not false
-    elsejump = fei_compiler_emitjump(state, OP_JUMP);// need to jump at least 'twice' with an else statement
+    // need to jump at least 'twice' with an else statement
     // if the original statement is  true, then skip the the else statement
     // if then statment is run; pop the expression inside () after if
+    elsejump = fei_compiler_emitjump(state, OP_JUMP);
     /* this actually jumps */
     fei_compiler_patchjump(state, thenjump);
     // if else statment is run; pop the expression inside () after if
