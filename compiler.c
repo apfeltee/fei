@@ -1518,10 +1518,6 @@ uint8_t fei_compiler_parsearglist(FeiState* state, const char* contextname, FeiA
 static void fei_comprule_index(FeiState* state, bool canassign)
 {
     (void)canassign;
-    /*
-    fei_compiler_parseexpr(state);
-    fei_compiler_consume(state, TOKEN_OPENBRACKET, "expect '[' before index expression");
-    */
     fei_compiler_parseexpr(state);
     fei_compiler_consume(state, TOKEN_CLOSEBRACKET, "expect ']' after index expression");
     fei_compiler_emitbyte(state, OP_INDEX);
@@ -1531,19 +1527,11 @@ static void fei_comprule_arraylit(FeiState* state, bool canassign)
 {
     int itemcount;
     (void)canassign;
-    fprintf(stderr, "in comprule_arraylit...\n");
     itemcount = 0;
-
     itemcount = fei_compiler_parsearglist(state, "array literal", TOKEN_OPENBRACKET, TOKEN_CLOSEBRACKET);
-
     fei_compiler_advancenext(state);
-    fprintf(stderr, "post array?\n");
-    
-
     fei_compiler_emitbytes(state, OP_MAKEARRAY, itemcount);
-
 }
-
 
 static void fei_comprule_logicaland(FeiState* state, bool canassign)
 {
@@ -2841,7 +2829,6 @@ ObjFunction* fei_compiler_compilesource(FeiState* state, const char* source, siz
     return function;
 }
 
-
 // marking compiler roots, for garbage collection
 void fei_compiler_markroots(FeiState* state)
 {
@@ -2853,6 +2840,4 @@ void fei_compiler_markroots(FeiState* state)
         compiler = compiler->enclosing;
     }
 }
-
-
 

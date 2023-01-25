@@ -5,69 +5,15 @@
 //#define FEI_CFG_NEXTGC (1024)
 
 
-void fei_vm_raiseruntimeerror(FeiState* state, const char* format, ...)
-{
-    int i;
-    int line;
-    size_t instruction;
-    va_list args;
-    FeiVMFrame* frame;
-    ObjFunction* function;
-    fprintf(stderr, "!!!RUNTIME ERROR!!!\n");
-    va_start(args, format);
-    vfprintf(stderr, format, args);
-    va_end(args);
-    fprintf(stderr, "\n");
-    // printing the stack trace for the function
-    // print out each function that was still executing when the program died and where the execution was at the point it died
-    for(i = state->vmstate.framecount - 1; i >= 0; i--)
-    {
-        frame = fei_vm_frameget(state, i);
-        function = frame->closure->function;
-        // - 1 because IP is sitting on the NEXT INSTRUCTION to be executed
-        instruction = frame->ip - function->chunk.code - 1;
-        fprintf(stderr, "[line %d] in ", function->chunk.lines[instruction]);
-        if(function->name == NULL)
-        {
-            fprintf(stderr, "script\n");
-        }
-        else
-        {
-            fprintf(stderr, "%s(%d)\n", function->name->chars, function->arity);
-        }
-    }
-    // tell which line the error occurred
-    // pulls from topmost FeiVMFrame on the stack
-    frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
-    // - 1 to deal with the 1 added initially for the main() FeiVMFrame
-    instruction = frame->ip - frame->closure->function->chunk.code - 1;
-    line = frame->closure->function->chunk.lines[instruction];
-    fprintf(stderr, "Error in script at [Line %d]\n", line);
-    fei_vm_resetstack(state);
-}
-
-void fei_vm_defnative(FeiState* state, const char* name, NativeFn function)
-{
-    ObjString* objname;
-    ObjNative* objnat;
-    objname = fei_string_copy(state, name, (int)strlen(name));
-    objnat = fei_object_makenativefunc(state, function);
-    fei_table_set(state, &state->vmstate.globals, objname, fei_value_makeobject(state, objnat));        
-}
-
-void fei_vm_resetstack(FeiState* state)
-{
-    // point stackstop to the begininng of the empty array
-    // stack array(state->vmstate.stackvalues) is already indirectly declared, hence no need to allocate memory for it
-    state->vmstate.stacktop = state->vmstate.stackvalues;
-    state->vmstate.framecount = 0;
-    state->vmstate.openupvalues = NULL;
-}
-
 void fei_state_makeprimitive(FeiState* state, FeiPrimitive* pm, const char* name)
 {
     pm->classobj = fei_object_makeclass_str(state, name);
     pm->instobj = fei_object_makeinstance(state, pm->classobj);
+}
+
+void fei_state_setdefaultconfig(FeiState* state)
+{
+    state->config.traceinstructions = false;
 }
 
 FeiState* fei_state_init()
@@ -77,6 +23,7 @@ FeiState* fei_state_init()
     dfa = NULL;
     state = (FeiState*)malloc(sizeof(FeiState));
     memset(state, 0, sizeof(FeiState));
+    fei_state_setdefaultconfig(state);
     state->aststate.compiler = NULL;
     state->aststate.classcompiler = NULL;
     {
@@ -157,6 +104,66 @@ void fei_state_destroy(FeiState* state)
     print_counts(state);
     free(state);
 }
+
+void fei_vm_raiseruntimeerror(FeiState* state, const char* format, ...)
+{
+    int i;
+    int line;
+    size_t instruction;
+    va_list args;
+    FeiVMFrame* frame;
+    ObjFunction* function;
+    fprintf(stderr, "!!!RUNTIME ERROR!!!\n");
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+    fprintf(stderr, "\n");
+    // printing the stack trace for the function
+    // print out each function that was still executing when the program died and where the execution was at the point it died
+    for(i = state->vmstate.framecount - 1; i >= 0; i--)
+    {
+        frame = fei_vm_frameget(state, i);
+        function = frame->closure->function;
+        // - 1 because IP is sitting on the NEXT INSTRUCTION to be executed
+        instruction = frame->ip - function->chunk.code - 1;
+        fprintf(stderr, "[line %d] in ", function->chunk.lines[instruction]);
+        if(function->name == NULL)
+        {
+            fprintf(stderr, "script\n");
+        }
+        else
+        {
+            fprintf(stderr, "%s(%d)\n", function->name->chars, function->arity);
+        }
+    }
+    // tell which line the error occurred
+    // pulls from topmost FeiVMFrame on the stack
+    frame = fei_vm_frameget(state, state->vmstate.framecount - 1);
+    // - 1 to deal with the 1 added initially for the main() FeiVMFrame
+    instruction = frame->ip - frame->closure->function->chunk.code - 1;
+    line = frame->closure->function->chunk.lines[instruction];
+    fprintf(stderr, "Error in script at [Line %d]\n", line);
+    fei_vm_resetstack(state);
+}
+
+void fei_vm_defnative(FeiState* state, const char* name, NativeFn function)
+{
+    ObjString* objname;
+    ObjNative* objnat;
+    objname = fei_string_copy(state, name, (int)strlen(name));
+    objnat = fei_object_makenativefunc(state, function);
+    fei_table_set(state, &state->vmstate.globals, objname, fei_value_makeobject(state, objnat));        
+}
+
+void fei_vm_resetstack(FeiState* state)
+{
+    // point stackstop to the begininng of the empty array
+    // stack array(state->vmstate.stackvalues) is already indirectly declared, hence no need to allocate memory for it
+    state->vmstate.stacktop = state->vmstate.stackvalues;
+    state->vmstate.framecount = 0;
+    state->vmstate.openupvalues = NULL;
+}
+
 
 
 /* starting point of the compiler */

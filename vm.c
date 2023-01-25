@@ -1271,18 +1271,21 @@ bool fei_vmdo_loopiftrue(FeiState* state)
 
 bool fei_vmdo_index(FeiState* state)
 {
+    bool isarray;
     FeiValue index;
     FeiValue peeked;
+    int64_t nidx;
+    int64_t maxlen;
     char ch;
     ObjString* rs;
+    ObjArray* oba;
     ObjString* obs;
-    int64_t nidx;
     index = fei_vm_stackpeek_inline(state, 0);
     peeked = fei_vm_stackpeek_inline(state, 1);
     fei_vm_stackpop_inline(state);
     fei_vm_stackpop_inline(state);
-
-    if(fei_value_isstring(peeked))
+    isarray = fei_value_isarray(peeked);
+    if(fei_value_isstring(peeked) || isarray)
     {
         if(!fei_value_isnumber(index))
         {
@@ -1290,12 +1293,28 @@ bool fei_vmdo_index(FeiState* state)
             return false;
         }
         nidx = fei_value_asnumber(index);
-        obs = fei_value_asstring(peeked);
-        if(nidx < obs->length)
+        if(isarray)
         {
-            ch = obs->chars[nidx];
-            rs = fei_string_copy(state, &ch, 1);
-            fei_vm_stackpush_inline(state, fei_value_makeobject(state, rs));
+            oba = fei_value_asarray(peeked);
+            maxlen = fei_array_count(oba);
+        }
+        else
+        {
+            obs = fei_value_asstring(peeked);
+            maxlen = obs->length;
+        }
+        if(nidx < maxlen)
+        {
+            if(isarray)
+            {
+                fei_vm_stackpush_inline(state, fei_valarray_get(state, &oba->items, nidx));
+            }
+            else
+            {
+                ch = obs->chars[nidx];
+                rs = fei_string_copy(state, &ch, 1);
+                fei_vm_stackpush_inline(state, fei_value_makeobject(state, rs));
+            }
             return true;
         }
         else
@@ -1312,9 +1331,9 @@ bool fei_vmdo_index(FeiState* state)
     return true;
 }
 
-
-
-
+/*
+* FIXME: values are added in reverse, due to how the stack operates ...
+*/
 bool fei_vmdo_makearray(FeiState* state)
 {
     int16_t i;
@@ -1330,16 +1349,15 @@ bool fei_vmdo_makearray(FeiState* state)
     {
         val = fei_vm_stackpop_inline(state);
         #if 0
-        fprintf(stderr, "value: ");
-        fei_value_printvalue(state, state->iowriter_stderr, val, true);
-        fprintf(stderr, "\n");
+            fprintf(stderr, "value: ");
+            fei_value_printvalue(state, state->iowriter_stderr, val, true);
+            fprintf(stderr, "\n");
         #endif
         fei_array_push(state, arr, val);
     }
     fei_vm_stackpush_inline(state, fei_value_makeobject(state, arr));
     return true;
 }
-
 
 typedef bool(*VMPrimitive)(FeiState*);
 
@@ -1354,30 +1372,42 @@ typedef bool(*VMPrimitive)(FeiState*);
 // run the chunk
 ResultCode fei_vm_exec(FeiState* state)
 {
+    int cnt;
+    int dbgofs;
+    bool dbghasstack;
     uint8_t instruction;
+    FeiValue* slot;
     state->vmstate.topframe = fei_vm_frameget(state, state->vmstate.framecount - 1);
     while(true)
     {
         // fei_dbgdisas_instr needs an byte offset, do pointer math to convert ip back to relative offset
         // from the beginning of the chunk (subtract current ip from the starting ip)
         // IMPORTANT -> only for debugging the VM
-        #if defined(DEBUG_TRACE_EXECUTION) && (DEBUG_TRACE_EXECUTION == 1)
+        if(state->config.traceinstructions)
+        {
+            dbghasstack = (state->vmstate.stackvalues < state->vmstate.stacktop);
             // for stack tracing
-            printf("      ");
+            if(dbghasstack)
+            {}
+            fprintf(stderr, "current stack: [[\n");
             /* note on C POINTERSE
             -> pointing to the array itself means pointing to the start of the array, or the first element of the array
             -> ++/-- means moving through the array (by 1 or - 1)
             -> you can use operands like < > to tell compare how deep are you in the array
             */
             // prints every existing value in the stack
-            for(FeiValue* slot = state->vmstate.stackvalues; slot < state->vmstate.stacktop; slot++)
+            cnt = 0;
+            for(slot = state->vmstate.stackvalues; slot < state->vmstate.stacktop; slot++)
             {
-                fprintf(stderr, "[ ");
+                fprintf(stderr, "  %d slot[%p]: ", cnt, slot);
                 fei_value_printvalue(state, state->iowriter_stderr, *slot, true);
-                fprintf(stderr, " ]");
+                fprintf(stderr, "\n");
+                cnt++;
             }
-            fei_dbgdisas_instr(state, &state->vmstate.topframe->closure->function->chunk, (int)(state->vmstate.topframe->ip - state->vmstate.topframe->closure->function->chunk.code));
-        #endif
+            fprintf(stderr, "]]\n");
+            dbgofs = (int)(state->vmstate.topframe->ip - state->vmstate.topframe->closure->function->chunk.code);
+            fei_dbgdisas_instr(state, &state->vmstate.topframe->closure->function->chunk, dbgofs);
+        }
         // get result of the byte read, every set of instruction starts with an opcode
         switch(instruction = READ_BYTE(state->vmstate.topframe))
         {

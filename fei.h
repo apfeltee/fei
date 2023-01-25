@@ -45,9 +45,6 @@
 // track the compiler
 #define DEBUG_PRINT_CODE 0
 
-// execution tracing of the VM
-#define DEBUG_TRACE_EXECUTION 0
-
 // diagnostic tools for garbage collector
 // 'stress' mode; if this is on, GC runs as often as it possibly can
 #define DEBUG_STRESS_GC 0
@@ -343,7 +340,7 @@ typedef struct /**/ TabEntry TabEntry;
 typedef struct /**/ Table Table;
 typedef struct /**/ Writer Writer;
 typedef struct /**/ FeiPrimitive FeiPrimitive;
-
+typedef struct /**/ Config Config;
 
 /*
 * callback function type used in the parser.
@@ -755,6 +752,12 @@ struct VMState
     FeiVMFrame** frameobjects;
 };
 
+struct Config
+{
+    // execution tracing of the VM
+    bool traceinstructions;
+};
+
 /*
 * wraps class + instance of a builtin, primitive type,
 * such as string, number, function, etc.
@@ -769,6 +772,8 @@ struct FeiPrimitive
 
 struct FeiState
 {
+    Config config;
+
     /* a Writer instance that writes to standard output */
     Writer* iowriter_stdout;
 

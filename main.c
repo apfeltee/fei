@@ -292,17 +292,17 @@ int main(int argc, char* argv[])
         if(opts.debugmode != NULL)
         {
             dm = opts.debugmode;
-            /*
             if(strcmp(dm, "bc") == 0)
             {
-                state->config.dumpbytecode = true;
+                state->config.traceinstructions = true;
             }
+            /*
             else if(strcmp(dm, "ast") == 0)
             {
                 state->config.dumpast = true;
             }
-            else
             */
+            else
             {
                 fprintf(stderr, "unrecognized dump mode '%s'\n", dm);
                 cmdfailed = true;
