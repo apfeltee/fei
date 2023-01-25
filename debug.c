@@ -237,12 +237,16 @@ int fei_dbgdisas_instr(FeiState* state, FeiBytecodeList* chunk, int offset)
             }
             break;
 
-        case OP_INDEX:
+        case OP_SETINDEX:
             {
-                return fei_dbgutil_printsimpleir(state, "OP_INDEX", offset);
+                return fei_dbgutil_printsimpleir(state, "OP_SETINDEX", offset);
             }
             break;
-
+        case OP_GETINDEX:
+            {
+                return fei_dbgutil_printsimpleir(state, "OP_GETINDEX", offset);
+            }
+            break;
         case OP_MAKEARRAY:
             {
                 return fei_dbgutil_printsimpleir(state, "OP_MAKEARRAY", offset);

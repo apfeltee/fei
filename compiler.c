@@ -1520,7 +1520,15 @@ static void fei_comprule_index(FeiState* state, bool canassign)
     (void)canassign;
     fei_compiler_parseexpr(state);
     fei_compiler_consume(state, TOKEN_CLOSEBRACKET, "expect ']' after index expression");
-    fei_compiler_emitbyte(state, OP_INDEX);
+    if(fei_compiler_match(state, TOKEN_ASSIGN))
+    {
+        fei_compiler_parseexpr(state);
+        fei_compiler_emitbyte(state, OP_SETINDEX);
+    }
+    else
+    {
+        fei_compiler_emitbyte(state, OP_GETINDEX);
+    }
 }
 
 static void fei_comprule_arraylit(FeiState* state, bool canassign)

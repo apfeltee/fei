@@ -235,7 +235,8 @@ enum OpCode
     OP_GREATER,
     OP_LESS,
 
-    OP_INDEX,
+    OP_GETINDEX,
+    OP_SETINDEX,
 
     OP_MAKEARRAY,
 
@@ -783,6 +784,7 @@ struct FeiState
 
     FeiPrimitive objstring;
     FeiPrimitive objnumber;
+    FeiPrimitive objarray;
 
     /* the virtualmachine state */
     VMState vmstate;

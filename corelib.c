@@ -61,6 +61,30 @@ static FeiValue objfn_number_chr(FeiState* state, FeiValue instance, int argc, F
     return fei_value_makeobject(state, fei_string_copy(state, &c, 1));
 }
 
+static FeiValue objfn_array_length(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
+{
+    (void)state;
+    (void)argc;
+    (void)argv;
+    return fei_value_makefixednumber(state, fei_array_count(fei_value_asarray(instance)));
+}
+
+static FeiValue objfn_array_push(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
+{
+    int i;
+    ObjArray* arr;
+    (void)state;
+    (void)argc;
+    (void)argv;
+    arr = fei_value_asarray(instance);
+    for(i=0; i<argc; i++)
+    {
+        fei_valarray_push(state, &arr->items, argv[i]);
+    }
+    return fei_value_makefixednumber(state, i);
+}
+
+
 void fei_state_setupglobals(FeiState* state)
 {
     fei_vm_defnative(state, "clock", cfn_clock);
@@ -78,3 +102,11 @@ void fei_state_setupnumber(FeiState* state)
 {
     fei_class_defmethod(state, state->objnumber.classobj, "chr", objfn_number_chr, true);
 }
+
+void fei_state_setuparray(FeiState* state)
+{
+    fei_class_defmethod(state, state->objnumber.classobj, "length", objfn_array_length, true);
+    fei_class_defmethod(state, state->objnumber.classobj, "push", objfn_array_length, true);
+
+}
+

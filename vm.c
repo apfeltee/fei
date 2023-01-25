@@ -565,6 +565,8 @@ ObjClass* fei_vm_getclassfor(FeiState* state, int typ)
             return state->objstring.classobj;
         case VAL_NUMBER:
             return state->objnumber.classobj;
+        case OBJ_ARRAY:
+            return state->objarray.classobj;
         default:
             break;
     }
@@ -750,7 +752,8 @@ const char* op2name(int op)
         case OP_GET_SUPER: return "OP_GET_SUPER";
         case OP_SUPER_INVOKE: return "OP_SUPER_INVOKE";
         case OP_RETURN: return "OP_RETURN";
-        case OP_INDEX: return "OP_INDEX";
+        case OP_GETINDEX: return "OP_GETINDEX";
+        case OP_SETINDEX: return "OP_SETINDEX";
         case OP_MAKEARRAY: return "OP_MAKEARRAY";
     }
     return "?unknown?";
@@ -1269,21 +1272,58 @@ bool fei_vmdo_loopiftrue(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_index(FeiState* state)
+void debugval(FeiState* state, FeiValue val, const char* fmt, ...)
+{
+    va_list va;
+    fprintf(stderr, "debugval:");
+    va_start(va, fmt);
+    vfprintf(stderr, fmt, va);
+    va_end(va);
+    fprintf(stderr, " = ");
+    fei_value_printvalue(state, state->iowriter_stderr, val, true);
+    fprintf(stderr, "\n");
+}
+
+bool fei_vmdo_getindex(FeiState* state, bool setindex)
 {
     bool isarray;
     FeiValue index;
     FeiValue peeked;
+    FeiValue setval;
     int64_t nidx;
     int64_t maxlen;
     char ch;
+    char setchar;
     ObjString* rs;
     ObjArray* oba;
     ObjString* obs;
-    index = fei_vm_stackpeek_inline(state, 0);
-    peeked = fei_vm_stackpeek_inline(state, 1);
-    fei_vm_stackpop_inline(state);
-    fei_vm_stackpop_inline(state);
+    ObjString* setstr;
+    setchar = -1;
+    setval = fei_value_makenull(state);
+    #if 0
+        dumpstack(state, "fei_vmdo_getindex");
+    #endif
+    if(setindex)
+    {
+        setval = fei_vm_stackpeek_inline(state, 0);
+        index = fei_vm_stackpeek_inline(state, 1);
+        peeked = fei_vm_stackpeek_inline(state, 2);
+        fei_vm_stackpop_inline(state);
+        fei_vm_stackpop_inline(state);
+        fei_vm_stackpop_inline(state);
+    }
+    else
+    {
+        index = fei_vm_stackpeek_inline(state, 0);
+        peeked = fei_vm_stackpeek_inline(state, 1);
+        fei_vm_stackpop_inline(state);
+        fei_vm_stackpop_inline(state);
+    }
+    #if 0
+        debugval(state, index, "index");
+        debugval(state, peeked, "peeked");
+        debugval(state, setval, "setval");
+    #endif
     isarray = fei_value_isarray(peeked);
     if(fei_value_isstring(peeked) || isarray)
     {
@@ -1307,11 +1347,42 @@ bool fei_vmdo_index(FeiState* state)
         {
             if(isarray)
             {
-                fei_vm_stackpush_inline(state, fei_valarray_get(state, &oba->items, nidx));
+                if(setindex)
+                {
+                    oba->items.values[nidx] = setval;
+                    fei_vm_stackpush_inline(state, oba->items.values[nidx]);
+                }
+                else
+                {
+                    fei_vm_stackpush_inline(state, fei_valarray_get(state, &oba->items, nidx));
+                }
             }
             else
             {
                 ch = obs->chars[nidx];
+                if(setindex)
+                {
+                    if(fei_value_isnumber(setval))
+                    {
+                        setchar = fei_value_asfixednumber(setval);
+                    }
+                    else if(fei_value_isstring(setval))
+                    {
+                        setstr = fei_value_asstring(setval);
+                        if(setstr->length > 1)
+                        {
+                            fei_vm_raiseruntimeerror(state, "string set value must be a single character");
+                            return false;
+                        }
+                        setchar = setstr->chars[0];
+                    }
+                    else
+                    {
+                        fei_vm_raiseruntimeerror(state, "cannot use a '%s' to set string index", fei_value_typename(setval));
+                        return false;
+                    }
+                    obs->chars[nidx] = setchar;
+                }
                 rs = fei_string_copy(state, &ch, 1);
                 fei_vm_stackpush_inline(state, fei_value_makeobject(state, rs));
             }
@@ -1616,9 +1687,13 @@ ResultCode fei_vm_exec(FeiState* state)
                     }
                 }
                 break;
-            case OP_INDEX:
+            case OP_SETINDEX:
+            case OP_GETINDEX:
                 {
-                    exec_vmprim(fei_vmdo_index);
+                    if(fei_vmdo_getindex(state, (instruction == OP_SETINDEX)) == false)
+                    {
+                        return STATUS_RTERROR;
+                    }
                 }
                 break;
             case OP_MAKEARRAY:

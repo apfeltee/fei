@@ -53,9 +53,11 @@ FeiState* fei_state_init()
     {
         fei_state_makeprimitive(state, &state->objstring, "String");
         fei_state_makeprimitive(state, &state->objnumber, "Number");
+        fei_state_makeprimitive(state, &state->objarray, "Array");
     }
     fei_state_setupstring(state);
     fei_state_setupnumber(state);
+    fei_state_setuparray(state);
     return state;
 }
 
