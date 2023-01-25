@@ -105,8 +105,8 @@ void fei_state_setupnumber(FeiState* state)
 
 void fei_state_setuparray(FeiState* state)
 {
-    fei_class_defmethod(state, state->objnumber.classobj, "length", objfn_array_length, true);
-    fei_class_defmethod(state, state->objnumber.classobj, "push", objfn_array_length, true);
 
+    fei_class_defmethod(state, state->objarray.classobj, "length", objfn_array_length, true);
+    fei_class_defmethod(state, state->objarray.classobj, "push", objfn_array_push, false);
 }
 

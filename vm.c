@@ -557,16 +557,16 @@ bool fei_vmdo_call(FeiState* state)
     return true;
 }
 
-ObjClass* fei_vm_getclassfor(FeiState* state, int typ)
+ObjInstance* fei_vm_getinstancefor(FeiState* state, int typ)
 {
     switch(typ)
     {
         case OBJ_STRING:
-            return state->objstring.classobj;
+            return state->objstring.instobj;
         case VAL_NUMBER:
-            return state->objnumber.classobj;
+            return state->objnumber.instobj;
         case OBJ_ARRAY:
-            return state->objarray.classobj;
+            return state->objarray.instobj;
         default:
             break;
     }
@@ -577,19 +577,15 @@ bool fei_vm_otherproperty(FeiState* state, ObjString* name, int typ, bool asfiel
 {
     bool b;
     FeiValue v;
-    ObjClass* klass;
+    ObjInstance* inst;
     Table* tab;
-    klass = fei_vm_getclassfor(state, typ);
-    //fprintf(stderr, "fei_vm_otherproperty: typ=%d klass=%p (%s) name=%.*s\n", typ, klass, klass->name->chars, name->length, name->chars);
-    if(klass != NULL)
+    inst = fei_vm_getinstancefor(state, typ);
+    //fprintf(stderr, "fei_vm_otherproperty: typ=%d inst=%p (%s) name=%.*s\n", typ, inst, inst->classobject->name->chars, name->length, name->chars);
+    if(inst != NULL)
     {
-        tab = &klass->methods;
-        if(asfield)
-        {
-            tab = &klass->fieldlike;
-        }
+        tab = &inst->classobject->methods;
         b = fei_table_get(state, tab, name, &v);
-        //fprintf(stderr, "get table value: %d\n", b);
+        //fprintf(stderr, "get table value (from field=%d): %d\n", asfield, b);
         if(b)
         {
             fei_vm_stackpush(state, v);
@@ -605,15 +601,15 @@ bool fei_vm_classinvoke(FeiState* state, FeiValue receiver, ObjString* name, int
     int typ;
     bool isinst;
     bool isother;
-    ObjClass* tclass;
+    ObjInstance* tinst;
     FeiValue value;
     ObjInstance* instance;
     isother = false;
     // call method with wrong type, not an objinstance type
     typ = fei_value_gettype(receiver);
-    tclass = fei_vm_getclassfor(state, typ);
+    tinst = fei_vm_getinstancefor(state, typ);
     isinst = fei_value_isinstance(receiver);
-    if((isinst == false) || (tclass == NULL))
+    if((isinst == false) || (tinst == NULL))
     {
         isother = fei_vm_otherproperty(state, name, typ, false);
         if(!isother && !isinst)
@@ -652,7 +648,7 @@ bool fei_vmdo_getproperty(FeiState* state)
     bool b;
     FeiValue value;
     FeiValue peeked;
-    ObjClass* klass;
+    ObjInstance* inst;
     ObjString* name;
     ObjInstance* instance;
     peeked = fei_vm_stackpeek_inline(state, 0);
@@ -668,11 +664,11 @@ bool fei_vmdo_getproperty(FeiState* state)
         }
         else
         {
-            klass = fei_vm_getclassfor(state, typ);
-            //fprintf(stderr, "getproperty: klass=%p\n", klass);
-            if(klass != NULL)
+            inst = fei_vm_getinstancefor(state, typ);
+            //fprintf(stderr, "getproperty: inst=%p\n", inst);
+            if(inst != NULL)
             {
-                b = fei_table_get(state, &klass->methods, name, &value);
+                b = fei_table_get(state, &inst->classobject->methods, name, &value);
                 //fprintf(stderr, "get method: %d\n", b);
                 if(b)
                 {

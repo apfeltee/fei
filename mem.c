@@ -75,7 +75,6 @@ void fei_gcmem_freeobject(FeiState* state, FeiObject* object)
             {
                 klassobj = (ObjClass*)object;
                 fei_table_destroy(state, &klassobj->methods);
-                fei_table_destroy(state, &klassobj->fieldlike);
                 FREE(state, sizeof(ObjClass), object);
             }
             break;

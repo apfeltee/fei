@@ -8,7 +8,6 @@ ObjClass* fei_object_makeclass(FeiState* state, ObjString* name)
     klassobj = (ObjClass*)fei_object_allocobject(state, sizeof(ObjClass), OBJ_CLASS);
     klassobj->name = name;
     fei_table_initcapacity(state, &klassobj->methods, 4);
-    fei_table_initcapacity(state, &klassobj->fieldlike, 4);
     return klassobj;
 }
 
@@ -52,10 +51,7 @@ bool fei_class_bindmethod(FeiState* state, ObjClass* klassobj, ObjString* name, 
     ObjBoundMethod* bound;
     mustdef = false;
     tab = &klassobj->methods;
-    if(isfield)
-    {
-        tab = &klassobj->fieldlike;
-    }
+
     // get method from table and bind it
     if(!fei_table_get(state, tab, name, &method))
     {

@@ -627,7 +627,6 @@ struct ObjClass
     FeiObject obj;
     ObjString* name;
     Table methods;
-    Table fieldlike;
 };
 
 struct ObjInstance
@@ -929,6 +928,7 @@ void fei_compiler_markroots(FeiState *state);
 void fei_state_setupglobals(FeiState *state);
 void fei_state_setupstring(FeiState *state);
 void fei_state_setupnumber(FeiState *state);
+void fei_state_setuparray(FeiState* state);
 
 /* debug.c */
 int fei_dbgutil_printsimpleir(FeiState *state, const char *name, int offset);
@@ -1025,7 +1025,7 @@ bool fei_vmdo_invokemethod(FeiState *state);
 bool fei_vmdo_makeclosure(FeiState *state);
 bool fei_vmdo_setproperty(FeiState *state);
 bool fei_vmdo_call(FeiState *state);
-ObjClass *fei_vm_getclassfor(FeiState *state, int typ);
+ObjInstance *fei_vm_getinstancefor(FeiState *state, int typ);
 bool fei_vm_otherproperty(FeiState *state, ObjString *name, int typ, bool asfield);
 bool fei_vm_classinvoke(FeiState *state, FeiValue receiver, ObjString *name, int argcount);
 bool fei_vm_classinvokefromstack(FeiState *state, ObjString *name, int argcount);
