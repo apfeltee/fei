@@ -84,6 +84,20 @@ static FeiValue objfn_array_push(FeiState* state, FeiValue instance, int argc, F
     return fei_value_makefixednumber(state, i);
 }
 
+static FeiValue objfn_array_pop(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
+{
+    ObjArray* arr;
+    (void)state;
+    (void)argc;
+    (void)argv;
+    arr = fei_value_asarray(instance);
+    if(fei_array_count(arr) > 0)
+    {
+        return fei_array_pop(state, arr);
+    }
+    return fei_value_makenull(state);
+}
+
 
 void fei_state_setupglobals(FeiState* state)
 {
@@ -108,5 +122,6 @@ void fei_state_setuparray(FeiState* state)
 
     fei_class_defmethod(state, state->objarray.classobj, "length", objfn_array_length, true);
     fei_class_defmethod(state, state->objarray.classobj, "push", objfn_array_push, false);
+    fei_class_defmethod(state, state->objarray.classobj, "pop", objfn_array_pop, false);
 }
 

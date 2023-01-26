@@ -264,7 +264,7 @@ bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int ar
                 break;
         }
     }
-    fei_vm_raiseruntimeerror(state, "only functions or classes can be called");
+    fei_vm_raiseruntimeerror(state, "cannot call type of '%s'", fei_value_typename(callee));
     return false;
 }
 
@@ -1062,7 +1062,7 @@ bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
     }
     else
     {
-        fei_vm_raiseruntimeerror(state, "operands are incompatible");
+        fei_vm_raiseruntimeerror(state, "operands '%s' and '%s' are incompatible", fei_value_typename(valleft), fei_value_typename(valright));
         return false;
     }
     return true;

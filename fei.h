@@ -815,10 +815,13 @@ void fei_valarray_init(FeiState *state, ValArray *array);
 size_t fei_valarray_count(ValArray *arr);
 FeiValue fei_valarray_get(FeiState *state, ValArray *arr, int idx);
 void fei_valarray_push(FeiState *state, ValArray *array, FeiValue value);
+FeiValue fei_valarray_pop(FeiState* state, ValArray* array);
+
 void fei_valarray_destroy(FeiState *state, ValArray *array);
 ObjArray* fei_object_makearray(FeiState* state);
 size_t fei_array_count(ObjArray* arr);
 bool fei_array_push(FeiState* state, ObjArray* arr, FeiValue val);
+FeiValue fei_array_pop(FeiState* state, ObjArray* arr);
 bool fei_array_destroy(FeiState* state, ObjArray* arr);
 
 

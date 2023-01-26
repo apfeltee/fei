@@ -34,6 +34,14 @@ void fei_valarray_push(FeiState* state, ValArray* array, FeiValue value)
     array->count++;
 }
 
+FeiValue fei_valarray_pop(FeiState* state, ValArray* array)
+{
+    FeiValue rv;
+    rv = array->values[array->count-1];
+    array->count--;
+    return rv;
+}
+
 void fei_valarray_destroy(FeiState* state, ValArray* array)
 {
     FREE_ARRAY(state, sizeof(FeiValue), array->values, array->capacity);
@@ -58,6 +66,11 @@ bool fei_array_push(FeiState* state, ObjArray* arr, FeiValue val)
 {
     fei_valarray_push(state, &arr->items, val);
     return true;
+}
+
+FeiValue fei_array_pop(FeiState* state, ObjArray* arr)
+{
+    return fei_valarray_pop(state, &arr->items);
 }
 
 bool fei_array_destroy(FeiState* state, ObjArray* arr)
