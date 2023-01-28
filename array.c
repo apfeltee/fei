@@ -68,6 +68,11 @@ bool fei_array_push(FeiState* state, ObjArray* arr, FeiValue val)
     return true;
 }
 
+FeiValue fei_array_get(FeiState* state, ObjArray* arr, size_t idx)
+{
+    return fei_valarray_get(state, &arr->items, idx);
+}
+
 FeiValue fei_array_pop(FeiState* state, ObjArray* arr)
 {
     return fei_valarray_pop(state, &arr->items);

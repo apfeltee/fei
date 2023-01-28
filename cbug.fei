@@ -1,0 +1,21 @@
+
+class Foo
+{
+    init(n)
+    {
+        this.name = n;
+    }
+}
+
+class Bar from Foo
+{
+    init()
+    {
+        super.init("john doe");
+    }
+}
+
+b = Bar();
+println("b.name = ", b.name);
+
+

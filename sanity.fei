@@ -1,0 +1,66 @@
+
+var failcount = 0;
+
+function check(msg, val, expect)
+{
+    print("checking ", msg, " ... ");
+    if(val == expect)
+    {
+        println("ok");
+    }
+    else
+    {
+        failcount = failcount + 1;
+        println("fail (expected: ", expect, ", but got: ", val, ")");
+    }
+}
+
+{
+    arr = [1, 2, 3];
+    check("basic array creation (length)", arr.length, 3);
+    check("basic array creation (values)", arr, [1, 2, 3]);
+}
+{
+    class First
+    {
+        init()
+        {
+            this.firstname = "john"
+        }
+    }
+
+    class Second from First
+    {
+        init()
+        {
+            super.init()
+            this.lastname = "doe"
+        }
+    }
+
+    class Person from Second
+    {
+        fullname()
+        {
+            super.init()
+            println("this.firstname = ", this.firstname);
+            println("this.lastname = ", this.lastname);
+            return this.firstname + " " + this.lastname;
+        }
+    }
+    
+    fc = Person()
+    println("class creation and inheritance", fc.fullname(), "john doe")
+}
+println(arr);
+println("arr[2] = ", arr[2])
+
+if(failcount == 0)
+{
+    println("all is well");
+}
+else
+{
+    println("something broke!");
+}
+

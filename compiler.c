@@ -1537,7 +1537,6 @@ static void fei_comprule_arraylit(FeiState* state, bool canassign)
     (void)canassign;
     itemcount = 0;
     itemcount = fei_compiler_parsearglist(state, "array literal", TOKEN_OPENBRACKET, TOKEN_CLOSEBRACKET);
-    fei_compiler_advancenext(state);
     fei_compiler_emitbytes(state, OP_MAKEARRAY, itemcount);
 }
 

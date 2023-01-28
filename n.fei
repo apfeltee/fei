@@ -1,7 +1,7 @@
 
 arr = [1, 2, 3];
 
-println(arr);
+println("arr = ", arr);
 println("arr[2] = ", arr[2])
 
 

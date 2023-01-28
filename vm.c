@@ -129,6 +129,19 @@ void dumpstack(FeiState* state, const char* fmt, ...)
     }
 }
 
+
+void fei_vm_dumpval(FeiState* state, FeiValue val, const char* fmt, ...)
+{
+    va_list va;
+    fprintf(stderr, "debugval:");
+    va_start(va, fmt);
+    vfprintf(stderr, fmt, va);
+    va_end(va);
+    fprintf(stderr, " = ");
+    fei_value_printvalue(state, state->iowriter_stderr, val, true);
+    fprintf(stderr, "\n");
+}
+
 /*
 // pointer to the element just PAST the element containing the top value of the stack
 // == stackvalues[size(stackvalues) - 2]
@@ -454,8 +467,8 @@ bool fei_vmdo_inherit(FeiState* state)
     // child class at the top of the stack
     child = fei_value_asclass(fei_vm_stackpeek_inline(state, 0));
     // add all methods from parent to child table
-    //fei_table_mergefrom(state, &fei_value_asclass(parent)->methods, &child->methods);
-    fei_class_inherit(state, fei_value_asclass(parent), child);
+    fei_table_mergefrom(state, &fei_value_asclass(parent)->methods, &child->methods);
+    //fei_class_inherit(state, fei_value_asclass(parent), child);
     // pop the child class
     fei_vm_stackpop_inline(state);
     return true;
@@ -1268,17 +1281,6 @@ bool fei_vmdo_loopiftrue(FeiState* state)
     return true;
 }
 
-void debugval(FeiState* state, FeiValue val, const char* fmt, ...)
-{
-    va_list va;
-    fprintf(stderr, "debugval:");
-    va_start(va, fmt);
-    vfprintf(stderr, fmt, va);
-    va_end(va);
-    fprintf(stderr, " = ");
-    fei_value_printvalue(state, state->iowriter_stderr, val, true);
-    fprintf(stderr, "\n");
-}
 
 bool fei_vmdo_getindex(FeiState* state, bool setindex)
 {
@@ -1316,9 +1318,9 @@ bool fei_vmdo_getindex(FeiState* state, bool setindex)
         fei_vm_stackpop_inline(state);
     }
     #if 0
-        debugval(state, index, "index");
-        debugval(state, peeked, "peeked");
-        debugval(state, setval, "setval");
+        fei_vm_dumpval(state, index, "index");
+        fei_vm_dumpval(state, peeked, "peeked");
+        fei_vm_dumpval(state, setval, "setval");
     #endif
     isarray = fei_value_isarray(peeked);
     if(fei_value_isstring(peeked) || isarray)
@@ -1412,15 +1414,19 @@ bool fei_vmdo_makearray(FeiState* state)
     #if 0
         fprintf(stderr, "in makearray: cnt=%d\n", cnt);
     #endif
-    for(i=0; i<cnt; i++)
+    for(i=cnt-1; i > -1; i--)
     {
-        val = fei_vm_stackpop_inline(state);
+        val = fei_vm_stackpeek_inline(state, i);
         #if 0
             fprintf(stderr, "value: ");
             fei_value_printvalue(state, state->iowriter_stderr, val, true);
             fprintf(stderr, "\n");
         #endif
         fei_array_push(state, arr, val);
+    }
+    for(i=0; i<cnt; i++)
+    {
+        fei_vm_stackpop_inline(state);
     }
     fei_vm_stackpush_inline(state, fei_value_makeobject(state, arr));
     return true;

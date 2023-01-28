@@ -815,14 +815,15 @@ void fei_valarray_init(FeiState *state, ValArray *array);
 size_t fei_valarray_count(ValArray *arr);
 FeiValue fei_valarray_get(FeiState *state, ValArray *arr, int idx);
 void fei_valarray_push(FeiState *state, ValArray *array, FeiValue value);
-FeiValue fei_valarray_pop(FeiState* state, ValArray* array);
-
+FeiValue fei_valarray_pop(FeiState *state, ValArray *array);
 void fei_valarray_destroy(FeiState *state, ValArray *array);
-ObjArray* fei_object_makearray(FeiState* state);
-size_t fei_array_count(ObjArray* arr);
-bool fei_array_push(FeiState* state, ObjArray* arr, FeiValue val);
-FeiValue fei_array_pop(FeiState* state, ObjArray* arr);
-bool fei_array_destroy(FeiState* state, ObjArray* arr);
+ObjArray *fei_object_makearray(FeiState *state);
+size_t fei_array_count(ObjArray *arr);
+_Bool fei_array_push(FeiState *state, ObjArray *arr, FeiValue val);
+FeiValue fei_array_get(FeiState *state, ObjArray *arr, size_t idx);
+FeiValue fei_array_pop(FeiState *state, ObjArray *arr);
+_Bool fei_array_destroy(FeiState *state, ObjArray *arr);
+
 
 
 /* class.c */
@@ -1009,6 +1010,7 @@ bool fei_value_compare(FeiState *state, FeiValue a, FeiValue b);
 /* vm.c */
 FeiVMFrame *fei_vm_frameget(FeiState *state, int idx);
 void dumpstack(FeiState *state, const char *fmt, ...);
+void fei_vm_dumpval(FeiState* state, FeiValue val, const char* fmt, ...);
 void fei_vm_stackpush(FeiState *state, FeiValue value);
 FeiValue fei_vm_stackpop(FeiState *state);
 FeiValue fei_vm_stackpeek(FeiState *state, int distance);

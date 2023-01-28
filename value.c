@@ -96,10 +96,78 @@ const char* fei_value_typename(FeiValue v)
     return "unknown";
 }
 
+bool fei_valcompare_string(FeiState* state, ObjString* stra, ObjString* strb)
+{
+    if(stra->length == strb->length)
+    {
+        return (memcmp(stra->chars, strb->chars, stra->length) == 0);
+    }
+    return false;
+}
+
+bool fei_valcompare_array(FeiState* state, ObjArray* arra, ObjArray* arrb)
+{
+    int i;
+    int lena;
+    int lenb;
+    bool b;
+    FeiValue vala;
+    FeiValue valb;
+    lena = fei_array_count(arra);
+    lenb = fei_array_count(arrb);
+    if(lena == lenb)
+    {
+        for(i=0; i<lena; i++)
+        {
+            vala = fei_array_get(state, arra, i);
+            valb = fei_array_get(state, arrb, i);
+            //fei_vm_dumpval(state, vala, "valcompare_array(%d):vala", i);
+            //fei_vm_dumpval(state, valb, "valcompare_array(%d):valb", i);
+            b = fei_value_compare(state, vala, valb);
+            if(!b)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+bool fei_valcompare_object(FeiState* state, FeiObject* oba, FeiObject* obb)
+{
+    if(oba->type == obb->type)
+    {
+        switch(oba->type)
+        {
+            case OBJ_ARRAY:
+                {
+                    fprintf(stderr, "comparing array\n");
+                    return fei_valcompare_array(state, (ObjArray*)oba, (ObjArray*)obb);
+                }
+                break;
+            case OBJ_STRING:
+                {
+                    return fei_valcompare_string(state, (ObjString*)oba, (ObjString*)obb);
+                }
+                break;
+            default:
+                {
+                    fprintf(stderr, "missing comparison for object type '%s'\n", fei_value_typename(fei_value_makeobject(state, oba)));
+                }
+                break;
+        }
+    }
+    // already interned, occupies the same address
+    return oba == obb;
+}
+
 // comparison function used in VM run()
 // used in ALL types of data(num, string, bools)
 bool fei_value_compare(FeiState* state, FeiValue a, FeiValue b)
 {
+    FeiObject* oba;
+    FeiObject* obb;
     (void)state;
     if(a.type != b.type)
     {
@@ -129,8 +197,9 @@ bool fei_value_compare(FeiState* state, FeiValue a, FeiValue b)
             break;
         case VAL_OBJ:
             {
-                // already interned, occupies the same address
-                return fei_value_asobject(a) == fei_value_asobject(b);
+                oba = fei_value_asobject(a);
+                obb = fei_value_asobject(b);
+                return fei_valcompare_object(state, oba, obb);
             }
             break;
         default:
