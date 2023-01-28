@@ -821,6 +821,11 @@ FeiAstToken fei_lexer_scantoken(FeiState* state)
                 }
             }
             break;
+        case '^':
+            {
+                return fei_lexer_maketoken(state, TOKEN_BITXOR);
+            }
+            break;
         case '!':
             {
                 if(fei_lexer_match(state, '='))
