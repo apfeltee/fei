@@ -4,23 +4,23 @@
 /*
 * eventually this interface *should* also support creating a string.
 */
-Writer* fei_writer_init(FeiState* state)
+FeiWriter* fei_writer_init(FeiState* state)
 {
-    Writer* wr;
-    wr = (Writer*)ALLOCATE(state, sizeof(Writer), 1);
+    FeiWriter* wr;
+    wr = (FeiWriter*)ALLOCATE(state, sizeof(FeiWriter), 1);
     wr->filehandle = NULL;
     wr->filemustclose = false;
     return wr;
 }
 
-void fei_writer_destroy(FeiState* state, Writer* wr)
+void fei_writer_destroy(FeiState* state, FeiWriter* wr)
 {
-    FREE(state, sizeof(Writer), wr);
+    FREE(state, sizeof(FeiWriter), wr);
 }
 
-Writer* fei_writer_initfile(FeiState* state, FILE* fh, bool alsoclose)
+FeiWriter* fei_writer_initfile(FeiState* state, FILE* fh, bool alsoclose)
 {
-    Writer* wr;
+    FeiWriter* wr;
     wr = fei_writer_init(state);
     wr->filehandle = fh;
     wr->filemustclose = alsoclose;
@@ -28,7 +28,7 @@ Writer* fei_writer_initfile(FeiState* state, FILE* fh, bool alsoclose)
 }
 
 
-void fei_writer_appendstringlen(Writer* wr, const char* str, size_t len)
+void fei_writer_appendstringlen(FeiWriter* wr, const char* str, size_t len)
 {
     if(wr->filehandle != NULL)
     {
@@ -36,19 +36,19 @@ void fei_writer_appendstringlen(Writer* wr, const char* str, size_t len)
     }
 }
 
-void fei_writer_appendstring(Writer* wr, const char* str)
+void fei_writer_appendstring(FeiWriter* wr, const char* str)
 {
     return fei_writer_appendstringlen(wr, str, strlen(str));
 }
 
-void fei_writer_appendchar(Writer* wr, int c)
+void fei_writer_appendchar(FeiWriter* wr, int c)
 {
     char actualch;
     actualch = c;
     fei_writer_appendstringlen(wr, &actualch, 1);
 }
 
-void fei_writer_appendfmtva(Writer* wr, const char* fmt, va_list va)
+void fei_writer_appendfmtva(FeiWriter* wr, const char* fmt, va_list va)
 {
     if(wr->filehandle != NULL)
     {
@@ -56,7 +56,7 @@ void fei_writer_appendfmtva(Writer* wr, const char* fmt, va_list va)
     }
 }
 
-void fei_writer_appendfmt(Writer* wr, const char* fmt, ...)
+void fei_writer_appendfmt(FeiWriter* wr, const char* fmt, ...)
 {
     va_list va;
     va_start(va, fmt);
@@ -64,7 +64,7 @@ void fei_writer_appendfmt(Writer* wr, const char* fmt, ...)
     va_end(va);
 }
 
-void fei_writer_appendescapedchar(Writer* wr, int ch)
+void fei_writer_appendescapedchar(FeiWriter* wr, int ch)
 {
     switch(ch)
     {
@@ -134,7 +134,7 @@ void fei_writer_appendescapedchar(Writer* wr, int ch)
     }
 }
 
-void fei_writer_appendquotedstring(Writer* wr, const char* str, size_t len, bool withquot)
+void fei_writer_appendquotedstring(FeiWriter* wr, const char* str, size_t len, bool withquot)
 {
     char ch;
     int bch;

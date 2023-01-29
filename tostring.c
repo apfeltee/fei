@@ -1,7 +1,7 @@
 
 #include "fei.h"
 
-void fei_value_printfunc(FeiState* state, Writer* wr, ObjFunction* function)
+void fei_value_printfunc(FeiState* state, FeiWriter* wr, FeiObjFunction* function)
 {
     (void)state;
     if(function->name == NULL)
@@ -16,7 +16,7 @@ void fei_value_printfunc(FeiState* state, Writer* wr, ObjFunction* function)
     }
 }
 
-void fei_value_printstring(FeiState* state, Writer* wr, ObjString* ostr, bool withquot)
+void fei_value_printstring(FeiState* state, FeiWriter* wr, FeiString* ostr, bool withquot)
 {
     size_t i;
     size_t len;
@@ -26,12 +26,7 @@ void fei_value_printstring(FeiState* state, Writer* wr, ObjString* ostr, bool wi
     str = ostr->chars;
     if(withquot)
     {
-        fei_writer_appendchar(wr, '"');
-        for(i=0; i<len; i++)
-        {
-            fei_writer_appendchar(wr, str[i]);
-        }
-        fei_writer_appendchar(wr, '"');
+        fei_writer_appendquotedstring(wr, str, len, true);
     }
     else
     {
@@ -39,7 +34,7 @@ void fei_value_printstring(FeiState* state, Writer* wr, ObjString* ostr, bool wi
     }
 }
 
-void fei_value_printarray(FeiState* state, Writer* wr, ObjArray* arr, bool withquot)
+void fei_value_printarray(FeiState* state, FeiWriter* wr, FeiArray* arr, bool withquot)
 {
     size_t i;
     size_t len;
@@ -67,7 +62,7 @@ void fei_value_printarray(FeiState* state, Writer* wr, ObjArray* arr, bool withq
 
 
 // actual printing on the virtual machine is done here
-void fei_value_printvalue(FeiState* state, Writer* wr, FeiValue value, bool withquot)
+void fei_value_printvalue(FeiState* state, FeiWriter* wr, FeiValue value, bool withquot)
 {
     switch(value.type)
     {
@@ -106,8 +101,10 @@ void fei_value_printvalue(FeiState* state, Writer* wr, FeiValue value, bool with
     }
 }
 
-void fei_value_printobject(FeiState* state, Writer* wr, FeiValue value, bool withquot)
+void fei_value_printobject(FeiState* state, FeiWriter* wr, FeiValue value, bool withquot)
 {
+    FeiClass* klass;
+    FeiInstance* instance;
     (void)state;
     // first class objects can be printed; string and functions
     switch(fei_value_objtype(value))
@@ -119,12 +116,15 @@ void fei_value_printobject(FeiState* state, Writer* wr, FeiValue value, bool wit
             break;
         case OBJ_CLASS:
             {
-                fei_writer_appendfmt(wr, "<class '%s'>", fei_value_asclass(value)->name->chars);
+                klass = fei_value_asclass(value);
+                fei_writer_appendfmt(wr, "<class '%.*s'>", klass->name->length, klass->name->chars);
             }
             break;
         case OBJ_INSTANCE:
             {
-                fei_writer_appendfmt(wr, "<instance '%s'>", fei_value_asinstance(value)->classobject->name->chars);
+                instance = fei_value_asinstance(value);
+                klass = instance->classobject;
+                fei_writer_appendfmt(wr, "<instance '%.*s'>", klass->name->length, klass->name->chars);
             }
             break;
         case OBJ_CLOSURE:

@@ -2,7 +2,7 @@
 #include "fei.h"
 
 
-void fei_valarray_init(FeiState* state, ValArray* array)
+void fei_valarray_init(FeiState* state, FeiValArray* array)
 {
     (void)state;
     array->count = 0;
@@ -10,18 +10,18 @@ void fei_valarray_init(FeiState* state, ValArray* array)
     array->values = NULL;
 }
 
-size_t fei_valarray_count(ValArray* arr)
+size_t fei_valarray_count(FeiValArray* arr)
 {
     return arr->count;
 }
 
-FeiValue fei_valarray_get(FeiState* state, ValArray* arr, int idx)
+FeiValue fei_valarray_get(FeiState* state, FeiValArray* arr, int idx)
 {
     (void)state;
     return arr->values[idx];
 }
 
-void fei_valarray_push(FeiState* state, ValArray* array, FeiValue value)
+void fei_valarray_push(FeiState* state, FeiValArray* array, FeiValue value)
 {
     int oldcap;
     if(array->capacity < array->count + 1)
@@ -34,7 +34,7 @@ void fei_valarray_push(FeiState* state, ValArray* array, FeiValue value)
     array->count++;
 }
 
-FeiValue fei_valarray_pop(FeiState* state, ValArray* array)
+FeiValue fei_valarray_pop(FeiState* state, FeiValArray* array)
 {
     FeiValue rv;
     rv = array->values[array->count-1];
@@ -42,48 +42,48 @@ FeiValue fei_valarray_pop(FeiState* state, ValArray* array)
     return rv;
 }
 
-void fei_valarray_destroy(FeiState* state, ValArray* array)
+void fei_valarray_destroy(FeiState* state, FeiValArray* array)
 {
     FREE_ARRAY(state, sizeof(FeiValue), array->values, array->capacity);
     fei_valarray_init(state, array);
 }
 
-ObjArray* fei_object_makearray(FeiState* state)
+FeiArray* fei_object_makearray(FeiState* state)
 {
-    ObjArray* arr;
+    FeiArray* arr;
     state->ocount.cntarray++;
-    arr = (ObjArray*)fei_object_allocobject(state, sizeof(ObjBoundMethod), OBJ_ARRAY);
+    arr = (FeiArray*)fei_object_allocobject(state, sizeof(FeiObjBoundMethod), OBJ_ARRAY);
     fei_valarray_init(state, &arr->items);
     return arr;
 }
 
-size_t fei_array_count(ObjArray* arr)
+size_t fei_array_count(FeiArray* arr)
 {
     return fei_valarray_count(&arr->items);
 }
 
-bool fei_array_push(FeiState* state, ObjArray* arr, FeiValue val)
+bool fei_array_push(FeiState* state, FeiArray* arr, FeiValue val)
 {
     fei_valarray_push(state, &arr->items, val);
     return true;
 }
 
-FeiValue fei_array_get(FeiState* state, ObjArray* arr, size_t idx)
+FeiValue fei_array_get(FeiState* state, FeiArray* arr, size_t idx)
 {
     return fei_valarray_get(state, &arr->items, idx);
 }
 
-FeiValue fei_array_pop(FeiState* state, ObjArray* arr)
+FeiValue fei_array_pop(FeiState* state, FeiArray* arr)
 {
     return fei_valarray_pop(state, &arr->items);
 }
 
-bool fei_array_destroy(FeiState* state, ObjArray* arr)
+bool fei_array_destroy(FeiState* state, FeiArray* arr)
 {
     if(arr != NULL)
     {
         fei_valarray_destroy(state, &arr->items);
-        fei_gcmem_reallocate(state, arr, sizeof(ObjArray), 0);
+        fei_gcmem_reallocate(state, arr, sizeof(FeiArray), 0);
         return true;
     }
     return false;

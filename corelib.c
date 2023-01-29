@@ -72,7 +72,7 @@ static FeiValue objfn_array_length(FeiState* state, FeiValue instance, int argc,
 static FeiValue objfn_array_push(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
 {
     int i;
-    ObjArray* arr;
+    FeiArray* arr;
     (void)state;
     (void)argc;
     (void)argv;
@@ -86,7 +86,7 @@ static FeiValue objfn_array_push(FeiState* state, FeiValue instance, int argc, F
 
 static FeiValue objfn_array_pop(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
 {
-    ObjArray* arr;
+    FeiArray* arr;
     (void)state;
     (void)argc;
     (void)argv;

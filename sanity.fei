@@ -16,16 +16,26 @@ function check(msg, val, expect)
 }
 
 {
+    // tests that array literals are propagated correctly.
+    // these are created at runtime!
     arr = [1, 2, 3];
     check("basic array creation (length)", arr.length, 3);
     check("basic array creation (values)", arr, [1, 2, 3]);
+    check("basic array creation (index)", arr[1], 2)
 }
 {
+    // tests that classes and inheritance work, specifically
+    // that inheriting correctly inherits functions and fields
     class First
     {
         init()
         {
             this.firstname = "john"
+        }
+
+        getFirstName()
+        {
+            return this.firstname;
         }
     }
 
@@ -36,6 +46,11 @@ function check(msg, val, expect)
             super.init()
             this.lastname = "doe"
         }
+
+        getLastName()
+        {
+            return this.lastname;
+        }
     }
 
     class Person from Second
@@ -43,17 +58,14 @@ function check(msg, val, expect)
         fullname()
         {
             super.init()
-            println("this.firstname = ", this.firstname);
-            println("this.lastname = ", this.lastname);
-            return this.firstname + " " + this.lastname;
+            return this.getFirstName() + " " + this.getLastName();
         }
     }
     
     fc = Person()
-    println("class creation and inheritance", fc.fullname(), "john doe")
+    check("class creation and inheritance", fc.fullname(), "john doe")
 }
-println(arr);
-println("arr[2] = ", arr[2])
+
 
 if(failcount == 0)
 {

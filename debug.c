@@ -77,7 +77,7 @@ int fei_dbgdisas_instr(FeiState* state, FeiBytecodeList* chunk, int offset)
     int islocal;
     uint8_t constant;
     uint8_t instruction;
-    ObjFunction* function;
+    FeiObjFunction* function;
     // print byte offset of the given instruction, or the index
     fprintf(stderr, "%04d ", offset);
     // show source line each instruction was compiled from
@@ -96,7 +96,7 @@ int fei_dbgdisas_instr(FeiState* state, FeiBytecodeList* chunk, int offset)
     {
         case OP_CONSTANT:
             {
-                // pass in chunk to get ValArray element
+                // pass in chunk to get FeiValArray element
                 return fei_dbgutil_printconstir(state, "OP_CONSTANT", chunk, offset);
             }
             break;

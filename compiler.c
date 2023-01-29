@@ -2,6 +2,24 @@
 #include "fei.h"
 
 
+/*
+* callback function type used in the parser.
+*/
+typedef void (*ParseFn)(FeiState*, bool);
+
+
+/*
+* a parse rule definition;
+* $prefix is a function that parses a token after an operator;
+* $infix is a function that parses token following an operator.
+*/
+struct FeiAstRule
+{
+    ParseFn prefix;
+    ParseFn infix;
+    FeiAstPrecedence precedence;
+};
+
 void fei_chunk_init(FeiState* state, FeiBytecodeList* chunk)
 {
     chunk->count = 0;
@@ -1160,7 +1178,7 @@ void fei_compiler_patchjump(FeiState* state, int offset)
 }
 
 // initialize the compiler
-void fei_compiler_init(FeiState* state, FeiAstCompiler* compiler, FuncType type)
+void fei_compiler_init(FeiState* state, FeiAstCompiler* compiler, FeiFuncType type)
 {
     size_t i;
     FeiAstLocal* local;
@@ -1206,9 +1224,9 @@ void fei_compiler_init(FeiState* state, FeiAstCompiler* compiler, FuncType type)
     memset(compiler->breakjumpcounts, 0, CFG_MAX_COMPILERBREAK * sizeof(compiler->breakjumpcounts[0]));
 }
 
-ObjFunction* fei_compiler_endcompiler(FeiState* state)
+FeiObjFunction* fei_compiler_endcompiler(FeiState* state)
 {
-    ObjFunction* function;
+    FeiObjFunction* function;
     FeiAstCompiler* astcc;
     astcc = state->aststate.compiler;
     fei_compiler_emitreturn(state);
@@ -1362,7 +1380,7 @@ int fei_compiler_addupvalue(FeiState* state, FeiAstCompiler* compiler, uint8_t i
         return 0;
     }
     // compiler keeps an array of upvalue structs to track closed-over identifiers
-    // indexes in the array match the indexes of ObjClosure at runtime
+    // indexes in the array match the indexes of FeiObjClosure at runtime
     // insert to upvalues array
     // insert bool status
     compiler->upvalues[upvaluecount].islocalvar = islocal;
@@ -1574,7 +1592,7 @@ static void fei_comprule_binary(FeiState* state, bool canassign)
     // as binary operators are LEFT ASSOCIATIVE
     // recursively call fei_compiler_parseprec again
     // conert from rule to enum(precedence) type
-    fei_compiler_parseprec(state, (Precedence)(rule->precedence + 1));
+    fei_compiler_parseprec(state, (FeiAstPrecedence)(rule->precedence + 1));
     switch(operatortype)
     {
         // note how NOT opcode is at the end
@@ -1773,16 +1791,14 @@ static void fei_comprule_number(FeiState* state, bool canassign)
     */
     dv = strtod(state->aststate.parser.prevtoken.toksrc, NULL);
     fixed = (int64_t)dv;
-    #if 1
     if(fixed == dv)
     {
-        fprintf(stderr, "making fixed: fixed=%d\n", fixed);
+        //fprintf(stderr, "making fixed: fixed=%d\n", fixed);
         val = fei_value_makefixednumber(state, fixed);
     }
     else
-    #endif
     {
-        fprintf(stderr, "making float: dv=%g\n", dv);
+        //fprintf(stderr, "making float: dv=%g\n", dv);
         val = fei_value_makefloatnumber(state, dv);
     }
     //printf("num %c\n", *state->aststate.parser.prevtoken.toksrc);
@@ -1971,7 +1987,7 @@ static void fei_comprule_unary(FeiState* state, bool canassign)
 // starts at current token and parses any expression at the given precedence level or higher
 // for example, if fei_compiler_parseprec(PREC_COMPARISON) is called, it will parse unaries, terms, and factors
 // ubt not or, and or assignment operators as they are lower. Basically parse anything that is ABOVE the given precedence
-void fei_compiler_parseprec(FeiState* state, Precedence precedence)
+void fei_compiler_parseprec(FeiState* state, FeiAstPrecedence precedence)
 {
     int nowtyp;
     bool canassign;
@@ -2186,12 +2202,12 @@ void fei_compiler_parseblock(FeiState* state)
 }
 
 /* functions */
-void fei_compiler_parsefuncdecl(FeiState* state, FuncType type)
+void fei_compiler_parsefuncdecl(FeiState* state, FeiFuncType type)
 {
     int i;
     uint8_t paramconstant;
     FeiAstCompiler compiler;
-    ObjFunction* function;
+    FeiObjFunction* function;
     // create separate FeiAstCompiler for each function
     fei_compiler_init(state, &compiler, type);
     fei_compiler_beginscope(state);
@@ -2238,7 +2254,7 @@ void fei_compiler_parsefuncdecl(FeiState* state, FuncType type)
 void fei_compiler_parsemethoddecl(FeiState* state)
 {
     uint8_t constant;
-    FuncType type;
+    FeiFuncType type;
     fei_compiler_consume(state, TOKEN_IDENTIFIER, "Expect method name.");
     // get method name
     constant = fei_compiler_makeidentconst(state, &state->aststate.parser.prevtoken);
@@ -2259,7 +2275,7 @@ void fei_compiler_parseclassdecl(FeiState* state)
 {
     uint8_t nameconstant;
     FeiAstToken classname;
-    ClassCompiler classcompiler;
+    FeiAstClassCompiler classcompiler;
     fei_compiler_consume(state, TOKEN_IDENTIFIER, "Expect class name.");
     // get class name
     classname = state->aststate.parser.prevtoken;
@@ -2815,10 +2831,10 @@ void fei_compiler_parsestatement(FeiState* state)// either an expression or a pr
     }
 }
 
-ObjFunction* fei_compiler_compilesource(FeiState* state, const char* source, size_t len)
+FeiObjFunction* fei_compiler_compilesource(FeiState* state, const char* source, size_t len)
 {
     FeiAstCompiler compiler;
-    ObjFunction* function;
+    FeiObjFunction* function;
     // start scan/lexing
     fei_lexer_initsource(state, source, len);
     memset(&compiler, 0, sizeof(compiler));

@@ -166,7 +166,7 @@ enum FeiAstTokType
 
 // for precedence in unary operations
 // ordered from lowest precedence to highest precedence
-enum Precedence
+enum FeiAstPrecedence
 {
     PREC_NONE,
     PREC_ASSIGNMENT,// =
@@ -181,7 +181,7 @@ enum Precedence
     PREC_PRIMARY
 };
 
-enum FuncType
+enum FeiFuncType
 {
     TYPE_FUNCTION,
     TYPE_SCRIPT,// top level main()
@@ -190,7 +190,7 @@ enum FuncType
 };
 
 
-enum OpCode
+enum FeiOpCode
 {
     OP_CONSTANT,// chunk needs to know when to produce constants and print them in the right order
     // they have operands, to eg. identify which variable to load
@@ -297,36 +297,36 @@ enum FeiObjType
 /*
 * status code returned by the VM.
 */
-enum ResultCode
+enum FeiResultCode
 {
     STATUS_OK,
     STATUS_SYNTAXERROR,
     STATUS_RTERROR
 };
 
-typedef enum /**/ FuncType FuncType;
-typedef enum /**/ OpCode OpCode;
-typedef enum /**/ Precedence Precedence;
+typedef enum /**/ FeiFuncType FeiFuncType;
+typedef enum /**/ FeiOpCode FeiOpCode;
+typedef enum /**/ FeiAstPrecedence FeiAstPrecedence;
 typedef enum /**/ FeiObjType FeiObjType;
 typedef enum /**/ FeiAstTokType FeiAstTokType;
 typedef enum /**/ FeiValType FeiValType;
-typedef enum /**/ ResultCode ResultCode;
+typedef enum /**/ FeiResultCode FeiResultCode;
 typedef struct /**/ FeiValue FeiValue;
 typedef struct /**/ FeiObject FeiObject;
-typedef struct /**/ ObjString ObjString;
-typedef struct /**/ ObjFunction ObjFunction;
-typedef struct /**/ ObjClass ObjClass;
-typedef struct /**/ ObjInstance ObjInstance;
-typedef struct /**/ ObjBoundMethod ObjBoundMethod;
-typedef struct /**/ ObjUpvalue ObjUpvalue;
-typedef struct /**/ ObjClosure ObjClosure;
-typedef struct /**/ ObjNative ObjNative;
-typedef struct /**/ ObjArray ObjArray;
+typedef struct /**/ FeiString FeiString;
+typedef struct /**/ FeiObjFunction FeiObjFunction;
+typedef struct /**/ FeiClass FeiClass;
+typedef struct /**/ FeiInstance FeiInstance;
+typedef struct /**/ FeiObjBoundMethod FeiObjBoundMethod;
+typedef struct /**/ FeiObjUpvalue FeiObjUpvalue;
+typedef struct /**/ FeiObjClosure FeiObjClosure;
+typedef struct /**/ FeiObjNative FeiObjNative;
+typedef struct /**/ FeiArray FeiArray;
 typedef struct /**/ FeiAstLocal FeiAstLocal;
 typedef struct /**/ FeiAstUpvalue FeiAstUpvalue;
-typedef struct /**/ ASTState ASTState;
-typedef struct /**/ GCState GCState;
-typedef struct /**/ VMState VMState;
+typedef struct /**/ FeiASTState FeiASTState;
+typedef struct /**/ FeiGCState FeiGCState;
+typedef struct /**/ FeiVMState FeiVMState;
 typedef struct /**/ FeiState FeiState;
 typedef struct /**/ FeiVMFrame FeiVMFrame;
 typedef struct /**/ FeiAstToken FeiAstToken;
@@ -334,19 +334,14 @@ typedef struct /**/ FeiAstLexer FeiAstLexer;
 typedef struct /**/ FeiAstParser FeiAstParser;
 typedef struct /**/ FeiAstRule FeiAstRule;
 typedef struct /**/ FeiAstCompiler FeiAstCompiler;
-typedef struct /**/ ClassCompiler ClassCompiler;
-typedef struct /**/ ValArray ValArray;
+typedef struct /**/ FeiAstClassCompiler FeiAstClassCompiler;
+typedef struct /**/ FeiValArray FeiValArray;
 typedef struct /**/ FeiBytecodeList FeiBytecodeList;
-typedef struct /**/ TabEntry TabEntry;
-typedef struct /**/ Table Table;
-typedef struct /**/ Writer Writer;
+typedef struct /**/ FeiValTabEntry FeiValTabEntry;
+typedef struct /**/ FeiValTable FeiValTable;
+typedef struct /**/ FeiWriter FeiWriter;
 typedef struct /**/ FeiPrimitive FeiPrimitive;
-typedef struct /**/ Config Config;
-
-/*
-* callback function type used in the parser.
-*/
-typedef void (*ParseFn)(FeiState*, bool);
+typedef struct /**/ FeiConfig FeiConfig;
 
 
 /*
@@ -356,13 +351,13 @@ typedef void (*ParseFn)(FeiState*, bool);
 * third argument is the number of arguments passed,
 * fourth argument is the C array of argument values.
 */
-typedef FeiValue (*NativeFn)(FeiState*, FeiValue, int, FeiValue*);
+typedef FeiValue (*FeiNativeFn)(FeiState*, FeiValue, int, FeiValue*);
 
 /*
 * used to abstract writing things to output.
 * as of now, supports IO only.
 */
-struct Writer
+struct FeiWriter
 {
     FILE* filehandle;
     bool filemustclose;
@@ -377,7 +372,7 @@ struct FeiValue
 {
     FeiValType type;
     bool isfixednumber;
-    struct
+    union
     {
         bool valbool;
         int64_t valfixednum;
@@ -436,17 +431,6 @@ struct FeiAstParser
 };
 
 
-/*
-* a parse rule definition;
-* $prefix is a function that parses a token after an operator;
-* $infix is a function that parses token following an operator.
-*/
-struct FeiAstRule
-{
-    ParseFn prefix;
-    ParseFn infix;
-    Precedence precedence;
-};
 
 /*
 * holds information about a local name in the AST.
@@ -465,7 +449,7 @@ struct FeiAstLocal
 struct FeiAstUpvalue
 {
     bool islocalvar;
-    // matches the index of the local variable in ObjClosure
+    // matches the index of the local variable in FeiObjClosure
     int index;
 };
 
@@ -475,8 +459,8 @@ struct FeiAstUpvalue
 struct FeiAstCompiler
 {
     // wrapping the whole program into one big main() function
-    FuncType progfunctype;
-    ObjFunction* programfunc;
+    FeiFuncType progfunctype;
+    FeiObjFunction* programfunc;
 
     // pointer to the 'outer'/enclosing compiler, to return to after function
     FeiAstCompiler* enclosing;
@@ -514,18 +498,18 @@ struct FeiAstCompiler
 /*
 * aid in compiling a class definition.
 */
-struct ClassCompiler
+struct FeiAstClassCompiler
 {
     // to end scope in superclass declaration
     bool hassuperclass;
     FeiAstToken name;
-    ClassCompiler* enclosing;
+    FeiAstClassCompiler* enclosing;
 };
 
 /*
 * a dynamic array holding FeiValue items.
 */
-struct ValArray
+struct FeiValArray
 {
     int capacity;
     int count;
@@ -543,30 +527,30 @@ struct FeiBytecodeList
     // array of integers that parallels the bytecode/codestream, to get where each location of the bytecode is
     int* lines;
     // store double value literals
-    ValArray constants;
+    FeiValArray constants;
 };
 
 /*
-* an entry in a Table.
+* an entry in a FeiValTable.
 */
-struct TabEntry
+struct FeiValTabEntry
 {
     /* the key (obviously) */
-    ObjString* key;
+    FeiString* key;
     /* and the value it is assigned to */
     FeiValue value;
 };
 
-struct Table
+struct FeiValTable
 {
     int count;
     int capacity;
-    TabEntry* entries;
+    FeiValTabEntry* entries;
 };
 
 
 // for functions and calls
-struct ObjFunction
+struct FeiObjFunction
 {
     FeiObject obj;
 
@@ -578,14 +562,14 @@ struct ObjFunction
 
     // to store the function information
     FeiBytecodeList chunk;
-    ObjString* name;
+    FeiString* name;
 };
 
-struct ObjUpvalue
+struct FeiObjUpvalue
 {
     FeiObject obj;
 
-    // pointer to value in the enclosing ObjClosure
+    // pointer to value in the enclosing FeiObjClosure
     FeiValue* location;
 
     // to store closed upvalue
@@ -593,27 +577,27 @@ struct ObjUpvalue
 
     // intrusive/linked list to track sorted openvalues
     // ordered by the stack slot they point to
-    ObjUpvalue* next;
+    FeiObjUpvalue* next;
 };
 
 
-struct ObjClosure
+struct FeiObjClosure
 {
     FeiObject obj;
-    ObjFunction* function;
+    FeiObjFunction* function;
 
     // for upvalues
-    ObjUpvalue** upvalues;
+    FeiObjUpvalue** upvalues;
     int upvaluecount;
 };
 
-struct ObjNative
+struct FeiObjNative
 {
     FeiObject obj;
-    NativeFn function;
+    FeiNativeFn function;
 };
 
-struct ObjString
+struct FeiString
 {
     FeiObject obj;
     int length;
@@ -622,33 +606,33 @@ struct ObjString
     int capacity;
 };
 
-struct ObjClass
+struct FeiClass
 {
     FeiObject obj;
-    ObjString* name;
-    Table methods;
+    FeiString* name;
+    FeiValTable methods;
 };
 
-struct ObjInstance
+struct FeiInstance
 {
     FeiObject obj;
-    ObjClass* classobject;
-    Table fields;
+    FeiClass* classobject;
+    FeiValTable fields;
 };
 
 // struct for class methods
-struct ObjBoundMethod
+struct FeiObjBoundMethod
 {
     FeiObject obj;
-    // wraps receiver and function/method/closure together, receiver is the ObjInstance / lcass type
+    // wraps receiver and function/method/closure together, receiver is the FeiInstance / lcass type
     FeiValue receiver;
-    ObjClosure* method;
+    FeiObjClosure* method;
 };
 
-struct ObjArray
+struct FeiArray
 {
     FeiObject obj;
-    ValArray items;
+    FeiValArray items;
 };
 
 // the call stack
@@ -661,7 +645,7 @@ struct FeiVMFrame
     int stackpos;
     FeiValue* stackptr;
 
-    ObjClosure* closure;
+    FeiObjClosure* closure;
 
     // store ip on where in the VM the function is
     uint8_t* ip;
@@ -670,9 +654,9 @@ struct FeiVMFrame
     FeiValue* slots;
 };
 
-struct GCState
+struct FeiGCState
 {
-    // stack to store gray marked Objects for garbage collection
+    // stack to store gray marked FeiObjects for garbage collection
     int graycapacity;
     int graycount;
 
@@ -691,24 +675,19 @@ struct GCState
     FeiObject** graystack;
 };
 
-struct ASTState
+struct FeiASTState
 {
     FeiAstLexer scanner;
     FeiAstParser parser;
 
     //currentclass
-    ClassCompiler* classcompiler;
+    FeiAstClassCompiler* classcompiler;
 
     //current
     FeiAstCompiler* compiler;
 };
 
-
-#if !defined(DEBUG_PRINTTYPES)
-    #define DEBUG_PRINTTYPES 0
-#endif
-
-struct VMState
+struct FeiVMState
 {
     int stackindex;
 
@@ -732,16 +711,16 @@ struct VMState
     FeiValue* stacktop;
 
     // for storing global variables
-    Table globals;
+    FeiValTable globals;
 
     // for string interning, to make sure every equal string takes one memory
-    Table strings;
+    FeiValTable strings;
 
     // init string for class constructors
-    ObjString* initstring;
+    FeiString* initstring;
 
     // track all upvalues; points to the first node of the linked list
-    ObjUpvalue* openupvalues;
+    FeiObjUpvalue* openupvalues;
 
     FeiVMFrame* topframe;
 
@@ -752,10 +731,14 @@ struct VMState
     FeiVMFrame** frameobjects;
 };
 
-struct Config
+struct FeiConfig
 {
     // execution tracing of the VM
     bool traceinstructions;
+
+    bool tracestackvalues;
+
+    bool printcreatedobjcount;
 };
 
 /*
@@ -766,19 +749,19 @@ struct Config
 */
 struct FeiPrimitive
 {
-    ObjClass* classobj;
-    ObjInstance* instobj;
+    FeiClass* classobj;
+    FeiInstance* instobj;
 };
 
 struct FeiState
 {
-    Config config;
+    FeiConfig config;
 
-    /* a Writer instance that writes to standard output */
-    Writer* iowriter_stdout;
+    /* a FeiWriter instance that writes to standard output */
+    FeiWriter* iowriter_stdout;
 
-    /* a Writer instance that writes to standard error */
-    Writer* iowriter_stderr;
+    /* a FeiWriter instance that writes to standard error */
+    FeiWriter* iowriter_stderr;
 
 
     FeiPrimitive objstring;
@@ -786,13 +769,13 @@ struct FeiState
     FeiPrimitive objarray;
 
     /* the virtualmachine state */
-    VMState vmstate;
+    FeiVMState vmstate;
 
     /* the parser state */
-    ASTState aststate;
+    FeiASTState aststate;
 
     /* the memory (garbage collector, et al) state */
-    GCState gcstate;
+    FeiGCState gcstate;
 
     struct
     {
@@ -811,30 +794,30 @@ struct FeiState
 };
 
 /* array.c */
-void fei_valarray_init(FeiState *state, ValArray *array);
-size_t fei_valarray_count(ValArray *arr);
-FeiValue fei_valarray_get(FeiState *state, ValArray *arr, int idx);
-void fei_valarray_push(FeiState *state, ValArray *array, FeiValue value);
-FeiValue fei_valarray_pop(FeiState *state, ValArray *array);
-void fei_valarray_destroy(FeiState *state, ValArray *array);
-ObjArray *fei_object_makearray(FeiState *state);
-size_t fei_array_count(ObjArray *arr);
-_Bool fei_array_push(FeiState *state, ObjArray *arr, FeiValue val);
-FeiValue fei_array_get(FeiState *state, ObjArray *arr, size_t idx);
-FeiValue fei_array_pop(FeiState *state, ObjArray *arr);
-_Bool fei_array_destroy(FeiState *state, ObjArray *arr);
+void fei_valarray_init(FeiState *state, FeiValArray *array);
+size_t fei_valarray_count(FeiValArray *arr);
+FeiValue fei_valarray_get(FeiState *state, FeiValArray *arr, int idx);
+void fei_valarray_push(FeiState *state, FeiValArray *array, FeiValue value);
+FeiValue fei_valarray_pop(FeiState *state, FeiValArray *array);
+void fei_valarray_destroy(FeiState *state, FeiValArray *array);
+FeiArray *fei_object_makearray(FeiState *state);
+size_t fei_array_count(FeiArray *arr);
+bool fei_array_push(FeiState *state, FeiArray *arr, FeiValue val);
+FeiValue fei_array_get(FeiState *state, FeiArray *arr, size_t idx);
+FeiValue fei_array_pop(FeiState *state, FeiArray *arr);
+bool fei_array_destroy(FeiState *state, FeiArray *arr);
 
 
 
 /* class.c */
-bool fei_class_invokemethod(FeiState *state, ObjClass *klassobj, ObjString *name, int argcount);
-bool fei_class_bindmethod(FeiState *state, ObjClass *klassobj, ObjString *name, FeiValue val, bool isfield, bool force);
-bool fei_class_setmethod(FeiState *state, ObjClass *klass, ObjString *name, FeiValue method);
-void fei_class_inherit(FeiState *state, ObjClass *base, ObjClass *inheritme);
-bool fei_class_defmethod(FeiState *state, ObjClass *klassobj, const char *strname, NativeFn fn, bool isfield);
-ObjClass *fei_object_makeclass(FeiState *state, ObjString *name);
-ObjClass *fei_object_makeclass_str(FeiState *state, const char *name);
-ObjInstance *fei_object_makeinstance(FeiState *state, ObjClass *klassobj);
+bool fei_class_invokemethod(FeiState *state, FeiClass *klassobj, FeiString *name, int argcount);
+bool fei_class_bindmethod(FeiState *state, FeiClass *klassobj, FeiString *name, FeiValue val, bool isfield, bool force);
+bool fei_class_setmethod(FeiState *state, FeiClass *klass, FeiString *name, FeiValue method);
+void fei_class_inherit(FeiState *state, FeiClass *base, FeiClass *inheritme);
+bool fei_class_defmethod(FeiState *state, FeiClass *klassobj, const char *strname, FeiNativeFn fn, bool isfield);
+FeiClass *fei_object_makeclass(FeiState *state, FeiString *name);
+FeiClass *fei_object_makeclass_str(FeiState *state, const char *name);
+FeiInstance *fei_object_makeinstance(FeiState *state, FeiClass *klassobj);
 
 /* compiler.c */
 void fei_chunk_init(FeiState *state, FeiBytecodeList *chunk);
@@ -842,12 +825,12 @@ void fei_chunk_pushbyte(FeiState *state, FeiBytecodeList *chunk, uint8_t byte, i
 void fei_chunk_destroy(FeiState *state, FeiBytecodeList *chunk);
 int fei_chunk_pushconst(FeiState *state, FeiBytecodeList *chunk, FeiValue value);
 void fei_lexer_initsource(FeiState *state, const char *source, size_t len);
-_Bool fei_lexutil_isalpha(FeiState *state, char c);
-_Bool fei_lexutil_isdigit(FeiState *state, char c);
+bool fei_lexutil_isalpha(FeiState *state, char c);
+bool fei_lexutil_isdigit(FeiState *state, char c);
 const char *fei_lexer_tokenname(int t);
-_Bool fei_lexer_isatend(FeiState *state);
+bool fei_lexer_isatend(FeiState *state);
 char fei_lexer_advance(FeiState *state);
-_Bool fei_lexer_match(FeiState *state, char expected);
+bool fei_lexer_match(FeiState *state, char expected);
 FeiAstToken fei_lexer_maketoken(FeiState *state, FeiAstTokType type);
 FeiAstToken fei_lexer_errortoken(FeiState *state, const char *message);
 char fei_lexer_peekcurrent(FeiState *state);
@@ -870,19 +853,19 @@ void fei_compiler_advancenext(FeiState *state);
 void fei_compiler_advanceskipping(FeiState *state, FeiAstTokType type);
 void fei_compiler_consumev(FeiState *state, FeiAstTokType type, const char* fmt, va_list va);
 void fei_compiler_consume(FeiState *state, FeiAstTokType type, const char* fmt, ...);
-_Bool fei_compiler_check(FeiState *state, FeiAstTokType type);
-_Bool fei_compiler_match(FeiState *state, FeiAstTokType type);
+bool fei_compiler_check(FeiState *state, FeiAstTokType type);
+bool fei_compiler_match(FeiState *state, FeiAstTokType type);
 void fei_compiler_emitbyte(FeiState *state, uint8_t byte);
 void fei_compiler_emitbytes(FeiState *state, uint8_t byte1, uint8_t byte2);
 void fei_compiler_emitloop(FeiState *state, int loopstart);
-void fei_compiler_emitcondloop(FeiState *state, int loopstart, _Bool condstate);
+void fei_compiler_emitcondloop(FeiState *state, int loopstart, bool condstate);
 int fei_compiler_emitjump(FeiState *state, uint8_t instruction);
 void fei_compiler_emitreturn(FeiState *state);
 uint8_t fei_compiler_makeconst(FeiState *state, FeiValue value);
 void fei_compiler_emitconst(FeiState *state, FeiValue value);
 void fei_compiler_patchjump(FeiState *state, int offset);
-void fei_compiler_init(FeiState *state, FeiAstCompiler *compiler, FuncType type);
-ObjFunction *fei_compiler_endcompiler(FeiState *state);
+void fei_compiler_init(FeiState *state, FeiAstCompiler *compiler, FeiFuncType type);
+FeiObjFunction *fei_compiler_endcompiler(FeiState *state);
 void fei_compiler_beginscope(FeiState *state);
 void fei_compiler_endscope(FeiState *state);
 void fei_compiler_beginloopscope(FeiState *state);
@@ -890,9 +873,9 @@ void fei_compiler_endloopscope(FeiState *state);
 void fei_compiler_markcontinuejump(FeiState *state);
 void fei_compiler_patchbreakjumps(FeiState *state);
 uint8_t fei_compiler_makeidentconst(FeiState *state, FeiAstToken *name);
-_Bool fei_compiler_identsequal(FeiState *state, FeiAstToken *a, FeiAstToken *b);
+bool fei_compiler_identsequal(FeiState *state, FeiAstToken *a, FeiAstToken *b);
 int fei_compiler_resolvelocal(FeiState *state, FeiAstCompiler *compiler, FeiAstToken *name);
-int fei_compiler_addupvalue(FeiState *state, FeiAstCompiler *compiler, uint8_t index, _Bool islocal);
+int fei_compiler_addupvalue(FeiState *state, FeiAstCompiler *compiler, uint8_t index, bool islocal);
 int fei_compiler_resolveupvalue(FeiState *state, FeiAstCompiler *compiler, FeiAstToken *name);
 void fei_compiler_addlocal(FeiState *state, FeiAstToken name);
 void fei_compiler_declvarfromcurrent(FeiState *state);
@@ -900,13 +883,13 @@ uint8_t fei_compiler_parsevarfromcurrent(FeiState *state, const char *errormessa
 void fei_compiler_markinit(FeiState *state);
 void fei_compiler_defvarindex(FeiState *state, uint8_t global);
 uint8_t fei_compiler_parsearglist(FeiState* state, const char* contextname, FeiAstTokType tokbegin, FeiAstTokType tokend);
-void fei_compiler_declnamedvar(FeiState *state, FeiAstToken name, _Bool canassign);
+void fei_compiler_declnamedvar(FeiState *state, FeiAstToken name, bool canassign);
 FeiAstToken fei_compiler_makesyntoken(FeiState *state, const char *text);
-void fei_compiler_parseprec(FeiState *state, Precedence precedence);
+void fei_compiler_parseprec(FeiState *state, FeiAstPrecedence precedence);
 FeiAstRule *fei_compiler_getrule(FeiState *state, FeiAstTokType type);
 void fei_compiler_parseexpr(FeiState *state);
 void fei_compiler_parseblock(FeiState *state);
-void fei_compiler_parsefuncdecl(FeiState *state, FuncType type);
+void fei_compiler_parsefuncdecl(FeiState *state, FeiFuncType type);
 void fei_compiler_parsemethoddecl(FeiState *state);
 void fei_compiler_parseclassdecl(FeiState *state);
 void fei_compiler_parseclassfuncdecl(FeiState *state);
@@ -925,7 +908,7 @@ void fei_compiler_parsedowhilestmt(FeiState *state);
 void fei_compiler_synchronize(FeiState *state);
 void fei_compiler_parsedeclaration(FeiState *state);
 void fei_compiler_parsestatement(FeiState *state);
-ObjFunction *fei_compiler_compilesource(FeiState *state, const char *source, size_t len);
+FeiObjFunction *fei_compiler_compilesource(FeiState *state, const char *source, size_t len);
 void fei_compiler_markroots(FeiState *state);
 
 /* corelib.c */
@@ -949,7 +932,7 @@ void *fei_gcmem_reallocate(FeiState *state, void *pointer, size_t oldsize, size_
 void fei_gcmem_freeobject(FeiState *state, FeiObject *object);
 void fei_gcmem_markobject(FeiState *state, FeiObject *object);
 void fei_gcmem_markvalue(FeiState *state, FeiValue value);
-void fei_gcmem_markarray(FeiState *state, ValArray *array);
+void fei_gcmem_markarray(FeiState *state, FeiValArray *array);
 void fei_gcmem_markroots(FeiState *state);
 void fei_gcmem_blackenobject(FeiState *state, FeiObject *object);
 void fei_gcmem_tracerefs(FeiState *state);
@@ -959,48 +942,48 @@ void fei_gcmem_freeobjects(FeiState *state);
 
 /* object.c */
 FeiObject *fei_object_allocobject(FeiState *state, size_t size, FeiObjType type);
-ObjBoundMethod *fei_object_makeboundmethod(FeiState *state, FeiValue receiver, FeiObject *method);
-ObjClosure *fei_object_makeclosure(FeiState *state, ObjFunction *function);
-ObjFunction *fei_object_makefunction(FeiState *state);
-ObjNative *fei_object_makenativefunc(FeiState *state, NativeFn function);
-ObjUpvalue *fei_object_makeupvalue(FeiState *state, FeiValue *slot);
+FeiObjBoundMethod *fei_object_makeboundmethod(FeiState *state, FeiValue receiver, FeiObject *method);
+FeiObjClosure *fei_object_makeclosure(FeiState *state, FeiObjFunction *function);
+FeiObjFunction *fei_object_makefunction(FeiState *state);
+FeiObjNative *fei_object_makenativefunc(FeiState *state, FeiNativeFn function);
+FeiObjUpvalue *fei_object_makeupvalue(FeiState *state, FeiValue *slot);
 
 
 /* state.c */
 void fei_vm_raiseruntimeerror(FeiState *state, const char *format, ...);
-void fei_vm_defnative(FeiState *state, const char *name, NativeFn function);
+void fei_vm_defnative(FeiState *state, const char *name, FeiNativeFn function);
 void fei_vm_resetstack(FeiState *state);
 FeiState *fei_state_init(void);
 void fei_state_destroy(FeiState *state);
-ResultCode fei_vm_evalsource(FeiState *state, const char *source, size_t len);
+FeiResultCode fei_vm_evalsource(FeiState *state, const char *source, size_t len);
 /* string.c */
 uint32_t fei_string_gethash(FeiState *state, const char *key, int length);
-ObjString *fei_string_make(FeiState *state, int length);
-bool fei_string_destroy(FeiState *state, ObjString *str);
-bool fei_string_appendobj(FeiState *state, ObjString *dest, const ObjString *str2);
-bool fei_string_append(FeiState *state, ObjString *dest, const char *strdata, int length);
-ObjString *fei_object_allocstring(FeiState *state, const char *chars, int length, uint32_t hash);
-ObjString *fei_string_take(FeiState *state, char *chars, int length);
-ObjString *fei_string_copy(FeiState *state, const char *chars, int length);
+FeiString *fei_string_make(FeiState *state, int length);
+bool fei_string_destroy(FeiState *state, FeiString *str);
+bool fei_string_appendobj(FeiState *state, FeiString *dest, const FeiString *str2);
+bool fei_string_append(FeiState *state, FeiString *dest, const char *strdata, int length);
+FeiString *fei_object_allocstring(FeiState *state, const char *chars, int length, uint32_t hash);
+FeiString *fei_string_take(FeiState *state, char *chars, int length);
+FeiString *fei_string_copy(FeiState *state, const char *chars, int length);
 /* table.c */
-void fei_table_initcapacity(FeiState *state, Table *table, int cap);
-void fei_table_initempty(FeiState *state, Table *table);
-void fei_table_initnull(FeiState *state, Table *table);
-void fei_table_destroy(FeiState *state, Table *table);
-TabEntry *fei_table_findentry(FeiState *state, int count, TabEntry *entries, int capacity, ObjString *key);
-bool fei_table_get(FeiState *state, Table *table, ObjString *key, FeiValue *value);
-void fei_table_adjustcapacity(FeiState *state, Table *table, int capacity);
-bool fei_table_set(FeiState *state, Table *table, ObjString *key, FeiValue value);
-bool fei_table_delete(FeiState *state, Table *table, ObjString *key);
-void fei_table_mergefrom(FeiState *state, Table *from, Table *to);
-ObjString *fei_table_findstring(FeiState *state, Table *table, const char *chars, int length, uint32_t hash);
-void fei_table_removeunreachable(FeiState *state, Table *table);
-void fei_table_mark(FeiState *state, Table *table);
+void fei_table_initcapacity(FeiState *state, FeiValTable *table, int cap);
+void fei_table_initempty(FeiState *state, FeiValTable *table);
+void fei_table_initnull(FeiState *state, FeiValTable *table);
+void fei_table_destroy(FeiState *state, FeiValTable *table);
+FeiValTabEntry *fei_table_findentry(FeiState *state, int count, FeiValTabEntry *entries, int capacity, FeiString *key);
+bool fei_table_get(FeiState *state, FeiValTable *table, FeiString *key, FeiValue *value);
+void fei_table_adjustcapacity(FeiState *state, FeiValTable *table, int capacity);
+bool fei_table_set(FeiState *state, FeiValTable *table, FeiString *key, FeiValue value);
+bool fei_table_delete(FeiState *state, FeiValTable *table, FeiString *key);
+void fei_table_mergefrom(FeiState *state, FeiValTable *from, FeiValTable *to);
+FeiString *fei_table_findstring(FeiState *state, FeiValTable *table, const char *chars, int length, uint32_t hash);
+void fei_table_removeunreachable(FeiState *state, FeiValTable *table);
+void fei_table_mark(FeiState *state, FeiValTable *table);
 /* tostring.c */
-void fei_value_printfunc(FeiState *state, Writer *wr, ObjFunction *function);
-void fei_value_printstring(FeiState *state, Writer *wr, ObjString *ostr, bool withquot);
-void fei_value_printvalue(FeiState *state, Writer *wr, FeiValue value, bool withquot);
-void fei_value_printobject(FeiState *state, Writer *wr, FeiValue value, bool withquot);
+void fei_value_printfunc(FeiState *state, FeiWriter *wr, FeiObjFunction *function);
+void fei_value_printstring(FeiState *state, FeiWriter *wr, FeiString *ostr, bool withquot);
+void fei_value_printvalue(FeiState *state, FeiWriter *wr, FeiValue value, bool withquot);
+void fei_value_printobject(FeiState *state, FeiWriter *wr, FeiValue value, bool withquot);
 
 /* value.c */
 const char* fei_value_typename(FeiValue v);
@@ -1014,14 +997,14 @@ void fei_vm_dumpval(FeiState* state, FeiValue val, const char* fmt, ...);
 void fei_vm_stackpush(FeiState *state, FeiValue value);
 FeiValue fei_vm_stackpop(FeiState *state);
 FeiValue fei_vm_stackpeek(FeiState *state, int distance);
-bool fei_vm_callclosure(FeiState *state, ObjClosure *closure, int argcount);
+bool fei_vm_callclosure(FeiState *state, FeiObjClosure *closure, int argcount);
 bool fei_vm_callvalue(FeiState *state, FeiValue instval, FeiValue callee, int argcount);
-ObjUpvalue *fei_vm_captureupvalue(FeiState *state, FeiValue *local);
+FeiObjUpvalue *fei_vm_captureupvalue(FeiState *state, FeiValue *local);
 void fei_vm_closeupvalues(FeiState *state, FeiValue *last);
-bool fei_instance_setproperty(FeiState *state, ObjInstance *instance, ObjString *name, FeiValue val);
-bool fei_instance_getproperty(FeiState *state, ObjInstance *instance, ObjString *name, FeiValue *dest);
-void fei_vm_classdefmethodfromstack(FeiState *state, ObjString *name);
-void fei_vmdo_strconcat(FeiState *state);
+bool fei_instance_setproperty(FeiState *state, FeiInstance *instance, FeiString *name, FeiValue val);
+bool fei_instance_getproperty(FeiState *state, FeiInstance *instance, FeiString *name, FeiValue *dest);
+void fei_vm_classdefmethodfromstack(FeiState *state, FeiString *name);
+bool fei_vmdo_strconcat(FeiState *state);
 bool fei_vmdo_return(FeiState *state);
 bool fei_vmdo_superinvoke(FeiState *state);
 bool fei_vmdo_getsuper(FeiState *state);
@@ -1030,10 +1013,10 @@ bool fei_vmdo_invokemethod(FeiState *state);
 bool fei_vmdo_makeclosure(FeiState *state);
 bool fei_vmdo_setproperty(FeiState *state);
 bool fei_vmdo_call(FeiState *state);
-ObjInstance *fei_vm_getinstancefor(FeiState *state, int typ);
-bool fei_vm_otherproperty(FeiState *state, ObjString *name, int typ, bool asfield);
-bool fei_vm_classinvoke(FeiState *state, FeiValue receiver, ObjString *name, int argcount);
-bool fei_vm_classinvokefromstack(FeiState *state, ObjString *name, int argcount);
+FeiInstance *fei_vm_getinstancefor(FeiState *state, int typ);
+bool fei_vm_otherproperty(FeiState *state, FeiString *name, int typ, bool asfield);
+bool fei_vm_classinvoke(FeiState *state, FeiValue receiver, FeiString *name, int argcount);
+bool fei_vm_classinvokefromstack(FeiState *state, FeiString *name, int argcount);
 bool fei_vmdo_getproperty(FeiState *state);
 bool fei_vmdo_unary(FeiState *state, uint8_t instruc);
 bool fei_vmdo_binary(FeiState *state, uint8_t instruc);
@@ -1054,15 +1037,16 @@ bool fei_vmdo_jumpiffalse(FeiState *state);
 bool fei_vmdo_loop(FeiState *state);
 bool fei_vmdo_loopiffalse(FeiState *state);
 bool fei_vmdo_loopiftrue(FeiState *state);
-ResultCode fei_vm_exec(FeiState *state);
+FeiResultCode fei_vm_exec(FeiState *state);
 /* writer.c */
-Writer *fei_writer_init(FeiState *state);
-void fei_writer_destroy(FeiState *state, Writer *wr);
-Writer *fei_writer_initfile(FeiState *state, FILE *fh, bool alsoclose);
-void fei_writer_appendstringlen(Writer *wr, const char *str, size_t len);
-void fei_writer_appendchar(Writer *wr, int c);
-void fei_writer_appendfmtva(Writer *wr, const char *fmt, va_list va);
-void fei_writer_appendfmt(Writer *wr, const char *fmt, ...);
+FeiWriter *fei_writer_init(FeiState *state);
+void fei_writer_destroy(FeiState *state, FeiWriter *wr);
+FeiWriter *fei_writer_initfile(FeiState *state, FILE *fh, bool alsoclose);
+void fei_writer_appendstringlen(FeiWriter *wr, const char *str, size_t len);
+void fei_writer_appendchar(FeiWriter *wr, int c);
+void fei_writer_appendfmtva(FeiWriter *wr, const char *fmt, va_list va);
+void fei_writer_appendfmt(FeiWriter *wr, const char *fmt, ...);
+void fei_writer_appendquotedstring(FeiWriter* wr, const char* str, size_t len, bool withquot);
 
 static inline FeiValue fei_value_makebool(FeiState* state, bool b)
 {
@@ -1260,34 +1244,34 @@ static inline int fei_value_gettype(FeiValue v)
     return v.type;
 }
 
-static inline ObjArray* fei_value_asarray(FeiValue v)
+static inline FeiArray* fei_value_asarray(FeiValue v)
 {
-    return (ObjArray*)fei_value_asobject(v);
+    return (FeiArray*)fei_value_asobject(v);
 }
 
-static inline ObjBoundMethod* fei_value_asbound_method(FeiValue v)
+static inline FeiObjBoundMethod* fei_value_asbound_method(FeiValue v)
 {
-    return (ObjBoundMethod*)fei_value_asobject(v);
+    return (FeiObjBoundMethod*)fei_value_asobject(v);
 }
 
-static inline ObjClass* fei_value_asclass(FeiValue v)
+static inline FeiClass* fei_value_asclass(FeiValue v)
 {
-    return (ObjClass*)fei_value_asobject(v);
+    return (FeiClass*)fei_value_asobject(v);
 }
 
-static inline ObjInstance* fei_value_asinstance(FeiValue v)
+static inline FeiInstance* fei_value_asinstance(FeiValue v)
 {
-    return (ObjInstance*)fei_value_asobject(v);
+    return (FeiInstance*)fei_value_asobject(v);
 }
 
-static inline ObjClosure* fei_value_asclosure(FeiValue v)
+static inline FeiObjClosure* fei_value_asclosure(FeiValue v)
 {
-    return (ObjClosure*)fei_value_asobject(v);
+    return (FeiObjClosure*)fei_value_asobject(v);
 }
 
-static inline ObjString* fei_value_asstring(FeiValue v)
+static inline FeiString* fei_value_asstring(FeiValue v)
 {
-    return (ObjString*)fei_value_asobject(v);
+    return (FeiString*)fei_value_asobject(v);
 }
 
 static inline char* fei_value_ascstring(FeiValue v)
@@ -1295,12 +1279,12 @@ static inline char* fei_value_ascstring(FeiValue v)
     return fei_value_asstring(v)->chars;
 }
 
-static inline ObjFunction* fei_value_asfunction(FeiValue v)
+static inline FeiObjFunction* fei_value_asfunction(FeiValue v)
 {
-    return (ObjFunction*)fei_value_asobject(v);
+    return (FeiObjFunction*)fei_value_asobject(v);
 }
 
-static inline NativeFn fei_value_asnative(FeiValue v)
+static inline FeiNativeFn fei_value_asnative(FeiValue v)
 {
-    return ((ObjNative*)fei_value_asobject(v))->function;
+    return ((FeiObjNative*)fei_value_asobject(v))->function;
 }

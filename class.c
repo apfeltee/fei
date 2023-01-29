@@ -1,29 +1,29 @@
 
 #include "fei.h"
 
-ObjClass* fei_object_makeclass(FeiState* state, ObjString* name)
+FeiClass* fei_object_makeclass(FeiState* state, FeiString* name)
 {
-    ObjClass* klassobj;
+    FeiClass* klassobj;
     state->ocount.cntclass++;
-    klassobj = (ObjClass*)fei_object_allocobject(state, sizeof(ObjClass), OBJ_CLASS);
+    klassobj = (FeiClass*)fei_object_allocobject(state, sizeof(FeiClass), OBJ_CLASS);
     klassobj->name = name;
     fei_table_initcapacity(state, &klassobj->methods, 4);
     return klassobj;
 }
 
-ObjClass* fei_object_makeclass_str(FeiState* state, const char* name)
+FeiClass* fei_object_makeclass_str(FeiState* state, const char* name)
 {
-    ObjString* s;
+    FeiString* s;
     s = fei_string_copy(state, name, strlen(name));
     return fei_object_makeclass(state, s);
 }
 
 // create new class instance
-ObjInstance* fei_object_makeinstance(FeiState* state, ObjClass* klassobj)
+FeiInstance* fei_object_makeinstance(FeiState* state, FeiClass* klassobj)
 {
-    ObjInstance* instance;
+    FeiInstance* instance;
     state->ocount.cntinstance++;
-    instance = (ObjInstance*)fei_object_allocobject(state, sizeof(ObjInstance), OBJ_INSTANCE);
+    instance = (FeiInstance*)fei_object_allocobject(state, sizeof(FeiInstance), OBJ_INSTANCE);
     instance->classobject = klassobj;
     fei_table_initempty(state, &instance->fields);
     //fei_table_initcapacity(state, &instance->fields, 4);
@@ -31,7 +31,7 @@ ObjInstance* fei_object_makeinstance(FeiState* state, ObjClass* klassobj)
 }
 
 
-bool fei_class_invokemethod(FeiState* state, ObjClass* klassobj, ObjString* name, int argcount)
+bool fei_class_invokemethod(FeiState* state, FeiClass* klassobj, FeiString* name, int argcount)
 {
     FeiValue method;
     if(!fei_table_get(state, &klassobj->methods, name, &method))
@@ -42,13 +42,13 @@ bool fei_class_invokemethod(FeiState* state, ObjClass* klassobj, ObjString* name
     return fei_vm_callclosure(state, fei_value_asclosure(method), argcount);
 }
 
-// bind method and wrap it in a new ObjBoundMethod
-bool fei_class_bindmethod(FeiState* state, ObjClass* klassobj, ObjString* name, FeiValue val, bool isfield, bool force)
+// bind method and wrap it in a new FeiObjBoundMethod
+bool fei_class_bindmethod(FeiState* state, FeiClass* klassobj, FeiString* name, FeiValue val, bool isfield, bool force)
 {
     bool mustdef;
     FeiValue method;
-    Table* tab;
-    ObjBoundMethod* bound;
+    FeiValTable* tab;
+    FeiObjBoundMethod* bound;
     mustdef = false;
     tab = &klassobj->methods;
 
@@ -70,7 +70,7 @@ bool fei_class_bindmethod(FeiState* state, ObjClass* klassobj, ObjString* name, 
     }
     if(fei_value_isboundmethod(method))
     {
-        // wrap method in a new ObjBoundMethodd
+        // wrap method in a new FeiObjBoundMethodd
         bound = fei_object_makeboundmethod(state, val, (FeiObject*)fei_value_asclosure(method));
     }
     else
@@ -82,25 +82,25 @@ bool fei_class_bindmethod(FeiState* state, ObjClass* klassobj, ObjString* name, 
     return true;
 }
 
-bool fei_class_setmethod(FeiState* state, ObjClass* klass, ObjString* name, FeiValue method)
+bool fei_class_setmethod(FeiState* state, FeiClass* klass, FeiString* name, FeiValue method)
 {
     return fei_table_set(state, &klass->methods, name, method);
 }
 
-void fei_class_inherit(FeiState* state, ObjClass* base, ObjClass* inheritme)
+void fei_class_inherit(FeiState* state, FeiClass* base, FeiClass* inheritme)
 {
     fei_table_mergefrom(state, &inheritme->methods, &base->methods);
 }
 
 /*
-* unconditionally set an item on a ObjClass.
+* unconditionally set an item on a FeiClass.
 * if $isfield is true, then set as a field (a sort-of function, that is not called per-se. think javascript .length)
 */
-bool fei_class_defmethod(FeiState* state, ObjClass* klassobj, const char* strname, NativeFn fn, bool isfield)
+bool fei_class_defmethod(FeiState* state, FeiClass* klassobj, const char* strname, FeiNativeFn fn, bool isfield)
 {
     FeiValue ofv;
-    ObjString* name;
-    ObjNative* ofn;
+    FeiString* name;
+    FeiObjNative* ofn;
     name = fei_string_copy(state, strname, strlen(strname));
     ofn = fei_object_makenativefunc(state, fn);
     ofv = fei_value_makeobject(state, ofn);

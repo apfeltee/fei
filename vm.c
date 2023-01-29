@@ -24,7 +24,7 @@ static inline FeiValue READ_CONSTANT(FeiState* state, FeiVMFrame* frame)
     return fei_valarray_get(state, &frame->closure->function->chunk.constants, READ_BYTE(frame));
 }
 
-static inline ObjString* READ_STRING(FeiState* state, FeiVMFrame* frame)
+static inline FeiString* READ_STRING(FeiState* state, FeiVMFrame* frame)
 {
     return fei_value_asstring(READ_CONSTANT(state, frame));
 }
@@ -185,7 +185,7 @@ FeiValue fei_vm_stackpeek(FeiState* state, int distance)
 
 
 /* for call stacks/functions  */
-bool fei_vm_callclosure(FeiState* state, ObjClosure* closure, int argcount)
+bool fei_vm_callclosure(FeiState* state, FeiObjClosure* closure, int argcount)
 {
     FeiVMFrame* frame;
     // if number of parameters does not match
@@ -215,19 +215,19 @@ bool fei_vm_callclosure(FeiState* state, ObjClosure* closure, int argcount)
 
 bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int argcount)
 {
-    NativeFn natfn;
+    FeiNativeFn natfn;
     FeiValue result;
     FeiValue initializer;
-    ObjInstance* instance;
-    ObjClass* klass;
-    ObjBoundMethod* bound;
+    FeiInstance* instance;
+    FeiClass* klass;
+    FeiObjBoundMethod* bound;
     if(fei_value_isobject(callee))
     {
         switch(fei_value_objtype(callee))
         {
             case OBJ_BOUND_METHOD:
                 {
-                    // get ObjBoundMethod from value type(callee)
+                    // get FeiObjBoundMethod from value type(callee)
                     bound = fei_value_asbound_method(callee);
                     state->vmstate.stacktop[-argcount - 1] = bound->receiver;
                     // run call to execute
@@ -282,12 +282,12 @@ bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int ar
 }
 
 // get corresponding upvalue
-ObjUpvalue* fei_vm_captureupvalue(FeiState* state, FeiValue* local)
+FeiObjUpvalue* fei_vm_captureupvalue(FeiState* state, FeiValue* local)
 {
     // set up the linked list
-    ObjUpvalue* upvalue;
-    ObjUpvalue* prevupvalue;
-    ObjUpvalue* createdupvalue;
+    FeiObjUpvalue* upvalue;
+    FeiObjUpvalue* prevupvalue;
+    FeiObjUpvalue* createdupvalue;
     prevupvalue = NULL;
 
     // assign at the start of the list
@@ -337,7 +337,7 @@ ObjUpvalue* fei_vm_captureupvalue(FeiState* state, FeiValue* local)
 // closes every upvalue it can find that points to the slot or any above the stack
 void fei_vm_closeupvalues(FeiState* state, FeiValue* last)// takes pointer to stack slot
 {
-    ObjUpvalue* upvalue;
+    FeiObjUpvalue* upvalue;
     while(state->vmstate.openupvalues != NULL && state->vmstate.openupvalues->location >= last)
     {
         // pointer to list of openupvalues
@@ -348,7 +348,7 @@ void fei_vm_closeupvalues(FeiState* state, FeiValue* last)// takes pointer to st
     }
 }
 
-bool fei_instance_getproperty(FeiState* state, ObjInstance* instance, ObjString* name, FeiValue* dest)
+bool fei_instance_getproperty(FeiState* state, FeiInstance* instance, FeiString* name, FeiValue* dest)
 {
     FeiValue val;
     if(fei_table_get(state, &instance->fields, name, &val))
@@ -360,10 +360,10 @@ bool fei_instance_getproperty(FeiState* state, ObjInstance* instance, ObjString*
 }
 
 // defining method for class type
-void fei_vm_classdefmethodfromstack(FeiState* state, ObjString* name)
+void fei_vm_classdefmethodfromstack(FeiState* state, FeiString* name)
 {
     FeiValue method;
-    ObjClass* klassobj;
+    FeiClass* klassobj;
     // method/closure is at the top of the stack
     method = fei_vm_stackpeek_inline(state, 0);
     // class is at the 2nd top
@@ -374,19 +374,21 @@ void fei_vm_classdefmethodfromstack(FeiState* state, ObjString* name)
 }
 
 // string concatenation
-void fei_vmdo_strconcat(FeiState* state)
+bool fei_vmdo_strconcat(FeiState* state)
 {
-    ObjString* first;
-    ObjString* second;
-    ObjString* result;
+    FeiString* first;
+    FeiString* second;
+    FeiString* result;
+    //dumpstack(state, "strconcat");
     // peek, so we do not pop it off if calling a GC is needed
     second = fei_value_asstring(fei_vm_stackpeek_inline(state, 0));
     first = fei_value_asstring(fei_vm_stackpeek_inline(state, 1));
-    fei_vm_stackpop_inline(state);
-    fei_vm_stackpop_inline(state);
     result = fei_string_copy(state, first->chars, first->length);
-    fei_string_append(state, first, second->chars, second->length);
+    fei_string_append(state, result, second->chars, second->length);
+    fei_vm_stackpop_inline(state);
+    fei_vm_stackpop_inline(state);
     fei_vm_stackpush(state, fei_value_makeobject(state, result));
+    return true;
 }
 
 
@@ -418,8 +420,8 @@ bool fei_vmdo_return(FeiState* state)
 bool fei_vmdo_superinvoke(FeiState* state)
 {
     int count;
-    ObjClass* parent;
-    ObjString* method;
+    FeiClass* parent;
+    FeiString* method;
     method = READ_STRING(state, state->vmstate.topframe);
     count = READ_BYTE(state->vmstate.topframe);
     parent = fei_value_asclass(fei_vm_stackpop_inline(state));
@@ -434,8 +436,8 @@ bool fei_vmdo_superinvoke(FeiState* state)
 bool fei_vmdo_getsuper(FeiState* state)
 {
     FeiValue val;
-    ObjString* name;
-    ObjClass* parent;
+    FeiString* name;
+    FeiClass* parent;
     // get method name/identifier
     name = READ_STRING(state, state->vmstate.topframe);
     // class identifier is at the top of the stack
@@ -455,7 +457,7 @@ bool fei_vmdo_getsuper(FeiState* state)
 bool fei_vmdo_inherit(FeiState* state)
 {
     FeiValue parent;
-    ObjClass* child;
+    FeiClass* child;
     // parent class from 2nd top of the stack
     // ensure that parent identifier is a class
     parent = fei_vm_stackpeek_inline(state, 1);
@@ -477,7 +479,7 @@ bool fei_vmdo_inherit(FeiState* state)
 bool fei_vmdo_invokemethod(FeiState* state)
 {
     int argcount;
-    ObjString* method;
+    FeiString* method;
     method = READ_STRING(state, state->vmstate.topframe);
     argcount = READ_BYTE(state->vmstate.topframe);
     // new invoke function
@@ -494,8 +496,8 @@ bool fei_vmdo_makeclosure(FeiState* state)
     int i;
     uint8_t index;
     uint8_t islocal;
-    ObjClosure* closure;
-    ObjFunction* function;
+    FeiObjClosure* closure;
+    FeiObjFunction* function;
     // load compiled function from table
     function = fei_value_asfunction(READ_CONSTANT(state, state->vmstate.topframe));
     closure = fei_object_makeclosure(state, function);
@@ -528,8 +530,8 @@ bool fei_vmdo_setproperty(FeiState* state)
 {
     FeiValue peekval;
     FeiValue peekinst;
-    ObjString* name;
-    ObjInstance* instance;
+    FeiString* name;
+    FeiInstance* instance;
     peekinst = fei_vm_stackpeek_inline(state, 1);
     if(!fei_value_isinstance(peekinst))
     {
@@ -570,7 +572,7 @@ bool fei_vmdo_call(FeiState* state)
     return true;
 }
 
-ObjInstance* fei_vm_getinstancefor(FeiState* state, int typ)
+FeiInstance* fei_vm_getinstancefor(FeiState* state, int typ)
 {
     switch(typ)
     {
@@ -586,12 +588,12 @@ ObjInstance* fei_vm_getinstancefor(FeiState* state, int typ)
     return NULL;
 }
 
-bool fei_vm_otherproperty(FeiState* state, ObjString* name, int typ, bool asfield)
+bool fei_vm_otherproperty(FeiState* state, FeiString* name, int typ, bool asfield)
 {
     bool b;
     FeiValue v;
-    ObjInstance* inst;
-    Table* tab;
+    FeiInstance* inst;
+    FeiValTable* tab;
     inst = fei_vm_getinstancefor(state, typ);
     //fprintf(stderr, "fei_vm_otherproperty: typ=%d inst=%p (%s) name=%.*s\n", typ, inst, inst->classobject->name->chars, name->length, name->chars);
     if(inst != NULL)
@@ -609,14 +611,14 @@ bool fei_vm_otherproperty(FeiState* state, ObjString* name, int typ, bool asfiel
 }
 
 // invoke class method, access method + call method
-bool fei_vm_classinvoke(FeiState* state, FeiValue receiver, ObjString* name, int argcount)
+bool fei_vm_classinvoke(FeiState* state, FeiValue receiver, FeiString* name, int argcount)
 {
     int typ;
     bool isinst;
     bool isother;
-    ObjInstance* tinst;
+    FeiInstance* tinst;
     FeiValue value;
-    ObjInstance* instance;
+    FeiInstance* instance;
     isother = false;
     // call method with wrong type, not an objinstance type
     typ = fei_value_gettype(receiver);
@@ -647,7 +649,7 @@ bool fei_vm_classinvoke(FeiState* state, FeiValue receiver, ObjString* name, int
     return fei_class_invokemethod(state, instance->classobject, name, argcount);
 }
 
-bool fei_vm_classinvokefromstack(FeiState* state, ObjString* name, int argcount)
+bool fei_vm_classinvokefromstack(FeiState* state, FeiString* name, int argcount)
 {
     FeiValue receiver;
     // grab the receiver of the stack
@@ -661,9 +663,9 @@ bool fei_vmdo_getproperty(FeiState* state)
     bool b;
     FeiValue value;
     FeiValue peeked;
-    ObjInstance* inst;
-    ObjString* name;
-    ObjInstance* instance;
+    FeiInstance* inst;
+    FeiString* name;
+    FeiInstance* instance;
     peeked = fei_vm_stackpeek_inline(state, 0);
     name = READ_STRING(state, state->vmstate.topframe);
     // to make sure only instances are allowed to have fields
@@ -903,8 +905,7 @@ bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
     pokeleft = fei_vm_stackpeek_inline(state, 1);
     if((instruc == OP_ADD) && (fei_value_isstring(pokeright) && fei_value_isstring(pokeleft)))
     {
-        fei_vmdo_strconcat(state);
-        return true;
+        return fei_vmdo_strconcat(state);
     }
     if(fei_value_isnumber(pokeright) && fei_value_isnumber(pokeleft))
     {
@@ -1117,7 +1118,7 @@ bool fei_vmdo_logicalnot(FeiState* state)
 
 bool fei_vmdo_defineglobal(FeiState* state)
 {
-    ObjString* name;
+    FeiString* name;
     // get name from constant table
     name = READ_STRING(state, state->vmstate.topframe);
     // take value from the top of the stack
@@ -1128,7 +1129,7 @@ bool fei_vmdo_defineglobal(FeiState* state)
 
 bool fei_vmdo_setglobal(FeiState* state)
 {
-    ObjString* name;
+    FeiString* name;
     name = READ_STRING(state, state->vmstate.topframe);
     // if key not in hash table
     if(fei_table_set(state, &state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0)))
@@ -1143,7 +1144,7 @@ bool fei_vmdo_setglobal(FeiState* state)
 bool fei_vmdo_getglobal(FeiState* state)
 {
     FeiValue value;
-    ObjString* name;
+    FeiString* name;
     // get the name
     name = READ_STRING(state, state->vmstate.topframe);
     // if key not in hash table
@@ -1292,10 +1293,10 @@ bool fei_vmdo_getindex(FeiState* state, bool setindex)
     int64_t maxlen;
     char ch;
     char setchar;
-    ObjString* rs;
-    ObjArray* oba;
-    ObjString* obs;
-    ObjString* setstr;
+    FeiString* rs;
+    FeiArray* oba;
+    FeiString* obs;
+    FeiString* setstr;
     setchar = -1;
     setval = fei_value_makenull(state);
     #if 0
@@ -1408,7 +1409,7 @@ bool fei_vmdo_makearray(FeiState* state)
     int16_t i;
     int16_t cnt;
     FeiValue val;
-    ObjArray* arr;
+    FeiArray* arr;
     cnt = READ_BYTE(state->vmstate.topframe);
     arr = fei_object_makearray(state);
     #if 0
@@ -1443,7 +1444,7 @@ typedef bool(*VMPrimitive)(FeiState*);
     }
 
 // run the chunk
-ResultCode fei_vm_exec(FeiState* state)
+FeiResultCode fei_vm_exec(FeiState* state)
 {
     int cnt;
     int dbgofs;

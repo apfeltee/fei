@@ -20,43 +20,43 @@ FeiObject* fei_object_allocobject(FeiState* state, size_t size, FeiObjType type)
 }
 
 // new bound method for classes
-ObjBoundMethod* fei_object_makeboundmethod(FeiState* state, FeiValue receiver, FeiObject* method)
+FeiObjBoundMethod* fei_object_makeboundmethod(FeiState* state, FeiValue receiver, FeiObject* method)
 {
-    ObjBoundMethod* bound;
+    FeiObjBoundMethod* bound;
     state->ocount.cntbound++;
-    bound = (ObjBoundMethod*)fei_object_allocobject(state, sizeof(ObjBoundMethod), OBJ_BOUND_METHOD);
+    bound = (FeiObjBoundMethod*)fei_object_allocobject(state, sizeof(FeiObjBoundMethod), OBJ_BOUND_METHOD);
     bound->receiver = receiver;
     bound->method = method;
     return bound;
 }
 
 // create new closure
-ObjClosure* fei_object_makeclosure(FeiState* state, ObjFunction* function)
+FeiObjClosure* fei_object_makeclosure(FeiState* state, FeiObjFunction* function)
 {
     int i;
-    ObjClosure* closure;
-    ObjUpvalue** upvalues;
+    FeiObjClosure* closure;
+    FeiObjUpvalue** upvalues;
     state->ocount.cntclosure++;
     state->ocount.cntupval++;
     // initialize array of upvalue pointers
     // upvalues carry over
-    upvalues = (ObjUpvalue**)ALLOCATE(state, sizeof(ObjUpvalue*), function->upvaluecount);
+    upvalues = (FeiObjUpvalue**)ALLOCATE(state, sizeof(FeiObjUpvalue*), function->upvaluecount);
     for(i = 0; i < function->upvaluecount; i++)
     {
         upvalues[i] = NULL;
     }
-    closure = (ObjClosure*)fei_object_allocobject(state, sizeof(ObjClosure), OBJ_CLOSURE);
+    closure = (FeiObjClosure*)fei_object_allocobject(state, sizeof(FeiObjClosure), OBJ_CLOSURE);
     closure->function = function;
     closure->upvalues = upvalues;
     closure->upvaluecount = function->upvaluecount;
     return closure;
 }
 
-ObjFunction* fei_object_makefunction(FeiState* state)
+FeiObjFunction* fei_object_makefunction(FeiState* state)
 {
-    ObjFunction* function;
+    FeiObjFunction* function;
     state->ocount.cntfunction++;
-    function = (ObjFunction*)fei_object_allocobject(state, sizeof(ObjFunction), OBJ_FUNCTION);
+    function = (FeiObjFunction*)fei_object_allocobject(state, sizeof(FeiObjFunction), OBJ_FUNCTION);
     function->arity = 0;
     function->upvaluecount = 0;
     function->name = NULL;
@@ -65,20 +65,20 @@ ObjFunction* fei_object_makefunction(FeiState* state)
 }
 
 // new native function
-ObjNative* fei_object_makenativefunc(FeiState* state, NativeFn function)
+FeiObjNative* fei_object_makenativefunc(FeiState* state, FeiNativeFn function)
 {
-    ObjNative* native;
+    FeiObjNative* native;
     state->ocount.cntnative++;
-    native = (ObjNative*)fei_object_allocobject(state, sizeof(ObjNative), OBJ_NATIVE);
+    native = (FeiObjNative*)fei_object_allocobject(state, sizeof(FeiObjNative), OBJ_NATIVE);
     native->function = function;
     return native;
 }
 
-ObjUpvalue* fei_object_makeupvalue(FeiState* state, FeiValue* slot)
+FeiObjUpvalue* fei_object_makeupvalue(FeiState* state, FeiValue* slot)
 {
-    ObjUpvalue* upvalue;
+    FeiObjUpvalue* upvalue;
     state->ocount.cntupval++;
-    upvalue = (ObjUpvalue*)fei_object_allocobject(state, sizeof(ObjUpvalue), OBJ_UPVALUE);
+    upvalue = (FeiObjUpvalue*)fei_object_allocobject(state, sizeof(FeiObjUpvalue), OBJ_UPVALUE);
     upvalue->location = slot;
     upvalue->next = NULL;
     upvalue->closed = fei_value_makenull(state);

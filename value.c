@@ -96,7 +96,7 @@ const char* fei_value_typename(FeiValue v)
     return "unknown";
 }
 
-bool fei_valcompare_string(FeiState* state, ObjString* stra, ObjString* strb)
+bool fei_valcompare_string(FeiState* state, FeiString* stra, FeiString* strb)
 {
     if(stra->length == strb->length)
     {
@@ -105,7 +105,7 @@ bool fei_valcompare_string(FeiState* state, ObjString* stra, ObjString* strb)
     return false;
 }
 
-bool fei_valcompare_array(FeiState* state, ObjArray* arra, ObjArray* arrb)
+bool fei_valcompare_array(FeiState* state, FeiArray* arra, FeiArray* arrb)
 {
     int i;
     int lena;
@@ -142,13 +142,12 @@ bool fei_valcompare_object(FeiState* state, FeiObject* oba, FeiObject* obb)
         {
             case OBJ_ARRAY:
                 {
-                    fprintf(stderr, "comparing array\n");
-                    return fei_valcompare_array(state, (ObjArray*)oba, (ObjArray*)obb);
+                    return fei_valcompare_array(state, (FeiArray*)oba, (FeiArray*)obb);
                 }
                 break;
             case OBJ_STRING:
                 {
-                    return fei_valcompare_string(state, (ObjString*)oba, (ObjString*)obb);
+                    return fei_valcompare_string(state, (FeiString*)oba, (FeiString*)obb);
                 }
                 break;
             default:

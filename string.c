@@ -18,17 +18,17 @@ uint32_t fei_string_gethash(FeiState* state, const char* key, int length)
 }
 
 /* dynamic string impl via https://github.com/jasonmaclafferty/String */
-ObjString* fei_string_make(FeiState* state, int length)
+FeiString* fei_string_make(FeiState* state, int length)
 {
     int cap;
     char* strbuf;
-    ObjString* str;
+    FeiString* str;
     cap = length;
     if(cap < 200)
     {
         cap = 200;
     }
-    str = (ObjString*)fei_object_allocobject(state, sizeof(ObjString), OBJ_STRING);
+    str = (FeiString*)fei_object_allocobject(state, sizeof(FeiString), OBJ_STRING);
     strbuf = (char*)calloc(cap + 1, sizeof(char));
     str->chars = strbuf;
     str->capacity = cap;
@@ -36,23 +36,23 @@ ObjString* fei_string_make(FeiState* state, int length)
     return str;
 }
 
-bool fei_string_destroy(FeiState* state, ObjString* str)
+bool fei_string_destroy(FeiState* state, FeiString* str)
 {
     if(str != NULL)
     {
         free(str->chars);
-        fei_gcmem_reallocate(state, str, sizeof(ObjString), 0);
+        fei_gcmem_reallocate(state, str, sizeof(FeiString), 0);
         return true;
     }
     return false;
 }
 
-bool fei_string_appendobj(FeiState* state, ObjString* dest, const ObjString* str2)
+bool fei_string_appendobj(FeiState* state, FeiString* dest, const FeiString* str2)
 {
     return fei_string_append(state, dest, str2->chars, str2->length);
 }
 
-bool fei_string_append(FeiState* state, ObjString* dest, const char* strdata, int length)
+bool fei_string_append(FeiState* state, FeiString* dest, const char* strdata, int length)
 {
     enum {
         string_chunk_size = 52,
@@ -91,9 +91,9 @@ bool fei_string_append(FeiState* state, ObjString* dest, const char* strdata, in
     return false;
 }
 
-ObjString* fei_object_allocstring(FeiState* state, const char* chars, int length, uint32_t hash)// pass in hash
+FeiString* fei_object_allocstring(FeiState* state, const char* chars, int length, uint32_t hash)// pass in hash
 {
-    ObjString* objstr;
+    FeiString* objstr;
     state->ocount.cntstring++;
     objstr = fei_string_make(state, length);
     fei_string_append(state, objstr, chars, length);
@@ -109,10 +109,10 @@ ObjString* fei_object_allocstring(FeiState* state, const char* chars, int length
 }
 
 // shorten than fei_string_copy because owernship of the char* itself is declared in concatenate(), hence no need to declare memory again
-ObjString* fei_string_take(FeiState* state, char* chars, int length)
+FeiString* fei_string_take(FeiState* state, char* chars, int length)
 {
     uint32_t hash;
-    ObjString* interned;
+    FeiString* interned;
     hash = fei_string_gethash(state, chars, length);
     interned = fei_table_findstring(state, &state->vmstate.strings, chars, length, hash);
     if(interned != NULL)
@@ -124,10 +124,10 @@ ObjString* fei_string_take(FeiState* state, char* chars, int length)
 }
 
 // copy string from source code to memory
-ObjString* fei_string_copy(FeiState* state, const char* chars, int length)
+FeiString* fei_string_copy(FeiState* state, const char* chars, int length)
 {
     uint32_t hash;
-    ObjString* interned;
+    FeiString* interned;
     hash = fei_string_gethash(state, chars, length);
     interned = fei_table_findstring(state, &state->vmstate.strings, chars, length, hash);
     if(interned != NULL)

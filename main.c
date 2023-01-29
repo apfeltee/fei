@@ -75,7 +75,7 @@ void runfile(FeiState* state, const char* path)
     size_t len;
     char* source;
     source = readfile(path, &len);
-    ResultCode result = fei_vm_evalsource(state, source, len);
+    FeiResultCode result = fei_vm_evalsource(state, source, len);
     free(source);
     if(result == STATUS_SYNTAXERROR)
     {
@@ -115,6 +115,7 @@ struct FlagContext_t
 
 struct Options_t
 {
+    bool printtypesizes;
     char* debugmode;
     char* codeline;
 };
@@ -185,17 +186,39 @@ static bool populate_flags(int argc, int begin, char** argv, const char* expectv
 
 static void show_help()
 {
-    printf("lit [options] [files]\n");
-    printf("    -o --output [file]  Instead of running the file the compiled bytecode will be saved.\n");
-    printf(" -O[name] [string] Enables given optimization. For the list of aviable optimizations run with -Ohelp\n");
-    printf(" -D[name]  Defines given symbol.\n");
-    printf(" -e --eval [string] Runs the given code string.\n");
-    printf(" -p --pass [args] Passes the rest of the arguments to the script.\n");
-    printf(" -i --interactive Starts an interactive shell.\n");
-    printf(" -d --dump  Dumps all the bytecode chunks from the given file.\n");
-    printf(" -t --time  Measures and prints the compilation timings.\n");
-    printf(" -h --help  I wonder, what this option does.\n");
-    printf(" If no code to run is provided, lit will try to run either main.lbc or main.lit and, if fails, default to an interactive shell will start.\n");
+    printf("help goes here\n");
+}
+
+static void printts()
+{
+    {
+        ptyp(FeiValue);
+        ptyp(FeiObject);
+        ptyp(FeiString);
+        ptyp(FeiObjFunction);
+        ptyp(FeiClass);
+        ptyp(FeiInstance);
+        ptyp(FeiObjBoundMethod);
+        ptyp(FeiObjUpvalue);
+        ptyp(FeiObjClosure);
+        ptyp(FeiObjNative);
+        ptyp(FeiAstLocal);
+        ptyp(FeiAstUpvalue);
+        ptyp(FeiASTState);
+        ptyp(FeiGCState);
+        ptyp(FeiVMState);
+        ptyp(FeiState);
+        ptyp(FeiVMFrame);
+        ptyp(FeiAstToken);
+        ptyp(FeiAstLexer);
+        ptyp(FeiAstParser);
+        ptyp(FeiAstCompiler);
+        ptyp(FeiAstClassCompiler);
+        ptyp(FeiValArray);
+        ptyp(FeiBytecodeList);
+        ptyp(FeiValTabEntry);
+        ptyp(FeiValTable);
+    }
 }
 
 static bool parse_options(Options_t* opts, Flag_t* flags, int fcnt)
@@ -210,6 +233,12 @@ static bool parse_options(Options_t* opts, Flag_t* flags, int fcnt)
             case 'h':
                 {
                     show_help();
+                    return false;
+                }
+                break;
+            case 't':
+                {
+                    printts();
                     return false;
                 }
                 break;
@@ -240,7 +269,6 @@ static bool parse_options(Options_t* opts, Flag_t* flags, int fcnt)
     return true;
 }
 
-
 int main(int argc, char* argv[])
 {
     bool cmdfailed;
@@ -251,38 +279,8 @@ int main(int argc, char* argv[])
     Options_t opts;
     cmdfailed = false;
     state = fei_state_init();
-    populate_flags(argc, 1, argv, "ed", &fx);
-    #if 0
-    {
-        ptyp(FeiValue);
-        ptyp(FeiObject);
-        ptyp(ObjString);
-        ptyp(ObjFunction);
-        ptyp(ObjClass);
-        ptyp(ObjInstance);
-        ptyp(ObjBoundMethod);
-        ptyp(ObjUpvalue);
-        ptyp(ObjClosure);
-        ptyp(ObjNative);
-        ptyp(FeiAstLocal);
-        ptyp(FeiAstUpvalue);
-        ptyp(ASTState);
-        ptyp(GCState);
-        ptyp(VMState);
-        ptyp(FeiState);
-        ptyp(FeiVMFrame);
-        ptyp(FeiAstToken);
-        ptyp(FeiAstLexer);
-        ptyp(FeiAstParser);
-        ptyp(FeiAstRule);
-        ptyp(FeiAstCompiler);
-        ptyp(ClassCompiler);
-        ptyp(ValArray);
-        ptyp(FeiBytecodeList);
-        ptyp(TabEntry);
-        ptyp(Table);
-    }
-    #endif
+    populate_flags(argc, 1, argv, "edt", &fx);
+
     if(!parse_options(&opts, fx.flags, fx.fcnt))
     {
         cmdfailed = true;
@@ -311,7 +309,6 @@ int main(int argc, char* argv[])
     }
     if(!cmdfailed)
     {
-
         if((fx.poscnt > 0) || (opts.codeline != NULL))
         {
             if(opts.codeline)

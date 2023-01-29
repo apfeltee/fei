@@ -14,6 +14,8 @@ void fei_state_makeprimitive(FeiState* state, FeiPrimitive* pm, const char* name
 void fei_state_setdefaultconfig(FeiState* state)
 {
     state->config.traceinstructions = false;
+    state->config.tracestackvalues = false;
+    state->config.printcreatedobjcount = false;
 }
 
 FeiState* fei_state_init()
@@ -74,14 +76,14 @@ void print_counts(FeiState* state)
             fprintf(stderr, "created %zd %s\n", state->ocount.__field__, str); \
             total += state->ocount.__field__; \
         }
-    print_count_for(cntstring, "ObjString");
-    print_count_for(cntfunction, "ObjFunction");
-    print_count_for(cntclass, "ObjClass");
-    print_count_for(cntinstance, "ObjInstance");
-    print_count_for(cntbound, "ObjBoundMethod");
-    print_count_for(cntupval, "ObjUpval");
-    print_count_for(cntclosure, "ObjClosure");
-    print_count_for(cntnative, "ObjNative");
+    print_count_for(cntstring, "FeiString");
+    print_count_for(cntfunction, "FeiObjFunction");
+    print_count_for(cntclass, "FeiClass");
+    print_count_for(cntinstance, "FeiInstance");
+    print_count_for(cntbound, "FeiObjBoundMethod");
+    print_count_for(cntupval, "FeiObjUpval");
+    print_count_for(cntclosure, "FeiObjClosure");
+    print_count_for(cntnative, "FeiObjNative");
     print_count_for(cntnumfloat, "floating point number");
     print_count_for(cntnumfixed, "fixed point number");
     fprintf(stderr, "which makes %zd objects in total\n", total);
@@ -103,7 +105,10 @@ void fei_state_destroy(FeiState* state)
         free(state->vmstate.frameobjects[i]);
     }
     da_destroy(state->vmstate.frameobjects);
-    print_counts(state);
+    if(state->config.printcreatedobjcount)
+    {
+        print_counts(state);
+    }
     free(state);
 }
 
@@ -114,7 +119,7 @@ void fei_vm_raiseruntimeerror(FeiState* state, const char* format, ...)
     size_t instruction;
     va_list args;
     FeiVMFrame* frame;
-    ObjFunction* function;
+    FeiObjFunction* function;
     fprintf(stderr, "!!!RUNTIME ERROR!!!\n");
     va_start(args, format);
     vfprintf(stderr, format, args);
@@ -148,10 +153,10 @@ void fei_vm_raiseruntimeerror(FeiState* state, const char* format, ...)
     fei_vm_resetstack(state);
 }
 
-void fei_vm_defnative(FeiState* state, const char* name, NativeFn function)
+void fei_vm_defnative(FeiState* state, const char* name, FeiNativeFn function)
 {
-    ObjString* objname;
-    ObjNative* objnat;
+    FeiString* objname;
+    FeiObjNative* objnat;
     objname = fei_string_copy(state, name, (int)strlen(name));
     objnat = fei_object_makenativefunc(state, function);
     fei_table_set(state, &state->vmstate.globals, objname, fei_value_makeobject(state, objnat));        
@@ -169,10 +174,10 @@ void fei_vm_resetstack(FeiState* state)
 
 
 /* starting point of the compiler */
-ResultCode fei_vm_evalsource(FeiState* state, const char* source, size_t len)
+FeiResultCode fei_vm_evalsource(FeiState* state, const char* source, size_t len)
 {
-    ObjClosure* closure;
-    ObjFunction* function;
+    FeiObjClosure* closure;
+    FeiObjFunction* function;
     function = fei_compiler_compilesource(state, source, len);
     if(function == NULL)
     {

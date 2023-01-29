@@ -47,14 +47,14 @@ void* fei_gcmem_reallocate(FeiState* state, void* pointer, size_t oldsize, size_
 }
 
 
-// you can pass in a'lower' struct pointer, in this case FeiObject*, and get the higher level which is ObjFunction
+// you can pass in a'lower' struct pointer, in this case FeiObject*, and get the higher level which is FeiObjFunction
 void fei_gcmem_freeobject(FeiState* state, FeiObject* object)
 {
-    ObjClass* klassobj;
-    ObjInstance* instance;
-    ObjClosure* closure;
-    ObjFunction* function;
-    ObjString* string;
+    FeiClass* klassobj;
+    FeiInstance* instance;
+    FeiObjClosure* closure;
+    FeiObjFunction* function;
+    FeiString* string;
 
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         printf("%p free type %d\n", (void*)object, object->type);
@@ -63,58 +63,58 @@ void fei_gcmem_freeobject(FeiState* state, FeiObject* object)
     {
         case OBJ_ARRAY:
             {
-                fei_array_destroy(state, (ObjArray*)object);
+                fei_array_destroy(state, (FeiArray*)object);
             }
             break;
         case OBJ_BOUND_METHOD:
             {
-                FREE(state, sizeof(ObjBoundMethod), object);
+                FREE(state, sizeof(FeiObjBoundMethod), object);
             }
             break;
         case OBJ_CLASS:
             {
-                klassobj = (ObjClass*)object;
+                klassobj = (FeiClass*)object;
                 fei_table_destroy(state, &klassobj->methods);
-                FREE(state, sizeof(ObjClass), object);
+                FREE(state, sizeof(FeiClass), object);
             }
             break;
         case OBJ_INSTANCE:
             {
-                instance = (ObjInstance*)object;
+                instance = (FeiInstance*)object;
                 fei_table_destroy(state, &instance->fields);
-                FREE(state, sizeof(ObjInstance), object);
+                FREE(state, sizeof(FeiInstance), object);
             }
             break;
         case OBJ_CLOSURE:
             {
                 // free upvalues
-                closure = (ObjClosure*)object;
-                FREE_ARRAY(state, sizeof(ObjUpvalue*), closure->upvalues, closure->upvaluecount);
+                closure = (FeiObjClosure*)object;
+                FREE_ARRAY(state, sizeof(FeiObjUpvalue*), closure->upvalues, closure->upvaluecount);
                 // only free the closure, not the function itself
-                FREE(state, sizeof(ObjClosure), object);
+                FREE(state, sizeof(FeiObjClosure), object);
             }
             break;
         case OBJ_FUNCTION:
             {
-                function = (ObjFunction*)object;
+                function = (FeiObjFunction*)object;
                 fei_chunk_destroy(state, &function->chunk);
-                FREE(state, sizeof(ObjFunction), object);
+                FREE(state, sizeof(FeiObjFunction), object);
             }
             break;
         case OBJ_NATIVE:
             {
-                FREE(state, sizeof(ObjNative), object);
+                FREE(state, sizeof(FeiObjNative), object);
             }
             break;
         case OBJ_STRING:
             {
-                string = (ObjString*)object;
+                string = (FeiString*)object;
                 fei_string_destroy(state, string);
             }
             break;
         case OBJ_UPVALUE:
             {
-                FREE(state, sizeof(ObjUpvalue), object);
+                FREE(state, sizeof(FeiObjUpvalue), object);
             }
             break;
     }
@@ -158,7 +158,7 @@ void fei_gcmem_markobject(FeiState* state, FeiObject* object)
 
 void fei_gcmem_markvalue(FeiState* state, FeiValue value)
 {
-    // if value is not first class Objtype return
+    // if value is not first class FeiObjtype return
     if(!fei_value_isobject(value))
     {
         return;
@@ -167,7 +167,7 @@ void fei_gcmem_markvalue(FeiState* state, FeiValue value)
 }
 
 // marking array of values/constants of a function, used in fei_gcmem_blackenobject, case OBJ_FUNCTION
-void fei_gcmem_markarray(FeiState* state, ValArray* array)
+void fei_gcmem_markarray(FeiState* state, FeiValArray* array)
 {
     size_t i;
     for(i = 0; i < fei_valarray_count(array); i++)
@@ -180,7 +180,7 @@ void fei_gcmem_markroots(FeiState* state)
 {
     int i;
     FeiValue* slot;
-    ObjUpvalue* upvalue;
+    FeiObjUpvalue* upvalue;
     // assiging a pointer to a full array means assigning the pointer to the FIRST element of that array
     for(slot = state->vmstate.stackvalues; slot < state->vmstate.stacktop; slot++)// walk through all values/slots in the FeiValue* array
     {
@@ -207,12 +207,12 @@ void fei_gcmem_markroots(FeiState* state)
 void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
 {
     int i;
-    ObjArray* arr;
-    ObjBoundMethod* bound;
-    ObjClass* klassobj;
-    ObjInstance* instance;
-    ObjFunction* function;
-    ObjClosure* closure;
+    FeiArray* arr;
+    FeiObjBoundMethod* bound;
+    FeiClass* klassobj;
+    FeiInstance* instance;
+    FeiObjFunction* function;
+    FeiObjClosure* closure;
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         fprintf(stderr, "%p blackened ", (void*)object);
         fei_value_printvalue(state, state->iowriter_stderr, fei_value_makeobject(state, object), true);
@@ -222,35 +222,35 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
     {
         case OBJ_ARRAY:
             {
-                arr = (ObjArray*)object;
+                arr = (FeiArray*)object;
                 fei_gcmem_markarray(state, &arr->items);
             }
             break;
         case OBJ_BOUND_METHOD:
             {
-                bound = (ObjBoundMethod*)object;
+                bound = (FeiObjBoundMethod*)object;
                 fei_gcmem_markvalue(state, bound->receiver);
                 fei_gcmem_markobject(state, (FeiObject*)bound->method);
             }
             break;
         case OBJ_UPVALUE:
             {
-                fei_gcmem_markvalue(state, ((ObjUpvalue*)object)->closed);
+                fei_gcmem_markvalue(state, ((FeiObjUpvalue*)object)->closed);
             }
             break;
         case OBJ_FUNCTION:
             {
                 // mark the name and its value array of constants
                 // you can get the coressponding 'higher' object type from a lower derivation struct in C using (higher*)lower
-                function = (ObjFunction*)object;
-                fei_gcmem_markobject(state, (FeiObject*)function->name);// mark its name, an ObjString type
+                function = (FeiObjFunction*)object;
+                fei_gcmem_markobject(state, (FeiObject*)function->name);// mark its name, an FeiString type
                 fei_gcmem_markarray(state, &function->chunk.constants);// mark value array of chunk constants, pass it in AS A POINTER using &
             }
             break;
         case OBJ_CLOSURE:
             {
                 // mark the function and all of the closure's upvalues
-                closure = (ObjClosure*)object;
+                closure = (FeiObjClosure*)object;
                 fei_gcmem_markobject(state, (FeiObject*)closure->function);
                 for(i = 0; i < closure->upvaluecount; i++)
                 {
@@ -260,14 +260,14 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
             break;
         case OBJ_CLASS:
             {
-                klassobj = (ObjClass*)object;
+                klassobj = (FeiClass*)object;
                 fei_gcmem_markobject(state, (FeiObject*)klassobj->name);
                 fei_table_mark(state, &klassobj->methods);
             }
             break;
         case OBJ_INSTANCE:
             {
-                instance = (ObjInstance*)object;
+                instance = (FeiInstance*)object;
                 fei_gcmem_markobject(state, (FeiObject*)instance->classobject);
                 fei_table_mark(state, &instance->fields);
             }
@@ -302,7 +302,7 @@ void fei_gcmem_sweep(FeiState* state)
     FeiObject* previous;
     FeiObject* unreached;
     previous = NULL;
-    // linked intrusive list of Objects in the VM
+    // linked intrusive list of FeiObjects in the VM
     object = state->gcstate.objects;
     while(object != NULL)
     {
