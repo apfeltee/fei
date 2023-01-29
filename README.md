@@ -1,33 +1,120 @@
-# Bytecode Interpreter
 
-A bytecode interpreter and virtual machine for a dynamically typed, high-level, object-oriented programming language
+a deeply convergent fork of <https://github.com/fairywreath/BytecodeInterpreter>
 
-> Largely implemented/referenced from the Lox Programming Language http://www.craftinginterpreters.com/
- 
-## The Program
+a compiler, and bytecode virtual machine for a tiny, object-aware language.
 
-The interpreter is composed of three main parts: the scanner/lexer, the compiler and the virtual machine
-- Scanner: converts syntax into tokens
-- Compiler: parses syntax tokens into bytes/opcodes
-- Virtual machine: reads bytecode and executes instructions
+## features
+
+- small: includes all the bits to make it not useless, without being bloaty.
+
+- combined fixed integer/floating point integer arithmetic: stores fixed/floating point separately, but converts between either seamlessly, without depending on double-precision floating point only.
+
+- handwritten parser makes adding new functionality straightforward.
+
+- clean API: little to no macros, clean code, clean API, with the intention of making extending the language as easy as possible.
+
+- builtin support for mutable strings and arrays. more types can be added very easily.
+
+- no thirdparty dependencies: just needs a C compiler.
+
+- familiar, javscript-like syntax.
+
+## what's not implemented (yet)
+
+- in-place arithmetics (`++`, `--`, `+=`, `-=`, etc). but should be trivial to implement.
+
+- no error recovery. any error is fatal! would require adding state jumping via `setjmp`, which is less trivial.
+
+- probably not as fast as it could be: underperforms when compiled with no optimizations, but acceptable speed when compiled with full optimizations.
+
+## what it looks like
+
+binary trees:
+
+```
+
+function clock()
+{
+    return 0;
+}
+
+class Tree
+{
+    init(item, depth)
+    {
+        this.item = item;
+        this.depth = depth;
+        if (depth > 0)
+        {
+            var item2 = item + item;
+            depth = depth - 1;
+            this.left = Tree(item2 - 1, depth);
+            this.right = Tree(item2, depth);
+        }
+        else
+        {
+            this.left = null;
+            this.right = null;
+        }
+    }
+
+    check()
+    {
+        if(this.left == null)
+        {
+            return this.item;
+        }
+        var a = this.item;
+        var b = this.left.check();
+        var c = this.right.check();
+        return a + b - c;
+    }
+}
+
+var mindepth = 4;
+var maxdepth = 14;
+var stretchdepth = maxdepth + 1;
+
+var start = clock();
+
+var dep =  Tree(0, stretchdepth).check();
+println("stretch tree of depth:", stretchdepth, " check:",dep);
+
+var longlivedtree = Tree(0, maxdepth);
+
+
+var iterations = 1;
+var d = 0;
+while (d < maxdepth)
+{
+    iterations = iterations * 2;
+    d = d + 1;
+}
+
+var depth = mindepth;
+while (depth < stretchdepth)
+{
+    var check = 0;
+    var i = 1;
+    while (i <= iterations)
+    {
+        var t1 = Tree(i, depth).check();
+        var t2 = Tree(-i, depth).check();
+        check = check + t1 + t2;
+        i = i + 1;
+    }
+    println("num trees:", iterations * 2, ", depth:", depth, ", check:", check);
+    iterations = iterations / 4;
+    depth = depth + 2;
+}
+
+println("long lived tree of depth:", maxdepth, ", check:", longlivedtree.check(), ", elapsed:", clock() - start);
+```
+
+or take a look at the `*.fei` files.
 
 
 ## Language Syntax
-
-### Console Output
-```
-print "Hello world";
-```
-
-### Variable declarations and assignments
-> Fei supports three native data types: strings, numbers and booleans.
-> The '=' assignment operator can be replaced with the 'assigned' keyword
-```
-var myInt;
-myInt assigned value;
-var myString = "string";
-var myBool = true;
-```
 
 ### Comparators and Logical Operators
 > The '==' comparison operator can be replaced with the keywords 'is' or 'equals'
@@ -42,29 +129,21 @@ string is "notString";        // false
 false = !true;    // true
 ```
 
-### Arithmetic Operators
-> Fei supports the 4 main binary operators as well as the modulo operator
-```
-a + b;
-24 / 12;
-78 % 13;
-```
-
 ### Control Flow
 #### If Statements
 > 'else if' can be replaced with the 'elf' keyword.
 ```
 if condition then
 {
-    print "then statement";
+    println("then statement");
 }
-elf condition then
+else if condition then
 {
-  print "else if statement";
+  println("else if statement");
 }
 else
 {
-  print "else statement";
+  println("else statement");
 }
 ```
 #### While and For Loops
@@ -72,12 +151,12 @@ else
 ```
 while condition
 {
-  print "while statement";
+  println("while statement");
 }
 
 for (var i = 0; i < 10; i = i + 1)
 {
-  print i;
+  println(i);
 }
 ```
 #### Do While and Repeat Until Loops
@@ -87,13 +166,13 @@ var i assigned 0;
 
 do
 {
-  print i;
+  println(i);
   i= i + 1;
 } while i < 10;
  
 repeat
 {
-  print i;
+  println(i);
   i = i - 1;
 } until i equals 0;
 ```

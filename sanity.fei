@@ -26,7 +26,8 @@ function check(msg, val, expect)
 }
 {
     // tests that classes and inheritance work, specifically
-    // that inheriting correctly inherits functions and fields
+    // that inheriting correctly inherits functions and fields.
+    // importantly, also checks that arguments in the stack are forwarded correctly.
     class First
     {
         init(n)
