@@ -8,14 +8,21 @@ FeiWriter* fei_writer_init(FeiState* state)
 {
     FeiWriter* wr;
     wr = (FeiWriter*)ALLOCATE(state, sizeof(FeiWriter), 1);
-    wr->filehandle = NULL;
+    wr->state = state;
+    wr->isstring = false;
     wr->filemustclose = false;
+    wr->string = NULL;
+    wr->filehandle = NULL;
     return wr;
 }
 
-void fei_writer_destroy(FeiState* state, FeiWriter* wr)
+FeiWriter* fei_writer_initstring(FeiState* state)
 {
-    FREE(state, sizeof(FeiWriter), wr);
+    FeiWriter* wr;
+    wr = fei_writer_init(state);
+    wr->isstring = true;
+    wr->string = fei_string_make(state, 0);
+    return wr;
 }
 
 FeiWriter* fei_writer_initfile(FeiState* state, FILE* fh, bool alsoclose)
@@ -27,12 +34,38 @@ FeiWriter* fei_writer_initfile(FeiState* state, FILE* fh, bool alsoclose)
     return wr;
 }
 
+void fei_writer_destroy(FeiWriter* wr, bool freestring)
+{
+    if(wr->isstring)
+    {
+        if((wr->string != NULL) && freestring)
+        {
+            fei_string_destroy(wr->state, wr->string);
+            wr->string = NULL;
+        }
+    }
+    else
+    {
+        if(wr->filemustclose)
+        {
+            fclose(wr->filehandle);
+        }
+    }
+    FREE(wr->state, sizeof(FeiWriter), wr);
+}
 
 void fei_writer_appendstringlen(FeiWriter* wr, const char* str, size_t len)
 {
-    if(wr->filehandle != NULL)
+    if(wr->isstring)
     {
-        fwrite(str, len, sizeof(char), wr->filehandle);
+        fei_string_append(wr->state, wr->string, str, len);
+    }
+    else
+    {
+        if(wr->filehandle != NULL)
+        {
+            fwrite(str, len, sizeof(char), wr->filehandle);
+        }
     }
 }
 
@@ -48,11 +81,27 @@ void fei_writer_appendchar(FeiWriter* wr, int c)
     fei_writer_appendstringlen(wr, &actualch, 1);
 }
 
+void fei_writer_appendstringfmtva(FeiWriter* wr, const char* fmt, va_list va)
+{
+    enum { kMaxBuf = (1024 * 4) };
+    size_t r;
+    char buf[kMaxBuf+1] = {0};
+    r = vsnprintf(buf, kMaxBuf, fmt, va);
+    fei_writer_appendstringlen(wr, buf, r);
+}
+
 void fei_writer_appendfmtva(FeiWriter* wr, const char* fmt, va_list va)
 {
-    if(wr->filehandle != NULL)
+    if(wr->isstring)
     {
-        vfprintf(wr->filehandle, fmt, va);
+        return fei_writer_appendstringfmtva(wr, fmt, va);
+    }
+    else
+    {
+        if(wr->filehandle != NULL)
+        {
+            vfprintf(wr->filehandle, fmt, va);
+        }
     }
 }
 

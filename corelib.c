@@ -98,6 +98,52 @@ static FeiValue objfn_array_pop(FeiState* state, FeiValue instance, int argc, Fe
     return fei_value_makenull(state);
 }
 
+static FeiValue objfn_array_join(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
+{
+    int i;
+    int alen;
+    int seplen;
+    const char* sepstr;
+    FeiValue val;
+    FeiString* sepobj;
+    FeiArray* arr;
+    FeiWriter* wr;
+    FeiString* copy;
+    (void)state;
+    (void)argc;
+    (void)argv;
+    sepstr = "";
+    seplen = 0;
+    arr = fei_value_asarray(instance);
+    wr = fei_writer_initstring(state);
+    if(argc > 0 && fei_value_isstring(argv[0]))
+    {
+        sepobj = fei_value_asstring(argv[0]);
+        sepstr = sepobj->chars;
+        seplen = sepobj->length;
+    }
+    alen = fei_array_count(arr);
+    for(i=0; i<alen; i++)
+    {
+        val = fei_array_get(state, arr, i);
+        fei_value_printvalue(state, wr, val, false);
+        if((i+1) < alen)
+        {
+            fei_writer_appendstringlen(wr, sepstr, seplen);
+        }
+    }
+    #if 0
+        copy = fei_string_copy(state, wr->string->chars, wr->string->length);
+        fei_writer_destroy(wr);
+        val = fei_value_makeobject(state, copy);
+        return val;
+    #else
+        val = fei_value_makeobject(state, wr->string);
+        fei_writer_destroy(wr, false);
+        return val;
+    #endif
+}
+
 
 void fei_state_setupglobals(FeiState* state)
 {
@@ -123,5 +169,6 @@ void fei_state_setuparray(FeiState* state)
     fei_class_defmethod(state, state->objarray.classobj, "length", objfn_array_length, true);
     fei_class_defmethod(state, state->objarray.classobj, "push", objfn_array_push, false);
     fei_class_defmethod(state, state->objarray.classobj, "pop", objfn_array_pop, false);
+    fei_class_defmethod(state, state->objarray.classobj, "join", objfn_array_join, false);    
 }
 

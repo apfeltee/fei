@@ -98,8 +98,8 @@ void fei_state_destroy(FeiState* state)
     fei_gcmem_freeobjects(state);
     fei_table_destroy(state, &state->vmstate.globals);
     fei_table_destroy(state, &state->vmstate.strings);
-    fei_writer_destroy(state, state->iowriter_stdout);
-    fei_writer_destroy(state, state->iowriter_stderr);
+    fei_writer_destroy(state->iowriter_stdout, true);
+    fei_writer_destroy(state->iowriter_stderr, true);
     for(i=0; i<da_count(state->vmstate.frameobjects); i++)
     {
         free(state->vmstate.frameobjects[i]);

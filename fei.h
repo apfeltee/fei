@@ -359,8 +359,11 @@ typedef FeiValue (*FeiNativeFn)(FeiState*, FeiValue, int, FeiValue*);
 */
 struct FeiWriter
 {
-    FILE* filehandle;
+    bool isstring;
     bool filemustclose;
+    FeiState* state;
+    FILE* filehandle;
+    FeiString* string;
 };
 
 /*
@@ -1040,8 +1043,9 @@ bool fei_vmdo_loopiftrue(FeiState *state);
 FeiResultCode fei_vm_exec(FeiState *state);
 /* writer.c */
 FeiWriter *fei_writer_init(FeiState *state);
-void fei_writer_destroy(FeiState *state, FeiWriter *wr);
+FeiWriter* fei_writer_initstring(FeiState* state);
 FeiWriter *fei_writer_initfile(FeiState *state, FILE *fh, bool alsoclose);
+void fei_writer_destroy(FeiWriter *wr, bool freestring);
 void fei_writer_appendstringlen(FeiWriter *wr, const char *str, size_t len);
 void fei_writer_appendchar(FeiWriter *wr, int c);
 void fei_writer_appendfmtva(FeiWriter *wr, const char *fmt, va_list va);
