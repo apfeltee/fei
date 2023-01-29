@@ -1,5 +1,5 @@
 
-var failcount = 0;
+var g_failcount = 0;
 
 function check(msg, val, expect)
 {
@@ -10,7 +10,7 @@ function check(msg, val, expect)
     }
     else
     {
-        failcount = failcount + 1;
+        g_failcount = g_failcount + 1;
         println("fail (expected: ", expect, ", but got: ", val, ")");
     }
 }
@@ -29,9 +29,9 @@ function check(msg, val, expect)
     // that inheriting correctly inherits functions and fields
     class First
     {
-        init()
+        init(n)
         {
-            this.firstname = "john"
+            this.firstname = n
         }
 
         getFirstName()
@@ -42,10 +42,10 @@ function check(msg, val, expect)
 
     class Second from First
     {
-        init()
+        init(n)
         {
-            super.init()
-            this.lastname = "doe"
+            super.init("john")
+            this.lastname = n
         }
 
         getLastName()
@@ -56,9 +56,14 @@ function check(msg, val, expect)
 
     class Person from Second
     {
+        init()
+        {
+            super.init("doe")
+        }
+
         fullname()
         {
-            super.init()
+            super.init("doe")
             return this.getFirstName() + " " + this.getLastName();
         }
     }
@@ -68,7 +73,7 @@ function check(msg, val, expect)
 }
 
 
-if(failcount == 0)
+if(g_failcount == 0)
 {
     println("all is well");
 }
