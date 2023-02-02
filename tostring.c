@@ -18,7 +18,6 @@ void fei_value_printfunc(FeiState* state, FeiWriter* wr, FeiObjFunction* functio
 
 void fei_value_printstring(FeiState* state, FeiWriter* wr, FeiString* ostr, bool withquot)
 {
-    size_t i;
     size_t len;
     char* str;
     (void)state;
@@ -43,7 +42,7 @@ void fei_value_printarray(FeiState* state, FeiWriter* wr, FeiArray* arr, bool wi
     fei_writer_appendchar(wr, '[');
     for(i=0; i<len; i++)
     {
-        val = fei_valarray_get(state, &arr->items, i);
+        val = fei_valarray_get(arr->items, i);
         if(fei_value_isarray(val) && (fei_value_asarray(val) == arr))
         {
             fei_writer_appendfmt(wr, "(recursion)");

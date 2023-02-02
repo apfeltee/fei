@@ -166,9 +166,6 @@ static inline void* da_grow_internal(void* arr, size_t count, size_t typsz)
             JK_DYNAMIC_ARRAY_MEMCPY(ptr, ((size_t*)arr) - 2, da_count(arr) * typsz + 2 * sizeof(size_t));
             //free(((size_t*)arr) - 2);
             da_destroy(arr);
-        }
-        if(ptr)
-        {
             zerosz = alloccapacity - 2 * sizeof(size_t) - ptr[0] * typsz;
             JK_DYNAMIC_ARRAY_MEMSET(((char*)ptr) + (alloccapacity - zerosz), 0, zerosz);
             res = ptr + 2;

@@ -1,19 +1,16 @@
 
 #include "fei.h"
 
-void fei_table_initcapacity(FeiState* state, FeiValTable* table, int cap)
+FeiValTable* fei_table_make(FeiState* state, int cap)
 {
-    (void)state;
+    FeiValTable* table;
+    table = ALLOCATE(state, sizeof(FeiValTable), 1);
     fei_table_initnull(state, table);
     if(cap > 0)
     {
         fei_table_adjustcapacity(state, table, cap);
     }
-}
-
-void fei_table_initempty(FeiState* state, FeiValTable* table)
-{
-    fei_table_initcapacity(state, table, 0);
+    return table;
 }
 
 void fei_table_initnull(FeiState* state, FeiValTable* table)
@@ -27,7 +24,8 @@ void fei_table_initnull(FeiState* state, FeiValTable* table)
 void fei_table_destroy(FeiState* state, FeiValTable* table)
 {
     FREE_ARRAY(state, sizeof(FeiValTabEntry), table->entries, table->capacity);
-    fei_table_initnull(state, table);
+    //fei_table_initnull(state, table);
+    FREE(state, sizeof(FeiValTable), table);
 }
 
 FeiValTabEntry* fei_table_findentry(FeiState* state, int count, FeiValTabEntry* entries, int capacity, FeiString* key)

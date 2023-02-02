@@ -102,7 +102,7 @@ FeiString* fei_object_allocstring(FeiState* state, const char* chars, int length
     fei_vm_stackpush(state, fei_value_makeobject(state, objstr));
     //printf("allocate\n");
     // for string interning
-    fei_table_set(state, &state->vmstate.strings, objstr, fei_value_makenull(state));
+    fei_table_set(state, state->vmstate.strings, objstr, fei_value_makenull(state));
     // garbage collection
     fei_vm_stackpop(state);
     return objstr;
@@ -114,7 +114,7 @@ FeiString* fei_string_take(FeiState* state, char* chars, int length)
     uint32_t hash;
     FeiString* interned;
     hash = fei_string_gethash(state, chars, length);
-    interned = fei_table_findstring(state, &state->vmstate.strings, chars, length, hash);
+    interned = fei_table_findstring(state, state->vmstate.strings, chars, length, hash);
     if(interned != NULL)
     {
         FREE_ARRAY(state, sizeof(char), chars, length + 1);
@@ -129,7 +129,7 @@ FeiString* fei_string_copy(FeiState* state, const char* chars, int length)
     uint32_t hash;
     FeiString* interned;
     hash = fei_string_gethash(state, chars, length);
-    interned = fei_table_findstring(state, &state->vmstate.strings, chars, length, hash);
+    interned = fei_table_findstring(state, state->vmstate.strings, chars, length, hash);
     if(interned != NULL)
     {
         return interned;

@@ -5,37 +5,63 @@
 
     /* info on the macros below
 Below macros are FUNCTIONSt that take ZERO arguments, and what is inside () is their return value
-READ_BYTE:	
+fei_vmguts_readbyte:	
 	macro to ACCESS the BYTE(uin8_t) from the POINTER(ip), and increment it
 	reads byte currently pointed at ip, then advances the instruction pointer
-READ_CONSTANT:
-	return constants.values element, from READ_BYTE(), which points exactly to the NEXT index
-READ STRING:
+fei_vmguts_readconst:
+	return constants.values element, from fei_vmguts_readbyte(), which points exactly to the NEXT index
+fei_vmguts_readstring:
 	return as object string, read directly from the vm(oip)
 */
 
-static inline uint8_t READ_BYTE(FeiVMFrame* frame)
+static inline uint8_t fei_vmguts_readbyte(FeiVMFrame* frame)
 {
     return (*frame->ip++);
 }
 
-static inline FeiValue READ_CONSTANT(FeiState* state, FeiVMFrame* frame)
+static inline FeiValue fei_vmguts_readconst(FeiState* state, FeiVMFrame* frame)
 {
-    return fei_valarray_get(state, &frame->closure->function->chunk.constants, READ_BYTE(frame));
+    return fei_valarray_get(frame->closure->function->chunk.constants, fei_vmguts_readbyte(frame));
 }
 
-static inline FeiString* READ_STRING(FeiState* state, FeiVMFrame* frame)
+static inline FeiString* fei_vmguts_readstring(FeiState* state, FeiVMFrame* frame)
 {
-    return fei_value_asstring(READ_CONSTANT(state, frame));
+    return fei_value_asstring(fei_vmguts_readconst(state, frame));
 }
 
 // for patch jumps
 // yanks next two bytes from the chunk(used to calculate the offset earlier) and return a 16-bit integer out of it
 // use bitwise OR
-static inline uint16_t READ_SHORT(FeiVMFrame* frame)
+static inline uint16_t fei_vmguts_readshort(FeiVMFrame* frame)
 {
     frame->ip += 2;
     return (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]);
+}
+
+/*
+// pointer to the element just PAST the element containing the top value of the stack
+// == stackvalues[size(stackvalues) - 2]
+FeiValue* stacktop;
+*/
+static inline void fei_vm_stackpush_inline(FeiState* state, FeiValue value)
+{
+    state->vmstate.stackindex++;
+    // * in front of the pointer means the rvalue itself, assign value(parameter) to it
+    *state->vmstate.stacktop = value;
+    state->vmstate.stacktop++;
+}
+
+static inline FeiValue fei_vm_stackpop_inline(FeiState* state)
+{
+    state->vmstate.stackindex--;
+    // first move the stack BACK to get the last element(stacktop points to ONE beyond the last element)    
+    state->vmstate.stacktop--;
+    return *state->vmstate.stacktop;
+}
+
+static inline FeiValue fei_vm_stackpeek_inline(FeiState* state, int distance)
+{
+    return state->vmstate.stacktop[-1 - distance];
 }
 
 FeiVMFrame* fei_vm_frameget(FeiState* state, int idx)
@@ -142,31 +168,6 @@ void fei_vm_dumpval(FeiState* state, FeiValue val, const char* fmt, ...)
     fprintf(stderr, "\n");
 }
 
-/*
-// pointer to the element just PAST the element containing the top value of the stack
-// == stackvalues[size(stackvalues) - 2]
-FeiValue* stacktop;
-*/
-static inline void fei_vm_stackpush_inline(FeiState* state, FeiValue value)
-{
-    state->vmstate.stackindex++;
-    // * in front of the pointer means the rvalue itself, assign value(parameter) to it
-    *state->vmstate.stacktop = value;
-    state->vmstate.stacktop++;
-}
-
-static inline FeiValue fei_vm_stackpop_inline(FeiState* state)
-{
-    state->vmstate.stackindex--;
-    // first move the stack BACK to get the last element(stacktop points to ONE beyond the last element)    
-    state->vmstate.stacktop--;
-    return *state->vmstate.stacktop;
-}
-
-static inline FeiValue fei_vm_stackpeek_inline(FeiState* state, int distance)
-{
-    return state->vmstate.stacktop[-1 - distance];
-}
 
 void fei_vm_stackpush(FeiState* state, FeiValue value)
 {
@@ -182,7 +183,6 @@ FeiValue fei_vm_stackpeek(FeiState* state, int distance)
 {
     return fei_vm_stackpeek_inline(state, distance);
 }
-
 
 /* for call stacks/functions  */
 bool fei_vm_callclosure(FeiState* state, FeiObjClosure* closure, int argcount)
@@ -242,7 +242,7 @@ bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int ar
                     instance = fei_object_makeinstance(state, klass);
                     state->vmstate.stacktop[-argcount - 1] = fei_value_makeobject(state, instance);
                     // if we find one from the table
-                    if(fei_table_get(state, &klass->methods, state->vmstate.initstring, &initializer))
+                    if(fei_table_get(state, klass->methods, state->vmstate.initstring, &initializer))
                     {
                         return fei_vm_callclosure(state, fei_value_asclosure(initializer), argcount);
                     }
@@ -351,7 +351,7 @@ void fei_vm_closeupvalues(FeiState* state, FeiValue* last)// takes pointer to st
 bool fei_instance_getproperty(FeiState* state, FeiInstance* instance, FeiString* name, FeiValue* dest)
 {
     FeiValue val;
-    if(fei_table_get(state, &instance->fields, name, &val))
+    if(fei_table_get(state, instance->fields, name, &val))
     {
         *dest = val;
         return true;
@@ -374,7 +374,7 @@ void fei_vm_classdefmethodfromstack(FeiState* state, FeiString* name)
 }
 
 // string concatenation
-bool fei_vmdo_strconcat(FeiState* state)
+static inline bool fei_vmdo_strconcat(FeiState* state)
 {
     FeiString* first;
     FeiString* second;
@@ -392,7 +392,7 @@ bool fei_vmdo_strconcat(FeiState* state)
 }
 
 
-bool fei_vmdo_return(FeiState* state)
+static inline bool fei_vmdo_return(FeiState* state)
 {
     // if function returns a value, value will beon top of the stack
     FeiValue result = fei_vm_stackpop_inline(state);
@@ -417,13 +417,13 @@ bool fei_vmdo_return(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_superinvoke(FeiState* state)
+static inline bool fei_vmdo_superinvoke(FeiState* state)
 {
     int count;
     FeiClass* parent;
     FeiString* method;
-    method = READ_STRING(state, state->vmstate.topframe);
-    count = READ_BYTE(state->vmstate.topframe);
+    method = fei_vmguts_readstring(state, state->vmstate.topframe);
+    count = fei_vmguts_readbyte(state->vmstate.topframe);
     parent = fei_value_asclass(fei_vm_stackpop_inline(state));
     if(!fei_class_invokemethod(state, parent, method, count))
     {
@@ -433,19 +433,17 @@ bool fei_vmdo_superinvoke(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_getsuper(FeiState* state)
+static inline bool fei_vmdo_getsuper(FeiState* state)
 {
     FeiValue val;
     FeiString* name;
     FeiClass* parent;
     // get method name/identifier
-    name = READ_STRING(state, state->vmstate.topframe);
+    name = fei_vmguts_readstring(state, state->vmstate.topframe);
     // class identifier is at the top of the stack
     parent = fei_value_asclass(fei_vm_stackpop_inline(state));
     // if binding fails
     val = fei_vm_stackpeek(state, 0);
-     
-     
     if(!fei_class_bindmethod(state, parent, name, val, false, false))
     {
         return false;
@@ -454,7 +452,7 @@ bool fei_vmdo_getsuper(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_inherit(FeiState* state)
+static inline bool fei_vmdo_inherit(FeiState* state)
 {
     FeiValue parent;
     FeiClass* child;
@@ -469,19 +467,19 @@ bool fei_vmdo_inherit(FeiState* state)
     // child class at the top of the stack
     child = fei_value_asclass(fei_vm_stackpeek_inline(state, 0));
     // add all methods from parent to child table
-    fei_table_mergefrom(state, &fei_value_asclass(parent)->methods, &child->methods);
+    fei_table_mergefrom(state, fei_value_asclass(parent)->methods, child->methods);
     //fei_class_inherit(state, fei_value_asclass(parent), child);
     // pop the child class
     fei_vm_stackpop_inline(state);
     return true;
 }
 
-bool fei_vmdo_invokemethod(FeiState* state)
+static inline bool fei_vmdo_invokemethod(FeiState* state)
 {
     int argcount;
     FeiString* method;
-    method = READ_STRING(state, state->vmstate.topframe);
-    argcount = READ_BYTE(state->vmstate.topframe);
+    method = fei_vmguts_readstring(state, state->vmstate.topframe);
+    argcount = fei_vmguts_readbyte(state->vmstate.topframe);
     // new invoke function
     if(!fei_vm_classinvokefromstack(state, method, argcount))
     {
@@ -491,7 +489,7 @@ bool fei_vmdo_invokemethod(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_makeclosure(FeiState* state)
+static inline bool fei_vmdo_makeclosure(FeiState* state)
 {
     int i;
     uint8_t index;
@@ -499,7 +497,7 @@ bool fei_vmdo_makeclosure(FeiState* state)
     FeiObjClosure* closure;
     FeiObjFunction* function;
     // load compiled function from table
-    function = fei_value_asfunction(READ_CONSTANT(state, state->vmstate.topframe));
+    function = fei_value_asfunction(fei_vmguts_readconst(state, state->vmstate.topframe));
     closure = fei_object_makeclosure(state, function);
     fei_vm_stackpush(state, fei_value_makeobject(state, closure));
     // fill upvalue array over in the interpreter when a closure is created
@@ -507,9 +505,9 @@ bool fei_vmdo_makeclosure(FeiState* state)
     for(i = 0; i < closure->upvaluecount; i++)
     {
         // read islocal bool
-        islocal = READ_BYTE(state->vmstate.topframe);
+        islocal = fei_vmguts_readbyte(state->vmstate.topframe);
         // read index for local, if available, in the closure
-        index = READ_BYTE(state->vmstate.topframe);
+        index = fei_vmguts_readbyte(state->vmstate.topframe);
         if(islocal)
         {
             // get from slots stack
@@ -525,8 +523,7 @@ bool fei_vmdo_makeclosure(FeiState* state)
     return true;
 }
 
-
-bool fei_vmdo_setproperty(FeiState* state)
+static inline bool fei_vmdo_setproperty(FeiState* state)
 {
     FeiValue peekval;
     FeiValue peekinst;
@@ -542,8 +539,8 @@ bool fei_vmdo_setproperty(FeiState* state)
     instance = fei_value_asinstance(peekinst);
     //peek(0) is the new value
     peekval = fei_vm_stackpeek_inline(state, 0);
-    name = READ_STRING(state, state->vmstate.topframe);
-    fei_table_set(state, &instance->fields, name, peekval);
+    name = fei_vmguts_readstring(state, state->vmstate.topframe);
+    fei_table_set(state, instance->fields, name, peekval);
     // pop the already set value
     fei_vm_stackpop_inline(state);
     // pop the property instance itself
@@ -553,14 +550,14 @@ bool fei_vmdo_setproperty(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_call(FeiState* state)
+static inline bool fei_vmdo_call(FeiState* state)
 {
     int argcount;
     FeiValue peeked;
     FeiValue instance;
     instance = fei_value_makenull(state);
     //dumpstack(state, "vmdo_call");
-    argcount = READ_BYTE(state->vmstate.topframe);
+    argcount = fei_vmguts_readbyte(state->vmstate.topframe);
     peeked = fei_vm_stackpeek_inline(state, argcount);
     // call function; pass in the function name istelf[peek(depth)] and the number of arguments
     if(!fei_vm_callvalue(state, instance, peeked, argcount))
@@ -598,7 +595,7 @@ bool fei_vm_otherproperty(FeiState* state, FeiString* name, int typ, bool asfiel
     //fprintf(stderr, "fei_vm_otherproperty: typ=%d inst=%p (%s) name=%.*s\n", typ, inst, inst->classobject->name->chars, name->length, name->chars);
     if(inst != NULL)
     {
-        tab = &inst->classobject->methods;
+        tab = inst->classobject->methods;
         b = fei_table_get(state, tab, name, &v);
         //fprintf(stderr, "get table value (from field=%d): %d\n", asfield, b);
         if(b)
@@ -640,7 +637,7 @@ bool fei_vm_classinvoke(FeiState* state, FeiValue receiver, FeiString* name, int
     }
     instance = fei_value_asinstance(receiver);
     // for fields()
-    if(fei_table_get(state, &instance->fields, name, &value))
+    if(fei_table_get(state, instance->fields, name, &value))
     {
         state->vmstate.stacktop[-argcount - 1] = value;
         return fei_vm_callvalue(state, fei_value_makenull(state), value, argcount);
@@ -657,7 +654,7 @@ bool fei_vm_classinvokefromstack(FeiState* state, FeiString* name, int argcount)
     return fei_vm_classinvoke(state, receiver, name, argcount);    
 }
 
-bool fei_vmdo_getproperty(FeiState* state)
+static inline bool fei_vmdo_getproperty(FeiState* state)
 {
     int typ;
     bool b;
@@ -667,7 +664,7 @@ bool fei_vmdo_getproperty(FeiState* state)
     FeiString* name;
     FeiInstance* instance;
     peeked = fei_vm_stackpeek_inline(state, 0);
-    name = READ_STRING(state, state->vmstate.topframe);
+    name = fei_vmguts_readstring(state, state->vmstate.topframe);
     // to make sure only instances are allowed to have fields
     if(!fei_value_isinstance(peeked))
     {
@@ -683,7 +680,7 @@ bool fei_vmdo_getproperty(FeiState* state)
             //fprintf(stderr, "getproperty: inst=%p\n", inst);
             if(inst != NULL)
             {
-                b = fei_table_get(state, &inst->classobject->methods, name, &value);
+                b = fei_table_get(state, inst->classobject->methods, name, &value);
                 //fprintf(stderr, "get method: %d\n", b);
                 if(b)
                 {
@@ -770,7 +767,7 @@ const char* op2name(int op)
     return "?unknown?";
 }
 
-bool fei_vmdo_unary(FeiState* state, uint8_t instruc)
+static inline bool fei_vmdo_unary(FeiState* state, uint8_t instruc)
 {
     double dnum;
     double dres;
@@ -830,7 +827,7 @@ int compare_float(double f1, double f2)
     return 0;
 }
 
-bool fei_vmdo_intbinary(FeiState* state, uint8_t instruc, FeiValue* pvalleft, FeiValue* pvalright, FeiValue* res)
+static inline bool fei_vmdo_intbinary(FeiState* state, uint8_t instruc, FeiValue* pvalleft, FeiValue* pvalright, FeiValue* res)
 {
     bool leftfixed;
     bool rightfixed;
@@ -887,7 +884,7 @@ bool fei_vmdo_intbinary(FeiState* state, uint8_t instruc, FeiValue* pvalleft, Fe
     return true;
 }
 
-bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
+static inline bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
 {
     bool leftfixed;
     bool rightfixed;
@@ -1084,7 +1081,7 @@ bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
 
 
 
-bool fei_vmdo_switchequal(FeiState* state)
+static inline bool fei_vmdo_switchequal(FeiState* state)
 {
     FeiValue a;
     FeiValue b;
@@ -1096,7 +1093,7 @@ bool fei_vmdo_switchequal(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_compare(FeiState* state)
+static inline bool fei_vmdo_compare(FeiState* state)
 {
     FeiValue a;
     FeiValue b;
@@ -1106,7 +1103,7 @@ bool fei_vmdo_compare(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_logicalnot(FeiState* state)
+static inline bool fei_vmdo_logicalnot(FeiState* state)
 {
     bool isfalsey;
     FeiValue popped;
@@ -1116,23 +1113,23 @@ bool fei_vmdo_logicalnot(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_defineglobal(FeiState* state)
+static inline bool fei_vmdo_defineglobal(FeiState* state)
 {
     FeiString* name;
     // get name from constant table
-    name = READ_STRING(state, state->vmstate.topframe);
+    name = fei_vmguts_readstring(state, state->vmstate.topframe);
     // take value from the top of the stack
-    fei_table_set(state, &state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0));
+    fei_table_set(state, state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0));
     fei_vm_stackpop_inline(state);
     return true;
 }
 
-bool fei_vmdo_setglobal(FeiState* state)
+static inline bool fei_vmdo_setglobal(FeiState* state)
 {
     FeiString* name;
-    name = READ_STRING(state, state->vmstate.topframe);
+    name = fei_vmguts_readstring(state, state->vmstate.topframe);
     // if key not in hash table
-    if(fei_table_set(state, &state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0)))
+    if(fei_table_set(state, state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0)))
     {
         //fei_table_delete(state, &state->vmstate.globals, name);// delete the false name
         //fei_vm_raiseruntimeerror(state, "undefined variable '%s'", name->chars);
@@ -1141,14 +1138,14 @@ bool fei_vmdo_setglobal(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_getglobal(FeiState* state)
+static inline bool fei_vmdo_getglobal(FeiState* state)
 {
     FeiValue value;
     FeiString* name;
     // get the name
-    name = READ_STRING(state, state->vmstate.topframe);
+    name = fei_vmguts_readstring(state, state->vmstate.topframe);
     // if key not in hash table
-    if(!fei_table_get(state, &state->vmstate.globals, name, &value))
+    if(!fei_table_get(state, state->vmstate.globals, name, &value))
     {
         fei_vm_raiseruntimeerror(state, "undefined variable '%.*s'", name->length, name->chars);
         return false;
@@ -1157,55 +1154,55 @@ bool fei_vmdo_getglobal(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_setlocal(FeiState* state)
+static inline bool fei_vmdo_setlocal(FeiState* state)
 {
     uint8_t slot;
-    slot = READ_BYTE(state->vmstate.topframe);
+    slot = fei_vmguts_readbyte(state->vmstate.topframe);
     // all the local var's VARIABLES are stored inside state->vmstate.stackvalues
     // takes from top of the stack and stores it in the stack slot
     state->vmstate.topframe->slots[slot] = fei_vm_stackpeek_inline(state, 0);
     return true;
 }
 
-bool fei_vmdo_getlocal(FeiState* state)
+static inline bool fei_vmdo_getlocal(FeiState* state)
 {
     uint8_t slot;
-    slot = READ_BYTE(state->vmstate.topframe);
+    slot = fei_vmguts_readbyte(state->vmstate.topframe);
     // pushes the value to the stack where later instructions can read it
     fei_vm_stackpush(state, state->vmstate.topframe->slots[slot]);
     return true;
 }
 
-bool fei_vmdo_getconstant(FeiState* state)
+static inline bool fei_vmdo_getconstant(FeiState* state)
 {
     FeiValue constant;
     // READ the next line, which is the INDEX of the constant in the constants array
-    constant = READ_CONSTANT(state, state->vmstate.topframe);
+    constant = fei_vmguts_readconst(state, state->vmstate.topframe);
     fei_vm_stackpush(state, constant);
     return true;
 }
 
-bool fei_vmdo_setupvalue(FeiState* state)
+static inline bool fei_vmdo_setupvalue(FeiState* state)
 {
     uint8_t slot;
     // read index
-    slot = READ_BYTE(state->vmstate.topframe);
+    slot = fei_vmguts_readbyte(state->vmstate.topframe);
     // set to the topmost stack
     *(state->vmstate.topframe->closure->upvalues[slot]->location) = fei_vm_stackpeek_inline(state, 0);
     return true;
 }
 
-bool fei_vmdo_getupvalue(FeiState* state)
+static inline bool fei_vmdo_getupvalue(FeiState* state)
 {
     uint8_t slot;
     // read index
-    slot = READ_BYTE(state->vmstate.topframe);
+    slot = fei_vmguts_readbyte(state->vmstate.topframe);
     // push the value to the stack
     fei_vm_stackpush(state, *(state->vmstate.topframe->closure->upvalues[slot]->location));
     return true;
 }
 
-bool fei_vmdo_closeupvalue(FeiState* state)
+static inline bool fei_vmdo_closeupvalue(FeiState* state)
 {
     // put address to the slot
     fei_vm_closeupvalues(state, state->vmstate.stacktop - 1);
@@ -1214,21 +1211,21 @@ bool fei_vmdo_closeupvalue(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_jumpalways(FeiState* state)
+static inline bool fei_vmdo_jumpalways(FeiState* state)
 {
     uint16_t offset;
     (void)state;
-    offset = READ_SHORT(state->vmstate.topframe);
+    offset = fei_vmguts_readshort(state->vmstate.topframe);
     state->vmstate.topframe->ip += offset;
     return true;
 }
 
-bool fei_vmdo_jumpiffalse(FeiState* state)
+static inline bool fei_vmdo_jumpiffalse(FeiState* state)
 {
     uint16_t offset;
     FeiValue peeked;
     // offset already put in the stack
-    offset = READ_SHORT(state->vmstate.topframe);
+    offset = fei_vmguts_readshort(state->vmstate.topframe);
     peeked = fei_vm_stackpeek_inline(state, 0);
     // actual jump instruction is done here; skip over the instruction pointer
     if(fei_value_isfalsey(state, peeked))
@@ -1239,21 +1236,21 @@ bool fei_vmdo_jumpiffalse(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_loop(FeiState* state)
+static inline bool fei_vmdo_loop(FeiState* state)
 {
     uint16_t offset;
     (void)state;
-    offset = READ_SHORT(state->vmstate.topframe);
+    offset = fei_vmguts_readshort(state->vmstate.topframe);
     // jumps back
     state->vmstate.topframe->ip -= offset;
     return true;
 }
 
-bool fei_vmdo_loopiffalse(FeiState* state)
+static inline bool fei_vmdo_loopiffalse(FeiState* state)
 {
     uint16_t offset;
     // offset already put in the stack
-    offset = READ_SHORT(state->vmstate.topframe);
+    offset = fei_vmguts_readshort(state->vmstate.topframe);
     // bool state is at the top of the stack
     // if false loop back
     if(fei_value_isfalsey(state, fei_vm_stackpeek_inline(state, 0)))
@@ -1265,12 +1262,12 @@ bool fei_vmdo_loopiffalse(FeiState* state)
     return true;
 }
 
-bool fei_vmdo_loopiftrue(FeiState* state)
+static inline bool fei_vmdo_loopiftrue(FeiState* state)
 {
     uint16_t offset;
     (void)state;
     // offset already put in the stack
-    offset = READ_SHORT(state->vmstate.topframe);
+    offset = fei_vmguts_readshort(state->vmstate.topframe);
     // bool state is at the top of the stack
     // if not false loop back
     if(!fei_value_isfalsey(state, fei_vm_stackpeek_inline(state, 0)))
@@ -1283,7 +1280,7 @@ bool fei_vmdo_loopiftrue(FeiState* state)
 }
 
 
-bool fei_vmdo_getindex(FeiState* state, bool setindex)
+static inline bool fei_vmdo_getindex(FeiState* state, bool setindex)
 {
     bool isarray;
     FeiValue index;
@@ -1348,12 +1345,12 @@ bool fei_vmdo_getindex(FeiState* state, bool setindex)
             {
                 if(setindex)
                 {
-                    oba->items.values[nidx] = setval;
-                    fei_vm_stackpush_inline(state, oba->items.values[nidx]);
+                    oba->items->values[nidx] = setval;
+                    fei_vm_stackpush_inline(state, oba->items->values[nidx]);
                 }
                 else
                 {
-                    fei_vm_stackpush_inline(state, fei_valarray_get(state, &oba->items, nidx));
+                    fei_vm_stackpush_inline(state, fei_valarray_get(oba->items, nidx));
                 }
             }
             else
@@ -1404,13 +1401,13 @@ bool fei_vmdo_getindex(FeiState* state, bool setindex)
 /*
 * FIXME: values are added in reverse, due to how the stack operates ...
 */
-bool fei_vmdo_makearray(FeiState* state)
+static inline bool fei_vmdo_makearray(FeiState* state)
 {
     int16_t i;
     int16_t cnt;
     FeiValue val;
     FeiArray* arr;
-    cnt = READ_BYTE(state->vmstate.topframe);
+    cnt = fei_vmguts_readbyte(state->vmstate.topframe);
     arr = fei_object_makearray(state);
     #if 0
         fprintf(stderr, "in makearray: cnt=%d\n", cnt);
@@ -1423,7 +1420,7 @@ bool fei_vmdo_makearray(FeiState* state)
             fei_value_printvalue(state, state->iowriter_stderr, val, true);
             fprintf(stderr, "\n");
         #endif
-        fei_array_push(state, arr, val);
+        fei_array_push(arr, val);
     }
     for(i=0; i<cnt; i++)
     {
@@ -1483,7 +1480,7 @@ FeiResultCode fei_vm_exec(FeiState* state)
             fei_dbgdisas_instr(state, &state->vmstate.topframe->closure->function->chunk, dbgofs);
         }
         // get result of the byte read, every set of instruction starts with an opcode
-        switch(instruction = READ_BYTE(state->vmstate.topframe))
+        switch(instruction = fei_vmguts_readbyte(state->vmstate.topframe))
         {
             case OP_CONSTANT:
                 {
@@ -1653,13 +1650,13 @@ FeiResultCode fei_vm_exec(FeiState* state)
             case OP_CLASS:
                 {
                     // load string for the class' name and push it onto the stack
-                    fei_vm_stackpush(state, fei_value_makeobject(state, fei_object_makeclass(state, READ_STRING(state, state->vmstate.topframe))));
+                    fei_vm_stackpush(state, fei_value_makeobject(state, fei_object_makeclass(state, fei_vmguts_readstring(state, state->vmstate.topframe))));
                 }
                 break;
             case OP_METHOD:
                 {
                     // get name of the method
-                    fei_vm_classdefmethodfromstack(state, READ_STRING(state, state->vmstate.topframe));
+                    fei_vm_classdefmethodfromstack(state, fei_vmguts_readstring(state, state->vmstate.topframe));
                 }
                 break;
             case OP_INVOKE:

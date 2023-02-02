@@ -119,8 +119,8 @@ bool fei_valcompare_array(FeiState* state, FeiArray* arra, FeiArray* arrb)
     {
         for(i=0; i<lena; i++)
         {
-            vala = fei_array_get(state, arra, i);
-            valb = fei_array_get(state, arrb, i);
+            vala = fei_array_get(arra, i);
+            valb = fei_array_get(arrb, i);
             //fei_vm_dumpval(state, vala, "valcompare_array(%d):vala", i);
             //fei_vm_dumpval(state, valb, "valcompare_array(%d):valb", i);
             b = fei_value_compare(state, vala, valb);

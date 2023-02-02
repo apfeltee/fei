@@ -7,7 +7,7 @@ FeiClass* fei_object_makeclass(FeiState* state, FeiString* name)
     state->ocount.cntclass++;
     klassobj = (FeiClass*)fei_object_allocobject(state, sizeof(FeiClass), OBJ_CLASS);
     klassobj->name = name;
-    fei_table_initcapacity(state, &klassobj->methods, 4);
+    klassobj->methods = fei_table_make(state, 4);
     return klassobj;
 }
 
@@ -25,7 +25,7 @@ FeiInstance* fei_object_makeinstance(FeiState* state, FeiClass* klassobj)
     state->ocount.cntinstance++;
     instance = (FeiInstance*)fei_object_allocobject(state, sizeof(FeiInstance), OBJ_INSTANCE);
     instance->classobject = klassobj;
-    fei_table_initempty(state, &instance->fields);
+    instance->fields = fei_table_make(state, 0);
     //fei_table_initcapacity(state, &instance->fields, 4);
     return instance;
 }
@@ -34,7 +34,7 @@ FeiInstance* fei_object_makeinstance(FeiState* state, FeiClass* klassobj)
 bool fei_class_invokemethod(FeiState* state, FeiClass* klassobj, FeiString* name, int argcount)
 {
     FeiValue method;
-    if(!fei_table_get(state, &klassobj->methods, name, &method))
+    if(!fei_table_get(state, klassobj->methods, name, &method))
     {
         fei_vm_raiseruntimeerror(state, "cannot invoke undefined property '%s'", name->chars);
         return false;
@@ -50,8 +50,7 @@ bool fei_class_bindmethod(FeiState* state, FeiClass* klassobj, FeiString* name, 
     FeiValTable* tab;
     FeiObjBoundMethod* bound;
     mustdef = false;
-    tab = &klassobj->methods;
-
+    tab = klassobj->methods;
     // get method from table and bind it
     if(!fei_table_get(state, tab, name, &method))
     {
@@ -84,12 +83,12 @@ bool fei_class_bindmethod(FeiState* state, FeiClass* klassobj, FeiString* name, 
 
 bool fei_class_setmethod(FeiState* state, FeiClass* klass, FeiString* name, FeiValue method)
 {
-    return fei_table_set(state, &klass->methods, name, method);
+    return fei_table_set(state, klass->methods, name, method);
 }
 
 void fei_class_inherit(FeiState* state, FeiClass* base, FeiClass* inheritme)
 {
-    fei_table_mergefrom(state, &inheritme->methods, &base->methods);
+    fei_table_mergefrom(state, inheritme->methods, base->methods);
 }
 
 /*

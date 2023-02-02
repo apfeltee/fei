@@ -39,8 +39,8 @@ FeiState* fei_state_init()
         state->gcstate.bytesallocated = 0;
         state->gcstate.nextgc = FEI_CFG_NEXTGC;
     }
-    fei_table_initcapacity(state, &state->vmstate.globals, 32);
-    fei_table_initcapacity(state, &state->vmstate.strings, 32);
+    state->vmstate.globals = fei_table_make(state, 32);
+    state->vmstate.strings = fei_table_make(state, 32);
     {
         // initializing the FeiValue stack, also initializing the callframe count
         fei_vm_resetstack(state);
@@ -96,8 +96,8 @@ void fei_state_destroy(FeiState* state)
     state->vmstate.initstring = NULL;
     // free all objects, from state->gcstate.objects
     fei_gcmem_freeobjects(state);
-    fei_table_destroy(state, &state->vmstate.globals);
-    fei_table_destroy(state, &state->vmstate.strings);
+    fei_table_destroy(state, state->vmstate.globals);
+    fei_table_destroy(state, state->vmstate.strings);
     fei_writer_destroy(state->iowriter_stdout, true);
     fei_writer_destroy(state->iowriter_stderr, true);
     for(i=0; i<da_count(state->vmstate.frameobjects); i++)
@@ -159,7 +159,7 @@ void fei_vm_defnative(FeiState* state, const char* name, FeiNativeFn function)
     FeiObjNative* objnat;
     objname = fei_string_copy(state, name, (int)strlen(name));
     objnat = fei_object_makenativefunc(state, function);
-    fei_table_set(state, &state->vmstate.globals, objname, fei_value_makeobject(state, objnat));        
+    fei_table_set(state, state->vmstate.globals, objname, fei_value_makeobject(state, objnat));        
 }
 
 void fei_vm_resetstack(FeiState* state)

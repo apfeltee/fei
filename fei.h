@@ -514,6 +514,7 @@ struct FeiAstClassCompiler
 */
 struct FeiValArray
 {
+    FeiState* state;
     int capacity;
     int count;
     FeiValue* values;
@@ -530,7 +531,7 @@ struct FeiBytecodeList
     // array of integers that parallels the bytecode/codestream, to get where each location of the bytecode is
     int* lines;
     // store double value literals
-    FeiValArray constants;
+    FeiValArray* constants;
 };
 
 /*
@@ -613,14 +614,14 @@ struct FeiClass
 {
     FeiObject obj;
     FeiString* name;
-    FeiValTable methods;
+    FeiValTable* methods;
 };
 
 struct FeiInstance
 {
     FeiObject obj;
     FeiClass* classobject;
-    FeiValTable fields;
+    FeiValTable* fields;
 };
 
 // struct for class methods
@@ -635,7 +636,8 @@ struct FeiObjBoundMethod
 struct FeiArray
 {
     FeiObject obj;
-    FeiValArray items;
+    FeiState* state;
+    FeiValArray* items;
 };
 
 // the call stack
@@ -714,10 +716,10 @@ struct FeiVMState
     FeiValue* stacktop;
 
     // for storing global variables
-    FeiValTable globals;
+    FeiValTable* globals;
 
     // for string interning, to make sure every equal string takes one memory
-    FeiValTable strings;
+    FeiValTable* strings;
 
     // init string for class constructors
     FeiString* initstring;
@@ -797,19 +799,18 @@ struct FeiState
 };
 
 /* array.c */
-void fei_valarray_init(FeiState *state, FeiValArray *array);
+FeiValArray* fei_valarray_make(FeiState *state);
 size_t fei_valarray_count(FeiValArray *arr);
-FeiValue fei_valarray_get(FeiState *state, FeiValArray *arr, int idx);
-void fei_valarray_push(FeiState *state, FeiValArray *array, FeiValue value);
-FeiValue fei_valarray_pop(FeiState *state, FeiValArray *array);
-void fei_valarray_destroy(FeiState *state, FeiValArray *array);
+FeiValue fei_valarray_get(FeiValArray *arr, int idx);
+void fei_valarray_push(FeiValArray *array, FeiValue value);
+FeiValue fei_valarray_pop(FeiValArray *array);
+void fei_valarray_destroy(FeiValArray *array);
 FeiArray *fei_object_makearray(FeiState *state);
 size_t fei_array_count(FeiArray *arr);
-bool fei_array_push(FeiState *state, FeiArray *arr, FeiValue val);
-FeiValue fei_array_get(FeiState *state, FeiArray *arr, size_t idx);
-FeiValue fei_array_pop(FeiState *state, FeiArray *arr);
-bool fei_array_destroy(FeiState *state, FeiArray *arr);
-
+bool fei_array_push(FeiArray *arr, FeiValue val);
+FeiValue fei_array_get(FeiArray *arr, size_t idx);
+FeiValue fei_array_pop(FeiArray *arr);
+bool fei_array_destroy(FeiArray *arr);
 
 
 /* class.c */
@@ -969,8 +970,7 @@ FeiString *fei_object_allocstring(FeiState *state, const char *chars, int length
 FeiString *fei_string_take(FeiState *state, char *chars, int length);
 FeiString *fei_string_copy(FeiState *state, const char *chars, int length);
 /* table.c */
-void fei_table_initcapacity(FeiState *state, FeiValTable *table, int cap);
-void fei_table_initempty(FeiState *state, FeiValTable *table);
+FeiValTable* fei_table_make(FeiState *state, int cap);
 void fei_table_initnull(FeiState *state, FeiValTable *table);
 void fei_table_destroy(FeiState *state, FeiValTable *table);
 FeiValTabEntry *fei_table_findentry(FeiState *state, int count, FeiValTabEntry *entries, int capacity, FeiString *key);
@@ -1007,39 +1007,11 @@ void fei_vm_closeupvalues(FeiState *state, FeiValue *last);
 bool fei_instance_setproperty(FeiState *state, FeiInstance *instance, FeiString *name, FeiValue val);
 bool fei_instance_getproperty(FeiState *state, FeiInstance *instance, FeiString *name, FeiValue *dest);
 void fei_vm_classdefmethodfromstack(FeiState *state, FeiString *name);
-bool fei_vmdo_strconcat(FeiState *state);
-bool fei_vmdo_return(FeiState *state);
-bool fei_vmdo_superinvoke(FeiState *state);
-bool fei_vmdo_getsuper(FeiState *state);
-bool fei_vmdo_inherit(FeiState *state);
-bool fei_vmdo_invokemethod(FeiState *state);
-bool fei_vmdo_makeclosure(FeiState *state);
-bool fei_vmdo_setproperty(FeiState *state);
-bool fei_vmdo_call(FeiState *state);
+
 FeiInstance *fei_vm_getinstancefor(FeiState *state, int typ);
 bool fei_vm_otherproperty(FeiState *state, FeiString *name, int typ, bool asfield);
 bool fei_vm_classinvoke(FeiState *state, FeiValue receiver, FeiString *name, int argcount);
 bool fei_vm_classinvokefromstack(FeiState *state, FeiString *name, int argcount);
-bool fei_vmdo_getproperty(FeiState *state);
-bool fei_vmdo_unary(FeiState *state, uint8_t instruc);
-bool fei_vmdo_binary(FeiState *state, uint8_t instruc);
-bool fei_vmdo_switchequal(FeiState *state);
-bool fei_vmdo_compare(FeiState *state);
-bool fei_vmdo_logicalnot(FeiState *state);
-bool fei_vmdo_defineglobal(FeiState *state);
-bool fei_vmdo_setglobal(FeiState *state);
-bool fei_vmdo_getglobal(FeiState *state);
-bool fei_vmdo_setlocal(FeiState *state);
-bool fei_vmdo_getlocal(FeiState *state);
-bool fei_vmdo_getconstant(FeiState *state);
-bool fei_vmdo_setupvalue(FeiState *state);
-bool fei_vmdo_getupvalue(FeiState *state);
-bool fei_vmdo_closeupvalue(FeiState *state);
-bool fei_vmdo_jumpalways(FeiState *state);
-bool fei_vmdo_jumpiffalse(FeiState *state);
-bool fei_vmdo_loop(FeiState *state);
-bool fei_vmdo_loopiffalse(FeiState *state);
-bool fei_vmdo_loopiftrue(FeiState *state);
 FeiResultCode fei_vm_exec(FeiState *state);
 /* writer.c */
 FeiWriter *fei_writer_init(FeiState *state);

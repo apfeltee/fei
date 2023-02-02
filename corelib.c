@@ -79,7 +79,7 @@ static FeiValue objfn_array_push(FeiState* state, FeiValue instance, int argc, F
     arr = fei_value_asarray(instance);
     for(i=0; i<argc; i++)
     {
-        fei_valarray_push(state, &arr->items, argv[i]);
+        fei_valarray_push(arr->items, argv[i]);
     }
     return fei_value_makefixednumber(state, i);
 }
@@ -93,7 +93,7 @@ static FeiValue objfn_array_pop(FeiState* state, FeiValue instance, int argc, Fe
     arr = fei_value_asarray(instance);
     if(fei_array_count(arr) > 0)
     {
-        return fei_array_pop(state, arr);
+        return fei_array_pop(arr);
     }
     return fei_value_makenull(state);
 }
@@ -125,7 +125,7 @@ static FeiValue objfn_array_join(FeiState* state, FeiValue instance, int argc, F
     alen = fei_array_count(arr);
     for(i=0; i<alen; i++)
     {
-        val = fei_array_get(state, arr, i);
+        val = fei_array_get(arr, i);
         fei_value_printvalue(state, wr, val, false);
         if((i+1) < alen)
         {

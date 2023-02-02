@@ -63,7 +63,7 @@ void fei_gcmem_freeobject(FeiState* state, FeiObject* object)
     {
         case OBJ_ARRAY:
             {
-                fei_array_destroy(state, (FeiArray*)object);
+                fei_array_destroy((FeiArray*)object);
             }
             break;
         case OBJ_BOUND_METHOD:
@@ -74,14 +74,14 @@ void fei_gcmem_freeobject(FeiState* state, FeiObject* object)
         case OBJ_CLASS:
             {
                 klassobj = (FeiClass*)object;
-                fei_table_destroy(state, &klassobj->methods);
+                fei_table_destroy(state, klassobj->methods);
                 FREE(state, sizeof(FeiClass), object);
             }
             break;
         case OBJ_INSTANCE:
             {
                 instance = (FeiInstance*)object;
-                fei_table_destroy(state, &instance->fields);
+                fei_table_destroy(state, instance->fields);
                 FREE(state, sizeof(FeiInstance), object);
             }
             break;
@@ -172,7 +172,7 @@ void fei_gcmem_markarray(FeiState* state, FeiValArray* array)
     size_t i;
     for(i = 0; i < fei_valarray_count(array); i++)
     {
-        fei_gcmem_markvalue(state, fei_valarray_get(state, array, i));// mark each FeiValue in the array
+        fei_gcmem_markvalue(state, fei_valarray_get(array, i));// mark each FeiValue in the array
     }
 }
 
@@ -197,7 +197,7 @@ void fei_gcmem_markroots(FeiState* state)
         fei_gcmem_markobject(state, (FeiObject*)upvalue);
     }
     // mark global variables, belongs in the VM/hashtable
-    fei_table_mark(state, &state->vmstate.globals);
+    fei_table_mark(state, state->vmstate.globals);
     // compiler also grabs memory
     fei_compiler_markroots(state);
     fei_gcmem_markobject(state, (FeiObject*)state->vmstate.initstring);
@@ -223,7 +223,7 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
         case OBJ_ARRAY:
             {
                 arr = (FeiArray*)object;
-                fei_gcmem_markarray(state, &arr->items);
+                fei_gcmem_markarray(state, arr->items);
             }
             break;
         case OBJ_BOUND_METHOD:
@@ -244,7 +244,7 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
                 // you can get the coressponding 'higher' object type from a lower derivation struct in C using (higher*)lower
                 function = (FeiObjFunction*)object;
                 fei_gcmem_markobject(state, (FeiObject*)function->name);// mark its name, an FeiString type
-                fei_gcmem_markarray(state, &function->chunk.constants);// mark value array of chunk constants, pass it in AS A POINTER using &
+                fei_gcmem_markarray(state, function->chunk.constants);// mark value array of chunk constants, pass it in AS A POINTER using &
             }
             break;
         case OBJ_CLOSURE:
@@ -262,14 +262,14 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
             {
                 klassobj = (FeiClass*)object;
                 fei_gcmem_markobject(state, (FeiObject*)klassobj->name);
-                fei_table_mark(state, &klassobj->methods);
+                fei_table_mark(state, klassobj->methods);
             }
             break;
         case OBJ_INSTANCE:
             {
                 instance = (FeiInstance*)object;
                 fei_gcmem_markobject(state, (FeiObject*)instance->classobject);
-                fei_table_mark(state, &instance->fields);
+                fei_table_mark(state, instance->fields);
             }
             break;
         // these two objects contain NO OUTGOING REFERENCES there is nothing to traverse
@@ -347,7 +347,7 @@ void fei_gcmem_collectgarbage(FeiState* state)
     fei_gcmem_tracerefs(state);
     // removing intern strings, BEFORE the sweep so the pointers can still access its memory
     // function defined in hahst.c
-    fei_table_removeunreachable(state, &state->vmstate.strings);
+    fei_table_removeunreachable(state, state->vmstate.strings);
     // free all unreachable roots
     fei_gcmem_sweep(state);
     // adjust size of threshold

@@ -29,7 +29,7 @@ void fei_chunk_init(FeiState* state, FeiBytecodeList* chunk)
     // to store current line of code
     chunk->lines = NULL;
     // initialize constant list
-    fei_valarray_init(state, &chunk->constants);
+    chunk->constants = fei_valarray_make(state);
 }
 
 void fei_chunk_pushbyte(FeiState* state, FeiBytecodeList* chunk, uint8_t byte, int line)
@@ -56,19 +56,19 @@ void fei_chunk_destroy(FeiState* state, FeiBytecodeList* chunk)
     // chunk->code is the pointer to the array, capacity is the size
     FREE_ARRAY(state, sizeof(uint8_t), chunk->code, chunk->capacity);
     FREE_ARRAY(state, sizeof(int), chunk->lines, chunk->capacity);
-    fei_valarray_destroy(state, &chunk->constants);
-    fei_chunk_init(state, chunk);
+    fei_valarray_destroy(chunk->constants);
+    //fei_chunk_init(state, chunk);
 }
 
 int fei_chunk_pushconst(FeiState* state, FeiBytecodeList* chunk, FeiValue value)
 {
     // garbage collection
     fei_vm_stackpush(state, value);
-    fei_valarray_push(state, &chunk->constants, value);
+    fei_valarray_push(chunk->constants, value);
     // garbage collection
     fei_vm_stackpop(state);
     // return index of the newly added constant
-    return fei_valarray_count(&chunk->constants) - 1;
+    return fei_valarray_count(chunk->constants) - 1;
 }
 
 void fei_lexer_initsource(FeiState* state, const char* source, size_t len)

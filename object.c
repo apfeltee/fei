@@ -15,7 +15,6 @@ FeiObject* fei_object_allocobject(FeiState* state, size_t size, FeiObjType type)
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         printf("%p allocate %zd for %d\n", (void*)object, size, type);
     #endif
-
     return object;
 }
 

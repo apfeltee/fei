@@ -26,7 +26,7 @@ int fei_dbgutil_printconstir(FeiState* state, const char* name, FeiBytecodeList*
     // print out name of the opcode, then the constant index
     fprintf(stderr, "%-16s %4d '", name, constant);
     //	display the value of the constant,  user defined function
-    fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(state, &chunk->constants, constant), true);
+    fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(chunk->constants, constant), true);
     fprintf(stderr, "'\n");
     //OP_RETURN is a single byte, and the other byte is the operand, hence offsets by 2
     return offset + 2;
@@ -42,7 +42,7 @@ int fei_dbgutil_printinvokeir(FeiState* state, const char* name, FeiBytecodeList
     argcount = chunk->code[offset + 2];
     fprintf(stderr, "%-16s (%d args) %4d", name, argcount, constant);
     // print the method
-    fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(state, &chunk->constants, constant), true);
+    fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(chunk->constants, constant), true);
     fprintf(stderr, "\n");
     return offset + 3;
 }
@@ -189,9 +189,9 @@ int fei_dbgdisas_instr(FeiState* state, FeiBytecodeList* chunk, int offset)
                 offset++;
                 constant = chunk->code[offset++];// index for Value
                 fprintf(stderr, "%-16s %4d ", "OP_CLOSURE", constant);
-                fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(state, &chunk->constants, constant), true);// accessing the value using the index
+                fei_value_printvalue(state, state->iowriter_stderr, fei_valarray_get(chunk->constants, constant), true);// accessing the value using the index
                 fprintf(stderr, "\n");
-                function = fei_value_asfunction(fei_valarray_get(state, &chunk->constants, constant));
+                function = fei_value_asfunction(fei_valarray_get(chunk->constants, constant));
                 for(j = 0; j < function->upvaluecount; j++)// walk through upvalues
                 {
                     islocal = chunk->code[offset++];
