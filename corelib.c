@@ -108,7 +108,6 @@ static FeiValue objfn_array_join(FeiState* state, FeiValue instance, int argc, F
     FeiString* sepobj;
     FeiArray* arr;
     FeiWriter* wr;
-    FeiString* copy;
     (void)state;
     (void)argc;
     (void)argv;
@@ -132,16 +131,9 @@ static FeiValue objfn_array_join(FeiState* state, FeiValue instance, int argc, F
             fei_writer_appendstringlen(wr, sepstr, seplen);
         }
     }
-    #if 0
-        copy = fei_string_copy(state, wr->string->chars, wr->string->length);
-        fei_writer_destroy(wr);
-        val = fei_value_makeobject(state, copy);
-        return val;
-    #else
-        val = fei_value_makeobject(state, wr->string);
-        fei_writer_destroy(wr, false);
-        return val;
-    #endif
+    val = fei_value_makeobject(state, wr->string);
+    fei_writer_destroy(wr, false);
+    return val;
 }
 
 

@@ -973,7 +973,6 @@ FeiString *fei_string_copy(FeiState *state, const char *chars, int length);
 FeiValTable* fei_table_make(FeiState *state, int cap);
 void fei_table_initnull(FeiState *state, FeiValTable *table);
 void fei_table_destroy(FeiState *state, FeiValTable *table);
-FeiValTabEntry *fei_table_findentry(FeiState *state, int count, FeiValTabEntry *entries, int capacity, FeiString *key);
 bool fei_table_get(FeiState *state, FeiValTable *table, FeiString *key, FeiValue *value);
 void fei_table_adjustcapacity(FeiState *state, FeiValTable *table, int capacity);
 bool fei_table_set(FeiState *state, FeiValTable *table, FeiString *key, FeiValue value);

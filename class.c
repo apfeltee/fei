@@ -49,6 +49,7 @@ bool fei_class_bindmethod(FeiState* state, FeiClass* klassobj, FeiString* name, 
     FeiValue method;
     FeiValTable* tab;
     FeiObjBoundMethod* bound;
+    (void)isfield;
     mustdef = false;
     tab = klassobj->methods;
     // get method from table and bind it

@@ -1,34 +1,7 @@
 
 #include "fei.h"
 
-FeiValTable* fei_table_make(FeiState* state, int cap)
-{
-    FeiValTable* table;
-    table = ALLOCATE(state, sizeof(FeiValTable), 1);
-    fei_table_initnull(state, table);
-    if(cap > 0)
-    {
-        fei_table_adjustcapacity(state, table, cap);
-    }
-    return table;
-}
-
-void fei_table_initnull(FeiState* state, FeiValTable* table)
-{
-    (void)state;
-    table->count = 0;
-    table->capacity = 0;
-    table->entries = NULL;
-}
-
-void fei_table_destroy(FeiState* state, FeiValTable* table)
-{
-    FREE_ARRAY(state, sizeof(FeiValTabEntry), table->entries, table->capacity);
-    //fei_table_initnull(state, table);
-    FREE(state, sizeof(FeiValTable), table);
-}
-
-FeiValTabEntry* fei_table_findentry(FeiState* state, int count, FeiValTabEntry* entries, int capacity, FeiString* key)
+static inline FeiValTabEntry* fei_table_internfindentry(FeiState* state, int count, FeiValTabEntry* entries, int capacity, FeiString* key)
 {
     uint32_t index;
     FeiValTabEntry* entry;
@@ -72,6 +45,33 @@ FeiValTabEntry* fei_table_findentry(FeiState* state, int count, FeiValTabEntry* 
     return NULL;
 }
 
+FeiValTable* fei_table_make(FeiState* state, int cap)
+{
+    FeiValTable* table;
+    table = ALLOCATE(state, sizeof(FeiValTable), 1);
+    fei_table_initnull(state, table);
+    if(cap > 0)
+    {
+        fei_table_adjustcapacity(state, table, cap);
+    }
+    return table;
+}
+
+void fei_table_initnull(FeiState* state, FeiValTable* table)
+{
+    (void)state;
+    table->count = 0;
+    table->capacity = 0;
+    table->entries = NULL;
+}
+
+void fei_table_destroy(FeiState* state, FeiValTable* table)
+{
+    FREE_ARRAY(state, sizeof(FeiValTabEntry), table->entries, table->capacity);
+    //fei_table_initnull(state, table);
+    FREE(state, sizeof(FeiValTable), table);
+}
+
 bool fei_table_get(FeiState* state, FeiValTable* table, FeiString* key, FeiValue* value)
 {
     FeiValTabEntry* entry;
@@ -79,7 +79,7 @@ bool fei_table_get(FeiState* state, FeiValTable* table, FeiString* key, FeiValue
     {
         return false;
     }
-    entry = fei_table_findentry(state, table->count, table->entries, table->capacity, key);
+    entry = fei_table_internfindentry(state, table->count, table->entries, table->capacity, key);
     if(entry == NULL)
     {
         return false;
@@ -122,7 +122,7 @@ void fei_table_adjustcapacity(FeiState* state, FeiValTable* table, int capacity)
                 continue;
             }
             // pass in new array
-            dest = fei_table_findentry(state, table->count, entries, actualcap, entry->key);
+            dest = fei_table_internfindentry(state, table->count, entries, actualcap, entry->key);
             dest->key = entry->key;
             dest->value = entry->value;
             table->count++;
@@ -145,7 +145,7 @@ bool fei_table_set(FeiState* state, FeiValTable* table, FeiString* key, FeiValue
         capacity = (GROW_CAPACITY(table->capacity));
         fei_table_adjustcapacity(state, table, capacity);
     }
-    entry = fei_table_findentry(state, table->count, table->entries, table->capacity, key);
+    entry = fei_table_internfindentry(state, table->count, table->entries, table->capacity, key);
     isnewkey = entry->key == NULL;
     if(isnewkey && fei_value_isnull(entry->value))
     {
@@ -165,7 +165,7 @@ bool fei_table_delete(FeiState* state, FeiValTable* table, FeiString* key)
         return false;
     }
     // find entry
-    entry = fei_table_findentry(state, table->count, table->entries, table->capacity, key);
+    entry = fei_table_internfindentry(state, table->count, table->entries, table->capacity, key);
     if(entry->key == NULL)
     {
         return false;

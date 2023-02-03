@@ -3,6 +3,10 @@
 #include "fei.h"
 
 
+#if defined(USE_DYNVALUE) && (USE_DYNVALUE == 1)
+    #define ALSO_PRINTTOP 0
+#endif
+
     /* info on the macros below
 Below macros are FUNCTIONSt that take ZERO arguments, and what is inside () is their return value
 fei_vmguts_readbyte:	
@@ -16,12 +20,15 @@ fei_vmguts_readstring:
 
 static inline uint8_t fei_vmguts_readbyte(FeiVMFrame* frame)
 {
-    return (*frame->ip++);
+    return *(frame->ip++);
 }
 
 static inline FeiValue fei_vmguts_readconst(FeiState* state, FeiVMFrame* frame)
 {
-    return fei_valarray_get(frame->closure->function->chunk.constants, fei_vmguts_readbyte(frame));
+    uint8_t bits;
+    (void)state;
+    bits = fei_vmguts_readbyte(frame);
+    return fei_valarray_get(frame->closure->function->chunk.constants, bits);
 }
 
 static inline FeiString* fei_vmguts_readstring(FeiState* state, FeiVMFrame* frame)
@@ -64,7 +71,7 @@ static inline FeiValue fei_vm_stackpeek_inline(FeiState* state, int distance)
     return state->vmstate.stacktop[-1 - distance];
 }
 
-FeiVMFrame* fei_vm_frameget(FeiState* state, int idx)
+static inline FeiVMFrame* fei_vmguts_frameget(FeiState* state, int idx)
 {
     long cnt;
     long cap;
@@ -110,10 +117,118 @@ FeiVMFrame* fei_vm_frameget(FeiState* state, int idx)
     return fr;
 }
 
+/* for call stacks/functions  */
+static inline bool fei_vmguts_callclosure(FeiState* state, FeiObjClosure* closure, int argcount)
+{
+    FeiVMFrame* frame;
+    // if number of parameters does not match
+    if(argcount != closure->function->arity)
+    {
+        fei_vm_raiseruntimeerror(state, "expected %d arguments but got %d", closure->function->arity, argcount);
+        return false;
+    }
+    // as FeiVMFrame is an array, to ensure array does not overflow
+    if(state->vmstate.framecount == CFG_MAX_VMFRAMES)
+    {
+        fprintf(stderr, "internal error: stack overflow!\n");
+        fei_vm_raiseruntimeerror(state, "stack overflow");
+        return false;
+    }
+    // get pointer to next in frame array
+    // initializes callframe to the top of the stack
+    frame = fei_vm_frameget(state, state->vmstate.framecount++);
+    frame->closure = closure;
+    frame->ip = closure->function->chunk.code;
+    // set up yn pointer to give frame its window into the stack
+    // ensures everyting lines up
+    // slots is the 'starting pointer' for the function cll
+    frame->slots = state->vmstate.stacktop - argcount - 1;
+    return true;
+}
 
-#if defined(USE_DYNVALUE) && (USE_DYNVALUE == 1)
-    #define ALSO_PRINTTOP 0
-#endif
+static inline bool fei_vmguts_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int argcount)
+{
+    FeiNativeFn natfn;
+    FeiValue result;
+    FeiValue initializer;
+    FeiInstance* instance;
+    FeiClass* klass;
+    FeiObjBoundMethod* bound;
+    if(fei_value_isobject(callee))
+    {
+        switch(fei_value_objtype(callee))
+        {
+            case OBJ_BOUND_METHOD:
+                {
+                    // get FeiObjBoundMethod from value type(callee)
+                    bound = fei_value_asbound_method(callee);
+                    state->vmstate.stacktop[-argcount - 1] = bound->receiver;
+                    // run call to execute
+                    return fei_vmguts_callclosure(state, bound->method, argcount);
+                }
+                break;
+            // create class instance
+            case OBJ_CLASS:
+                {
+                    klass = fei_value_asclass(callee);
+                    // create new instance here
+                    instance = fei_object_makeinstance(state, klass);
+                    state->vmstate.stacktop[-argcount - 1] = fei_value_makeobject(state, instance);
+                    // if we find one from the table
+                    if(fei_table_get(state, klass->methods, state->vmstate.initstring, &initializer))
+                    {
+                        return fei_vmguts_callclosure(state, fei_value_asclosure(initializer), argcount);
+                    }
+                    // if there ARE arguments but the initalizer method cannot be found
+                    else if(argcount != 0)
+                    {
+                        fei_vm_raiseruntimeerror(state, "class has not initializer, but still received %d arguments", argcount);
+                        return false;
+                    }
+                    return true;
+                }
+                break;
+            case OBJ_CLOSURE:
+                {
+                    // call to function happens here
+                    return fei_vmguts_callclosure(state, fei_value_asclosure(callee), argcount);
+                }
+                break;
+            case OBJ_NATIVE:
+                {
+                    natfn = fei_value_asnative(callee);
+                    result = natfn(state, instval, argcount, state->vmstate.stacktop - argcount);
+                    // remove call and arguments from the stack
+                    state->vmstate.stacktop -= argcount + 1;
+                    fei_vm_stackpush(state, result);
+                    return true;
+                }
+                break;
+            default:
+                {
+                }
+                break;
+        }
+    }
+    fei_vm_raiseruntimeerror(state, "cannot call type of '%s'", fei_value_typename(callee));
+    return false;
+}
+
+
+FeiVMFrame* fei_vm_frameget(FeiState* state, int idx)
+{
+    return fei_vmguts_frameget(state, idx);
+}
+
+bool fei_vm_callclosure(FeiState* state, FeiObjClosure* closure, int argcount)
+{
+    return fei_vmguts_callclosure(state, closure, argcount);
+}
+
+bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int argcount)
+{
+    return fei_vmguts_callvalue(state, instval, callee, argcount);
+}
 
 void dumpstack(FeiState* state, const char* fmt, ...)
 {
@@ -182,103 +297,6 @@ FeiValue fei_vm_stackpop(FeiState* state)
 FeiValue fei_vm_stackpeek(FeiState* state, int distance)
 {
     return fei_vm_stackpeek_inline(state, distance);
-}
-
-/* for call stacks/functions  */
-bool fei_vm_callclosure(FeiState* state, FeiObjClosure* closure, int argcount)
-{
-    FeiVMFrame* frame;
-    // if number of parameters does not match
-    if(argcount != closure->function->arity)
-    {
-        fei_vm_raiseruntimeerror(state, "expected %d arguments but got %d", closure->function->arity, argcount);
-        return false;
-    }
-    // as FeiVMFrame is an array, to ensure array does not overflow
-    if(state->vmstate.framecount == CFG_MAX_VMFRAMES)
-    {
-        fprintf(stderr, "internal error: stack overflow!\n");
-        fei_vm_raiseruntimeerror(state, "stack overflow");
-        return false;
-    }
-    // get pointer to next in frame array
-    // initializes callframe to the top of the stack
-    frame = fei_vm_frameget(state, state->vmstate.framecount++);
-    frame->closure = closure;
-    frame->ip = closure->function->chunk.code;
-    // set up yn pointer to give frame its window into the stack
-    // ensures everyting lines up
-    // slots is the 'starting pointer' for the function cll
-    frame->slots = state->vmstate.stacktop - argcount - 1;
-    return true;
-}
-
-bool fei_vm_callvalue(FeiState* state, FeiValue instval, FeiValue callee, int argcount)
-{
-    FeiNativeFn natfn;
-    FeiValue result;
-    FeiValue initializer;
-    FeiInstance* instance;
-    FeiClass* klass;
-    FeiObjBoundMethod* bound;
-    if(fei_value_isobject(callee))
-    {
-        switch(fei_value_objtype(callee))
-        {
-            case OBJ_BOUND_METHOD:
-                {
-                    // get FeiObjBoundMethod from value type(callee)
-                    bound = fei_value_asbound_method(callee);
-                    state->vmstate.stacktop[-argcount - 1] = bound->receiver;
-                    // run call to execute
-                    return fei_vm_callclosure(state, bound->method, argcount);
-                }
-                break;
-            // create class instance
-            case OBJ_CLASS:
-                {
-                    klass = fei_value_asclass(callee);
-                    // create new instance here
-                    instance = fei_object_makeinstance(state, klass);
-                    state->vmstate.stacktop[-argcount - 1] = fei_value_makeobject(state, instance);
-                    // if we find one from the table
-                    if(fei_table_get(state, klass->methods, state->vmstate.initstring, &initializer))
-                    {
-                        return fei_vm_callclosure(state, fei_value_asclosure(initializer), argcount);
-                    }
-                    // if there ARE arguments but the initalizer method cannot be found
-                    else if(argcount != 0)
-                    {
-                        fei_vm_raiseruntimeerror(state, "class has not initializer, but still received %d arguments", argcount);
-                        return false;
-                    }
-                    return true;
-                }
-                break;
-            case OBJ_CLOSURE:
-                {
-                    // call to function happens here
-                    return fei_vm_callclosure(state, fei_value_asclosure(callee), argcount);
-                }
-                break;
-            case OBJ_NATIVE:
-                {
-                    natfn = fei_value_asnative(callee);
-                    result = natfn(state, instval, argcount, state->vmstate.stacktop - argcount);
-                    // remove call and arguments from the stack
-                    state->vmstate.stacktop -= argcount + 1;
-                    fei_vm_stackpush(state, result);
-                    return true;
-                }
-                break;
-            default:
-                {
-                }
-                break;
-        }
-    }
-    fei_vm_raiseruntimeerror(state, "cannot call type of '%s'", fei_value_typename(callee));
-    return false;
 }
 
 // get corresponding upvalue
@@ -560,7 +578,7 @@ static inline bool fei_vmdo_call(FeiState* state)
     argcount = fei_vmguts_readbyte(state->vmstate.topframe);
     peeked = fei_vm_stackpeek_inline(state, argcount);
     // call function; pass in the function name istelf[peek(depth)] and the number of arguments
-    if(!fei_vm_callvalue(state, instance, peeked, argcount))
+    if(!fei_vmguts_callvalue(state, instance, peeked, argcount))
     {
         return false;
     }
@@ -591,6 +609,7 @@ bool fei_vm_otherproperty(FeiState* state, FeiString* name, int typ, bool asfiel
     FeiValue v;
     FeiInstance* inst;
     FeiValTable* tab;
+    (void)asfield;
     inst = fei_vm_getinstancefor(state, typ);
     //fprintf(stderr, "fei_vm_otherproperty: typ=%d inst=%p (%s) name=%.*s\n", typ, inst, inst->classobject->name->chars, name->length, name->chars);
     if(inst != NULL)
@@ -633,14 +652,14 @@ bool fei_vm_classinvoke(FeiState* state, FeiValue receiver, FeiString* name, int
     if(isother)
     {
         value = fei_vm_stackpop(state);
-        return fei_vm_callvalue(state, receiver, value, argcount);
+        return fei_vmguts_callvalue(state, receiver, value, argcount);
     }
     instance = fei_value_asinstance(receiver);
     // for fields()
     if(fei_table_get(state, instance->fields, name, &value))
     {
         state->vmstate.stacktop[-argcount - 1] = value;
-        return fei_vm_callvalue(state, fei_value_makenull(state), value, argcount);
+        return fei_vmguts_callvalue(state, fei_value_makenull(state), value, argcount);
     }
     // actual function that searches for method and calls it
     return fei_class_invokemethod(state, instance->classobject, name, argcount);
@@ -672,7 +691,7 @@ static inline bool fei_vmdo_getproperty(FeiState* state)
         if(fei_vm_otherproperty(state, name, typ, true))
         {
             value = fei_vm_stackpop(state);
-            return fei_vm_callvalue(state, peeked, value, 0);
+            return fei_vmguts_callvalue(state, peeked, value, 0);
         }
         else
         {

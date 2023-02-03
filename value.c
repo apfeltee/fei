@@ -98,6 +98,7 @@ const char* fei_value_typename(FeiValue v)
 
 bool fei_valcompare_string(FeiState* state, FeiString* stra, FeiString* strb)
 {
+    (void)state;
     if(stra->length == strb->length)
     {
         return (memcmp(stra->chars, strb->chars, stra->length) == 0);

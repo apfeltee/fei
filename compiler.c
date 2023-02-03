@@ -1518,6 +1518,7 @@ void fei_compiler_defvarindex(FeiState* state, uint8_t global)
 uint8_t fei_compiler_parsearglist(FeiState* state, const char* contextname, FeiAstTokType tokbegin, FeiAstTokType tokend)
 {
     uint8_t argcount;
+    (void)tokbegin;
     argcount = 0;
     // if ) has not been reached
     if(!fei_compiler_check(state, tokend))
@@ -1534,7 +1535,7 @@ uint8_t fei_compiler_parsearglist(FeiState* state, const char* contextname, FeiA
             argcount++;
         } while(fei_compiler_match(state, TOKEN_COMMA));
     }
-    fei_compiler_consume(state, tokend, "expect '%s' after %s", fei_lexer_tokenname(tokend));
+    fei_compiler_consume(state, tokend, "expect '%s' after %s", fei_lexer_tokenname(tokend), contextname);
     return argcount;
 }
 

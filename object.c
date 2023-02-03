@@ -25,7 +25,7 @@ FeiObjBoundMethod* fei_object_makeboundmethod(FeiState* state, FeiValue receiver
     state->ocount.cntbound++;
     bound = (FeiObjBoundMethod*)fei_object_allocobject(state, sizeof(FeiObjBoundMethod), OBJ_BOUND_METHOD);
     bound->receiver = receiver;
-    bound->method = method;
+    bound->method = (FeiObjClosure*)method;
     return bound;
 }
 
