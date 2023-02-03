@@ -51,6 +51,11 @@ const char* fei_object_typename(FeiObject* v)
                 return "array";
             }
             break;
+        case OBJ_TABLE:
+            {
+                return "table";
+            }
+            break;
         default:
             {
             }

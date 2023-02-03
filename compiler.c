@@ -1990,8 +1990,8 @@ static void fei_comprule_unary(FeiState* state, bool canassign)
 // ubt not or, and or assignment operators as they are lower. Basically parse anything that is ABOVE the given precedence
 void fei_compiler_parseprec(FeiState* state, FeiAstPrecedence precedence)
 {
-    int nowtyp;
     bool canassign;
+    FeiAstTokType nowtyp;
     FeiAstRule* rule;
     ParseFn prefixrule;
     ParseFn infixrule;
@@ -1999,8 +1999,9 @@ void fei_compiler_parseprec(FeiState* state, FeiAstPrecedence precedence)
     * PREFIX FIRST
     * look up for a prefix token, and the FIRSt token is ALWAYS going to be a prefix
     */
-    fei_compiler_advancenext(state);// again, go next first then use previous type as the 'current' token
+    // again, go next first then use previous type as the 'current' token
     // the way the compiler is designed is that it has to always have a prefix
+    fei_compiler_advancenext(state);
     nowtyp = state->aststate.parser.prevtoken.type;
     prefixrule = fei_compiler_getrule(state, nowtyp)->prefix;
     if(prefixrule == NULL)
@@ -2008,8 +2009,10 @@ void fei_compiler_parseprec(FeiState* state, FeiAstPrecedence precedence)
         fei_compiler_raiseerror(state, "no parse rule for prefix '%s'", fei_lexer_tokenname(nowtyp));
         return;
     }
-    canassign = precedence <= PREC_ASSIGNMENT;// for assignment precedence
-    prefixrule(state, canassign);// call the prefix function, may consume a lot of tokens
+    // for assignment precedence
+    canassign = precedence <= PREC_ASSIGNMENT;
+    // call the prefix function, may consume a lot of tokens
+    prefixrule(state, canassign);
     /*
     * after prefix expression is done, look for infix expression
     * IMPORTANT: infix only runs if given precedence is LOWER than the operator for the infix
@@ -2060,6 +2063,14 @@ static void fei_comprule_unary(FeiState* state, bool canassign);
 static void fei_comprule_index(FeiState* state, bool canassign);
 static void fei_comprule_arraylit(FeiState* state, bool canassign);
 
+
+static inline void fei_compiler_makerule(FeiAstRule* fan, ParseFn prefix, ParseFn infix, FeiAstPrecedence precedence)
+{
+    fan->prefix = prefix;
+    fan->infix = infix;
+    fan->precedence = precedence;
+}
+
 // get pointer to FeiAstRule struct according to type parameter
 FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
 {
@@ -2067,17 +2078,17 @@ FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
     (void)state;
     switch(type)
     {
-        case TOKEN_OPENPAREN: rule = (FeiAstRule){ fei_comprule_grouping, fei_comprule_call, PREC_CALL }; break;
-        case TOKEN_CLOSEPAREN: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
-        case TOKEN_LEFTBRACE: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
-        case TOKEN_RIGHTBRACE: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
-        case TOKEN_OPENBRACKET: rule = (FeiAstRule) { fei_comprule_arraylit, fei_comprule_index, PREC_TERM }; break;
-        case TOKEN_CLOSEBRACKET: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
-        case TOKEN_COMMA: rule = (FeiAstRule){ NULL, NULL, PREC_NONE };break;
-        case TOKEN_DOT: rule = (FeiAstRule){ NULL, fei_comprule_dot, PREC_CALL }; break;
-        case TOKEN_MINUS: rule = (FeiAstRule){ fei_comprule_unary, fei_comprule_binary, PREC_TERM }; break;
-        case TOKEN_PLUS: rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_TERM }; break;
-        case TOKEN_SEMICOLON: rule = (FeiAstRule){ NULL, NULL, PREC_NONE }; break;
+        case TOKEN_OPENPAREN: fei_compiler_makerule(&rule,  fei_comprule_grouping, fei_comprule_call, PREC_CALL ); break;
+        case TOKEN_CLOSEPAREN: fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE ); break;
+        case TOKEN_LEFTBRACE: fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE ); break;
+        case TOKEN_RIGHTBRACE: fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE ); break;
+        case TOKEN_OPENBRACKET: fei_compiler_makerule(&rule,  fei_comprule_arraylit, fei_comprule_index, PREC_TERM ); break;
+        case TOKEN_CLOSEBRACKET: fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE ); break;
+        case TOKEN_COMMA: fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );break;
+        case TOKEN_DOT: fei_compiler_makerule(&rule,  NULL, fei_comprule_dot, PREC_CALL ); break;
+        case TOKEN_MINUS: fei_compiler_makerule(&rule,  fei_comprule_unary, fei_comprule_binary, PREC_TERM ); break;
+        case TOKEN_PLUS: fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_TERM ); break;
+        case TOKEN_SEMICOLON: fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE ); break;
         case TOKEN_SLASH:
         case TOKEN_MODULO:
         case TOKEN_STAR:
@@ -2086,95 +2097,95 @@ FeiAstRule* fei_compiler_getrule(FeiState* state, FeiAstTokType type)
         case TOKEN_BITOR:
         case TOKEN_BITXOR:
         case TOKEN_BITAND:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_FACTOR };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_FACTOR );
             break;
-        case TOKEN_LOGICALNOT: rule = (FeiAstRule){ fei_comprule_unary, NULL, PREC_NONE }; break;
+        case TOKEN_LOGICALNOT: fei_compiler_makerule(&rule,  fei_comprule_unary, NULL, PREC_NONE ); break;
         case TOKEN_NOTEQUAL:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_EQUALITY };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_EQUALITY );
             break;// equality precedence
         case TOKEN_ASSIGN:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_COMPARISON };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_COMPARISON );
             break;// comaprison precedence
         case TOKEN_EQUAL:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_COMPARISON };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_COMPARISON );
             break;
         case TOKEN_GREATERTHAN:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_COMPARISON };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_COMPARISON );
             break;
         case TOKEN_GREATEREQUAL:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_COMPARISON };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_COMPARISON );
             break;
         case TOKEN_LESSTHAN:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_COMPARISON };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_COMPARISON );
             break;
         case TOKEN_LESSEQUAL:
-            rule = (FeiAstRule){ NULL, fei_comprule_binary, PREC_COMPARISON };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_binary, PREC_COMPARISON );
             break;
         case TOKEN_IDENTIFIER:
-            rule = (FeiAstRule){ fei_comprule_variable, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  fei_comprule_variable, NULL, PREC_NONE );
             break;
         case TOKEN_STRING:
-            rule = (FeiAstRule){ fei_comprule_string, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  fei_comprule_string, NULL, PREC_NONE );
             break;
         case TOKEN_NUMBER:
-            rule = (FeiAstRule){ fei_comprule_number, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  fei_comprule_number, NULL, PREC_NONE );
             break;
         case TOKEN_KWAND:
-            rule = (FeiAstRule){ NULL, fei_comprule_logicaland, PREC_AND };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_logicaland, PREC_AND );
             break;
         case TOKEN_KWCLASS:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWELSE:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWFALSE:
-            rule = (FeiAstRule){ fei_comprule_literal, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  fei_comprule_literal, NULL, PREC_NONE );
             break;
         case TOKEN_KWFOR:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWFUN:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWIF:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWSWITCH:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWNULL:
-            rule = (FeiAstRule){ fei_comprule_literal, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  fei_comprule_literal, NULL, PREC_NONE );
             break;
         case TOKEN_KWOR:
-            rule = (FeiAstRule){ NULL, fei_comprule_logicalor, PREC_OR };
+            fei_compiler_makerule(&rule,  NULL, fei_comprule_logicalor, PREC_OR );
             break;
         case TOKEN_KWPRINT:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWRETURN:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWSUPER:
-            rule = (FeiAstRule){ fei_comprule_super, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  fei_comprule_super, NULL, PREC_NONE );
             break;
         case TOKEN_KWTHIS:
-            rule = (FeiAstRule){ fei_comprule_this, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  fei_comprule_this, NULL, PREC_NONE );
             break;
         case TOKEN_KWTRUE:
-            rule = (FeiAstRule){ fei_comprule_literal, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  fei_comprule_literal, NULL, PREC_NONE );
             break;
         case TOKEN_KWVAR:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_KWWHILE:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_ERROR:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         case TOKEN_EOF:
-            rule = (FeiAstRule){ NULL, NULL, PREC_NONE };
+            fei_compiler_makerule(&rule,  NULL, NULL, PREC_NONE );
             break;
         default:
             {

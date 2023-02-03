@@ -66,6 +66,11 @@ void fei_gcmem_freeobject(FeiState* state, FeiObject* object)
                 fei_array_destroy((FeiArray*)object);
             }
             break;
+        case OBJ_TABLE:
+            {
+                fei_table_destroy((FeiTable*)object);
+            }
+            break;
         case OBJ_BOUND_METHOD:
             {
                 FREE(state, sizeof(FeiObjBoundMethod), object);
@@ -74,14 +79,14 @@ void fei_gcmem_freeobject(FeiState* state, FeiObject* object)
         case OBJ_CLASS:
             {
                 klassobj = (FeiClass*)object;
-                fei_table_destroy(state, klassobj->methods);
+                fei_valtable_destroy(state, klassobj->methods);
                 FREE(state, sizeof(FeiClass), object);
             }
             break;
         case OBJ_INSTANCE:
             {
                 instance = (FeiInstance*)object;
-                fei_table_destroy(state, instance->fields);
+                fei_valtable_destroy(state, instance->fields);
                 FREE(state, sizeof(FeiInstance), object);
             }
             break;
@@ -151,7 +156,7 @@ void fei_gcmem_markobject(FeiState* state, FeiObject* object)
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         fprintf(stderr, "%p marked ", (void*)object);
         // you cant print first class objects, like how you would print in the actual repl
-        fei_value_printvalue(state, state->iowriter_stderr, fei_value_makeobject(state, object), true);
+        fei_tostring_value(state, state->iowriter_stderr, fei_value_makeobject(state, object), true);
         fprintf(stderr, "\n");
     #endif
 }
@@ -197,7 +202,7 @@ void fei_gcmem_markroots(FeiState* state)
         fei_gcmem_markobject(state, (FeiObject*)upvalue);
     }
     // mark global variables, belongs in the VM/hashtable
-    fei_table_mark(state, state->vmstate.globals);
+    fei_valtable_mark(state, state->vmstate.globals);
     // compiler also grabs memory
     fei_compiler_markroots(state);
     fei_gcmem_markobject(state, (FeiObject*)state->vmstate.initstring);
@@ -208,6 +213,7 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
 {
     int i;
     FeiArray* arr;
+    FeiTable* tbl;
     FeiObjBoundMethod* bound;
     FeiClass* klassobj;
     FeiInstance* instance;
@@ -215,7 +221,7 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
     FeiObjClosure* closure;
     #if defined(DEBUG_LOG_GC) && (DEBUG_LOG_GC == 1)
         fprintf(stderr, "%p blackened ", (void*)object);
-        fei_value_printvalue(state, state->iowriter_stderr, fei_value_makeobject(state, object), true);
+        fei_tostring_value(state, state->iowriter_stderr, fei_value_makeobject(state, object), true);
         fprintf(stderr, "\n");
     #endif
     switch(object->type)
@@ -224,6 +230,12 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
             {
                 arr = (FeiArray*)object;
                 fei_gcmem_markarray(state, arr->items);
+            }
+            break;
+        case OBJ_TABLE:
+            {
+                tbl = (FeiTable*)object;
+                fei_valtable_mark(state, tbl->table);
             }
             break;
         case OBJ_BOUND_METHOD:
@@ -262,14 +274,14 @@ void fei_gcmem_blackenobject(FeiState* state, FeiObject* object)
             {
                 klassobj = (FeiClass*)object;
                 fei_gcmem_markobject(state, (FeiObject*)klassobj->name);
-                fei_table_mark(state, klassobj->methods);
+                fei_valtable_mark(state, klassobj->methods);
             }
             break;
         case OBJ_INSTANCE:
             {
                 instance = (FeiInstance*)object;
                 fei_gcmem_markobject(state, (FeiObject*)instance->classobject);
-                fei_table_mark(state, instance->fields);
+                fei_valtable_mark(state, instance->fields);
             }
             break;
         // these two objects contain NO OUTGOING REFERENCES there is nothing to traverse
@@ -347,7 +359,7 @@ void fei_gcmem_collectgarbage(FeiState* state)
     fei_gcmem_tracerefs(state);
     // removing intern strings, BEFORE the sweep so the pointers can still access its memory
     // function defined in hahst.c
-    fei_table_removeunreachable(state, state->vmstate.strings);
+    fei_valtable_removeunreachable(state, state->vmstate.strings);
     // free all unreachable roots
     fei_gcmem_sweep(state);
     // adjust size of threshold

@@ -7,7 +7,7 @@ FeiClass* fei_object_makeclass(FeiState* state, FeiString* name)
     state->ocount.cntclass++;
     klassobj = (FeiClass*)fei_object_allocobject(state, sizeof(FeiClass), OBJ_CLASS);
     klassobj->name = name;
-    klassobj->methods = fei_table_make(state, 4);
+    klassobj->methods = fei_valtable_make(state, 4);
     return klassobj;
 }
 
@@ -25,8 +25,8 @@ FeiInstance* fei_object_makeinstance(FeiState* state, FeiClass* klassobj)
     state->ocount.cntinstance++;
     instance = (FeiInstance*)fei_object_allocobject(state, sizeof(FeiInstance), OBJ_INSTANCE);
     instance->classobject = klassobj;
-    instance->fields = fei_table_make(state, 0);
-    //fei_table_initcapacity(state, &instance->fields, 4);
+    instance->fields = fei_valtable_make(state, 0);
+    //fei_valtable_initcapacity(state, &instance->fields, 4);
     return instance;
 }
 
@@ -34,7 +34,7 @@ FeiInstance* fei_object_makeinstance(FeiState* state, FeiClass* klassobj)
 bool fei_class_invokemethod(FeiState* state, FeiClass* klassobj, FeiString* name, int argcount)
 {
     FeiValue method;
-    if(!fei_table_get(state, klassobj->methods, name, &method))
+    if(!fei_valtable_get(state, klassobj->methods, name, &method))
     {
         fei_vm_raiseruntimeerror(state, "cannot invoke undefined property '%s'", name->chars);
         return false;
@@ -53,7 +53,7 @@ bool fei_class_bindmethod(FeiState* state, FeiClass* klassobj, FeiString* name, 
     mustdef = false;
     tab = klassobj->methods;
     // get method from table and bind it
-    if(!fei_table_get(state, tab, name, &method))
+    if(!fei_valtable_get(state, tab, name, &method))
     {
         mustdef = true;
         if(!force)
@@ -65,7 +65,7 @@ bool fei_class_bindmethod(FeiState* state, FeiClass* klassobj, FeiString* name, 
     }
     if(mustdef)
     {
-        fei_table_set(state, tab, name, val);
+        fei_valtable_set(state, tab, name, val);
         method = val;
     }
     if(fei_value_isboundmethod(method))
@@ -84,12 +84,12 @@ bool fei_class_bindmethod(FeiState* state, FeiClass* klassobj, FeiString* name, 
 
 bool fei_class_setmethod(FeiState* state, FeiClass* klass, FeiString* name, FeiValue method)
 {
-    return fei_table_set(state, klass->methods, name, method);
+    return fei_valtable_set(state, klass->methods, name, method);
 }
 
 void fei_class_inherit(FeiState* state, FeiClass* base, FeiClass* inheritme)
 {
-    fei_table_mergefrom(state, inheritme->methods, base->methods);
+    fei_valtable_mergefrom(state, inheritme->methods, base->methods);
 }
 
 /*

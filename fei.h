@@ -292,6 +292,7 @@ enum FeiObjType
     OBJ_STRING = 11,
     OBJ_UPVALUE = 12,
     OBJ_ARRAY = 13,
+    OBJ_TABLE = 14,
 };
 
 /*
@@ -322,19 +323,12 @@ typedef struct /**/ FeiObjUpvalue FeiObjUpvalue;
 typedef struct /**/ FeiObjClosure FeiObjClosure;
 typedef struct /**/ FeiObjNative FeiObjNative;
 typedef struct /**/ FeiArray FeiArray;
-typedef struct /**/ FeiAstLocal FeiAstLocal;
-typedef struct /**/ FeiAstUpvalue FeiAstUpvalue;
-typedef struct /**/ FeiASTState FeiASTState;
+typedef struct /**/ FeiTable FeiTable;
 typedef struct /**/ FeiGCState FeiGCState;
 typedef struct /**/ FeiVMState FeiVMState;
 typedef struct /**/ FeiState FeiState;
 typedef struct /**/ FeiVMFrame FeiVMFrame;
-typedef struct /**/ FeiAstToken FeiAstToken;
-typedef struct /**/ FeiAstLexer FeiAstLexer;
-typedef struct /**/ FeiAstParser FeiAstParser;
-typedef struct /**/ FeiAstRule FeiAstRule;
-typedef struct /**/ FeiAstCompiler FeiAstCompiler;
-typedef struct /**/ FeiAstClassCompiler FeiAstClassCompiler;
+typedef struct /**/ FeiAstLocal FeiAstLocal;
 typedef struct /**/ FeiValArray FeiValArray;
 typedef struct /**/ FeiBytecodeList FeiBytecodeList;
 typedef struct /**/ FeiValTabEntry FeiValTabEntry;
@@ -342,6 +336,15 @@ typedef struct /**/ FeiValTable FeiValTable;
 typedef struct /**/ FeiWriter FeiWriter;
 typedef struct /**/ FeiPrimitive FeiPrimitive;
 typedef struct /**/ FeiConfig FeiConfig;
+
+typedef struct /**/ FeiAstUpvalue FeiAstUpvalue;
+typedef struct /**/ FeiASTState FeiASTState;
+typedef struct /**/ FeiAstToken FeiAstToken;
+typedef struct /**/ FeiAstLexer FeiAstLexer;
+typedef struct /**/ FeiAstParser FeiAstParser;
+typedef struct /**/ FeiAstRule FeiAstRule;
+typedef struct /**/ FeiAstCompiler FeiAstCompiler;
+typedef struct /**/ FeiAstClassCompiler FeiAstClassCompiler;
 
 
 /*
@@ -640,6 +643,13 @@ struct FeiArray
     FeiValArray* items;
 };
 
+struct FeiTable
+{
+    FeiObject obj;
+    FeiState* state;
+    FeiValTable* table;
+};
+
 // the call stack
 // keep track where on the stack a function's local begin, where the caller should resume, etc.
 // a call frame represents a single ongoing function call
@@ -793,6 +803,7 @@ struct FeiState
         int64_t cntclosure;
         int64_t cntnative;
         int64_t cntarray;
+        int64_t cnttable;
         int64_t cntnumfixed;
         int64_t cntnumfloat;
     } ocount;
@@ -969,23 +980,31 @@ bool fei_string_append(FeiState *state, FeiString *dest, const char *strdata, in
 FeiString *fei_object_allocstring(FeiState *state, const char *chars, int length, uint32_t hash);
 FeiString *fei_string_take(FeiState *state, char *chars, int length);
 FeiString *fei_string_copy(FeiState *state, const char *chars, int length);
+
 /* table.c */
-FeiValTable* fei_table_make(FeiState *state, int cap);
-void fei_table_initnull(FeiState *state, FeiValTable *table);
-void fei_table_destroy(FeiState *state, FeiValTable *table);
-bool fei_table_get(FeiState *state, FeiValTable *table, FeiString *key, FeiValue *value);
-void fei_table_adjustcapacity(FeiState *state, FeiValTable *table, int capacity);
-bool fei_table_set(FeiState *state, FeiValTable *table, FeiString *key, FeiValue value);
-bool fei_table_delete(FeiState *state, FeiValTable *table, FeiString *key);
-void fei_table_mergefrom(FeiState *state, FeiValTable *from, FeiValTable *to);
-FeiString *fei_table_findstring(FeiState *state, FeiValTable *table, const char *chars, int length, uint32_t hash);
-void fei_table_removeunreachable(FeiState *state, FeiValTable *table);
-void fei_table_mark(FeiState *state, FeiValTable *table);
+FeiValTable *fei_valtable_make(FeiState *state, int cap);
+void fei_valtable_initnull(FeiState *state, FeiValTable *table);
+void fei_valtable_destroy(FeiState *state, FeiValTable *table);
+bool fei_valtable_get(FeiState *state, FeiValTable *table, FeiString *key, FeiValue *value);
+void fei_valtable_adjustcapacity(FeiState *state, FeiValTable *table, int capacity);
+bool fei_valtable_set(FeiState *state, FeiValTable *table, FeiString *key, FeiValue value);
+bool fei_valtable_delete(FeiState *state, FeiValTable *table, FeiString *key);
+void fei_valtable_mergefrom(FeiState *state, FeiValTable *from, FeiValTable *to);
+FeiString *fei_valtable_findstring(FeiState *state, FeiValTable *table, const char *chars, int length, uint32_t hash);
+void fei_valtable_removeunreachable(FeiState *state, FeiValTable *table);
+void fei_valtable_mark(FeiState *state, FeiValTable *table);
+FeiTable *fei_table_make(FeiState *state);
+bool fei_table_destroy(FeiTable *table);
+size_t fei_table_count(FeiTable *table);
+bool fei_table_get(FeiTable *table, FeiString *key, FeiValue *value);
+bool fei_table_set(FeiTable *table, FeiString *key, FeiValue value);
+
+
 /* tostring.c */
-void fei_value_printfunc(FeiState *state, FeiWriter *wr, FeiObjFunction *function);
-void fei_value_printstring(FeiState *state, FeiWriter *wr, FeiString *ostr, bool withquot);
-void fei_value_printvalue(FeiState *state, FeiWriter *wr, FeiValue value, bool withquot);
-void fei_value_printobject(FeiState *state, FeiWriter *wr, FeiValue value, bool withquot);
+void fei_tostring_func(FeiState *state, FeiWriter *wr, FeiObjFunction *function);
+void fei_tostring_string(FeiState *state, FeiWriter *wr, FeiString *ostr, bool withquot);
+void fei_tostring_value(FeiState *state, FeiWriter *wr, FeiValue value, bool withquot);
+void fei_tostring_object(FeiState *state, FeiWriter *wr, FeiValue value, bool withquot);
 
 /* value.c */
 const char* fei_value_typename(FeiValue v);
@@ -1178,6 +1197,11 @@ static inline bool fei_value_isarray(FeiValue v)
     return fei_object_istype(v, OBJ_ARRAY);
 }
 
+static inline bool fei_value_istable(FeiValue v)
+{
+    return fei_object_istype(v, OBJ_TABLE);
+}
+
 static inline bool fei_value_numberisnull(FeiState* state, FeiValue val)
 {
     (void)state;
@@ -1222,6 +1246,11 @@ static inline int fei_value_gettype(FeiValue v)
 static inline FeiArray* fei_value_asarray(FeiValue v)
 {
     return (FeiArray*)fei_value_asobject(v);
+}
+
+static inline FeiTable* fei_value_astable(FeiValue v)
+{
+    return (FeiTable*)fei_value_asobject(v);
 }
 
 static inline FeiObjBoundMethod* fei_value_asbound_method(FeiValue v)

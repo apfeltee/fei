@@ -17,10 +17,18 @@ static FeiValue cfn_print(FeiState* state, FeiValue instance, int argc, FeiValue
     (void)instance;
     for(i = 0; i < argc; i++)
     {
-        fei_value_printvalue(state, state->iowriter_stdout, args[i], false);
+        fei_tostring_value(state, state->iowriter_stdout, args[i], false);
         fflush(stdout);
     }
     return fei_value_makenull(state);
+}
+
+
+static FeiValue cfn_maketable(FeiState* state, FeiValue instance, int argc, FeiValue* args)
+{
+    (void)state;
+    (void)instance;
+    return fei_value_makeobject(state, fei_table_make(state));
 }
 
 static FeiValue cfn_println(FeiState* state, FeiValue instance, int argc, FeiValue* args)
@@ -34,10 +42,12 @@ static FeiValue cfn_println(FeiState* state, FeiValue instance, int argc, FeiVal
 
 static FeiValue objfn_string_length(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
 {
+    FeiString* s;
     (void)state;
     (void)argc;
     (void)argv;
-    return fei_value_makefixednumber(state, fei_value_asstring(instance)->length);
+    s = fei_value_asstring(instance);
+    return fei_value_makefixednumber(state, s->length);
 }
 
 static FeiValue objfn_string_size(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
@@ -46,9 +56,19 @@ static FeiValue objfn_string_size(FeiState* state, FeiValue instance, int argc, 
     (void)argc;
     (void)argv;
     fprintf(stderr, "in objfn_string_size:instance=[[[");
-    fei_value_printvalue(state, state->iowriter_stderr, instance, true);
+    fei_tostring_value(state, state->iowriter_stderr, instance, true);
     fprintf(stderr, "]]]\n");
     return fei_value_makenull(state);
+}
+
+static FeiValue objfn_string_ord(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
+{
+    FeiString* s;
+    (void)state;
+    (void)argc;
+    (void)argv;
+    s = fei_value_asstring(instance);
+    return fei_value_makefixednumber(state, s->chars[0]);
 }
 
 static FeiValue objfn_number_chr(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
@@ -63,10 +83,12 @@ static FeiValue objfn_number_chr(FeiState* state, FeiValue instance, int argc, F
 
 static FeiValue objfn_array_length(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
 {
+    FeiArray* arr;
     (void)state;
     (void)argc;
     (void)argv;
-    return fei_value_makefixednumber(state, fei_array_count(fei_value_asarray(instance)));
+    arr = fei_value_asarray(instance);
+    return fei_value_makefixednumber(state, fei_array_count(arr));
 }
 
 static FeiValue objfn_array_push(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
@@ -125,7 +147,7 @@ static FeiValue objfn_array_join(FeiState* state, FeiValue instance, int argc, F
     for(i=0; i<alen; i++)
     {
         val = fei_array_get(arr, i);
-        fei_value_printvalue(state, wr, val, false);
+        fei_tostring_value(state, wr, val, false);
         if((i+1) < alen)
         {
             fei_writer_appendstringlen(wr, sepstr, seplen);
@@ -136,18 +158,57 @@ static FeiValue objfn_array_join(FeiState* state, FeiValue instance, int argc, F
     return val;
 }
 
+static FeiValue objfn_array_map(FeiState* state, FeiValue instance, int argc, FeiValue* argv)
+{
+    int i;
+    int alen;
+    int seplen;
+    const char* sepstr;
+    FeiValue val;
+    FeiString* sepobj;
+    FeiArray* arr;
+    FeiWriter* wr;
+    (void)state;
+    (void)argc;
+    (void)argv;
+    sepstr = "";
+    seplen = 0;
+    arr = fei_value_asarray(instance);
+    wr = fei_writer_initstring(state);
+    if(argc > 0 && fei_value_isstring(argv[0]))
+    {
+        sepobj = fei_value_asstring(argv[0]);
+        sepstr = sepobj->chars;
+        seplen = sepobj->length;
+    }
+    alen = fei_array_count(arr);
+    for(i=0; i<alen; i++)
+    {
+        val = fei_array_get(arr, i);
+        fei_tostring_value(state, wr, val, false);
+        if((i+1) < alen)
+        {
+            fei_writer_appendstringlen(wr, sepstr, seplen);
+        }
+    }
+    val = fei_value_makeobject(state, wr->string);
+    fei_writer_destroy(wr, false);
+    return val;
+}
 
 void fei_state_setupglobals(FeiState* state)
 {
     fei_vm_defnative(state, "clock", cfn_clock);
     fei_vm_defnative(state, "print", cfn_print);
     fei_vm_defnative(state, "println", cfn_println);
+    fei_vm_defnative(state, "Table", cfn_maketable);
 }
 
 void fei_state_setupstring(FeiState* state)
 {
     fei_class_defmethod(state, state->objstring.classobj, "length", objfn_string_length, true);
     fei_class_defmethod(state, state->objstring.classobj, "size", objfn_string_size, false);
+    fei_class_defmethod(state, state->objstring.classobj, "ord", objfn_string_ord, true);
 }
 
 void fei_state_setupnumber(FeiState* state)
@@ -161,6 +222,7 @@ void fei_state_setuparray(FeiState* state)
     fei_class_defmethod(state, state->objarray.classobj, "length", objfn_array_length, true);
     fei_class_defmethod(state, state->objarray.classobj, "push", objfn_array_push, false);
     fei_class_defmethod(state, state->objarray.classobj, "pop", objfn_array_pop, false);
-    fei_class_defmethod(state, state->objarray.classobj, "join", objfn_array_join, false);    
+    fei_class_defmethod(state, state->objarray.classobj, "join", objfn_array_join, false);
+    fei_class_defmethod(state, state->objarray.classobj, "map", objfn_array_map, false);
 }
 

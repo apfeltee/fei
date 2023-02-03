@@ -1,7 +1,7 @@
 
 #include "fei.h"
 
-static inline FeiValTabEntry* fei_table_internfindentry(FeiState* state, int count, FeiValTabEntry* entries, int capacity, FeiString* key)
+static inline FeiValTabEntry* fei_valtable_internfindentry(FeiState* state, int count, FeiValTabEntry* entries, int capacity, FeiString* key)
 {
     uint32_t index;
     FeiValTabEntry* entry;
@@ -45,19 +45,19 @@ static inline FeiValTabEntry* fei_table_internfindentry(FeiState* state, int cou
     return NULL;
 }
 
-FeiValTable* fei_table_make(FeiState* state, int cap)
+FeiValTable* fei_valtable_make(FeiState* state, int cap)
 {
     FeiValTable* table;
-    table = ALLOCATE(state, sizeof(FeiValTable), 1);
-    fei_table_initnull(state, table);
+    table = (FeiValTable*)ALLOCATE(state, sizeof(FeiValTable), 1);
+    fei_valtable_initnull(state, table);
     if(cap > 0)
     {
-        fei_table_adjustcapacity(state, table, cap);
+        fei_valtable_adjustcapacity(state, table, cap);
     }
     return table;
 }
 
-void fei_table_initnull(FeiState* state, FeiValTable* table)
+void fei_valtable_initnull(FeiState* state, FeiValTable* table)
 {
     (void)state;
     table->count = 0;
@@ -65,21 +65,21 @@ void fei_table_initnull(FeiState* state, FeiValTable* table)
     table->entries = NULL;
 }
 
-void fei_table_destroy(FeiState* state, FeiValTable* table)
+void fei_valtable_destroy(FeiState* state, FeiValTable* table)
 {
     FREE_ARRAY(state, sizeof(FeiValTabEntry), table->entries, table->capacity);
-    //fei_table_initnull(state, table);
+    //fei_valtable_initnull(state, table);
     FREE(state, sizeof(FeiValTable), table);
 }
 
-bool fei_table_get(FeiState* state, FeiValTable* table, FeiString* key, FeiValue* value)
+bool fei_valtable_get(FeiState* state, FeiValTable* table, FeiString* key, FeiValue* value)
 {
     FeiValTabEntry* entry;
     if(table->count == 0)
     {
         return false;
     }
-    entry = fei_table_internfindentry(state, table->count, table->entries, table->capacity, key);
+    entry = fei_valtable_internfindentry(state, table->count, table->entries, table->capacity, key);
     if(entry == NULL)
     {
         return false;
@@ -92,7 +92,7 @@ bool fei_table_get(FeiState* state, FeiValTable* table, FeiString* key, FeiValue
     return true;
 }
 
-void fei_table_adjustcapacity(FeiState* state, FeiValTable* table, int capacity)
+void fei_valtable_adjustcapacity(FeiState* state, FeiValTable* table, int capacity)
 {
     int i;
     int actualcap;
@@ -109,7 +109,7 @@ void fei_table_adjustcapacity(FeiState* state, FeiValTable* table, int capacity)
     // do not copy tombstones over when growing
     // NOTE: entries may end up in different buckets
     // with the same hash as it is divided by the modulo; loop below recalculates everything
-    //fprintf(stderr, "fei_table_adjustcapacity(%d): table->count=%d table->entries=%p\n", actualcap, table->count, table->entries);
+    //fprintf(stderr, "fei_valtable_adjustcapacity(%d): table->count=%d table->entries=%p\n", actualcap, table->count, table->entries);
     if((table->count > 0) && (table->entries != NULL))
     {
         table->count = 0;
@@ -122,7 +122,7 @@ void fei_table_adjustcapacity(FeiState* state, FeiValTable* table, int capacity)
                 continue;
             }
             // pass in new array
-            dest = fei_table_internfindentry(state, table->count, entries, actualcap, entry->key);
+            dest = fei_valtable_internfindentry(state, table->count, entries, actualcap, entry->key);
             dest->key = entry->key;
             dest->value = entry->value;
             table->count++;
@@ -134,7 +134,7 @@ void fei_table_adjustcapacity(FeiState* state, FeiValTable* table, int capacity)
 }
 
 // inserting into the table, return false if collision
-bool fei_table_set(FeiState* state, FeiValTable* table, FeiString* key, FeiValue value)
+bool fei_valtable_set(FeiState* state, FeiValTable* table, FeiString* key, FeiValue value)
 {
     bool isnewkey;
     int capacity;
@@ -143,9 +143,9 @@ bool fei_table_set(FeiState* state, FeiValTable* table, FeiString* key, FeiValue
     if((table->count + 1) > (table->capacity * TABLE_MAX_LOAD))
     {
         capacity = (GROW_CAPACITY(table->capacity));
-        fei_table_adjustcapacity(state, table, capacity);
+        fei_valtable_adjustcapacity(state, table, capacity);
     }
-    entry = fei_table_internfindentry(state, table->count, table->entries, table->capacity, key);
+    entry = fei_valtable_internfindentry(state, table->count, table->entries, table->capacity, key);
     isnewkey = entry->key == NULL;
     if(isnewkey && fei_value_isnull(entry->value))
     {
@@ -157,7 +157,7 @@ bool fei_table_set(FeiState* state, FeiValTable* table, FeiString* key, FeiValue
     return isnewkey;
 }
 
-bool fei_table_delete(FeiState* state, FeiValTable* table, FeiString* key)
+bool fei_valtable_delete(FeiState* state, FeiValTable* table, FeiString* key)
 {
     FeiValTabEntry* entry;
     if(table->count == 0)
@@ -165,7 +165,7 @@ bool fei_table_delete(FeiState* state, FeiValTable* table, FeiString* key)
         return false;
     }
     // find entry
-    entry = fei_table_internfindentry(state, table->count, table->entries, table->capacity, key);
+    entry = fei_valtable_internfindentry(state, table->count, table->entries, table->capacity, key);
     if(entry->key == NULL)
     {
         return false;
@@ -177,7 +177,7 @@ bool fei_table_delete(FeiState* state, FeiValTable* table, FeiString* key)
     return true;
 }
 
-void fei_table_mergefrom(FeiState* state, FeiValTable* from, FeiValTable* to)
+void fei_valtable_mergefrom(FeiState* state, FeiValTable* from, FeiValTable* to)
 {
     int i;
     FeiValTabEntry* entry;
@@ -186,15 +186,16 @@ void fei_table_mergefrom(FeiState* state, FeiValTable* from, FeiValTable* to)
         entry = &from->entries[i];
         if(entry->key != NULL)
         {
-            fei_table_set(state, to, entry->key, entry->value);
+            fei_valtable_set(state, to, entry->key, entry->value);
         }
     }
 }
 
 // used in VM to find the string
 // pass in raw character array
-FeiString* fei_table_findstring(FeiState* state, FeiValTable* table, const char* chars, int length, uint32_t hash)
+FeiString* fei_valtable_findstring(FeiState* state, FeiValTable* table, const char* chars, int length, uint32_t hash)
 {
+    bool found;
     uint32_t index;
     FeiValTabEntry* entry;
     (void)state;
@@ -215,10 +216,18 @@ FeiString* fei_table_findstring(FeiState* state, FeiValTable* table, const char*
                 return NULL;
             }
         }
-        else if((entry->key->length == length) && (entry->key->hash == hash) && (memcmp(entry->key->chars, chars, length) == 0))
+        else
         {
-            // found the entry
-            return entry->key;
+            found = (
+                (entry->key->length == length) &&
+                (entry->key->hash == hash) //&&
+                //(memcmp(entry->key->chars, chars, length) == 0)
+            );
+            if(found)
+            {
+                // found the entry
+                return entry->key;
+            }
         }
         index = (index + 1) % table->capacity;
     }
@@ -226,7 +235,7 @@ FeiString* fei_table_findstring(FeiState* state, FeiValTable* table, const char*
 }
 
 // removing unreachable pointers, used to remove string interns in garbage collection
-void fei_table_removeunreachable(FeiState* state, FeiValTable* table)
+void fei_valtable_removeunreachable(FeiState* state, FeiValTable* table)
 {
     int i;
     FeiValTabEntry* entry;
@@ -236,13 +245,13 @@ void fei_table_removeunreachable(FeiState* state, FeiValTable* table)
         // remove not marked (string) object pointers
         if(entry->key != NULL && !entry->key->obj.ismarked)
         {
-            fei_table_delete(state, table, entry->key);
+            fei_valtable_delete(state, table, entry->key);
         }
     }
 }
 
 // mark global variables, used in VM for garbage collection
-void fei_table_mark(FeiState* state, FeiValTable* table)
+void fei_valtable_mark(FeiState* state, FeiValTable* table)
 {
     int i;
     FeiValTabEntry* entry;
@@ -257,4 +266,42 @@ void fei_table_mark(FeiState* state, FeiValTable* table)
     }
 }
 
+
+FeiTable* fei_table_make(FeiState* state)
+{
+    FeiTable* arr;
+    state->ocount.cnttable++;
+    arr = (FeiTable*)fei_object_allocobject(state, sizeof(FeiTable), OBJ_TABLE);
+    arr->state = state;
+    arr->table = fei_valtable_make(state, 0);
+    return arr;
+}
+
+bool fei_table_destroy(FeiTable* table)
+{
+    FeiState* state;
+    if(table != NULL)
+    {
+        state = table->state;
+        fei_valtable_destroy(state, table->table);
+        fei_gcmem_reallocate(state, table, sizeof(FeiTable), 0);
+        return true;
+    }
+    return false;
+}
+
+size_t fei_table_count(FeiTable* table)
+{
+    return table->table->count;
+}
+
+bool fei_table_get(FeiTable* table, FeiString* key, FeiValue* value)
+{
+    return fei_valtable_get(table->state, table->table, key, value);
+}
+
+bool fei_table_set(FeiTable* table, FeiString* key, FeiValue value)
+{
+    return fei_valtable_set(table->state, table->table, key, value);
+}
 

@@ -175,7 +175,7 @@ static inline bool fei_vmguts_callvalue(FeiState* state, FeiValue instval, FeiVa
                     instance = fei_object_makeinstance(state, klass);
                     state->vmstate.stacktop[-argcount - 1] = fei_value_makeobject(state, instance);
                     // if we find one from the table
-                    if(fei_table_get(state, klass->methods, state->vmstate.initstring, &initializer))
+                    if(fei_valtable_get(state, klass->methods, state->vmstate.initstring, &initializer))
                     {
                         return fei_vmguts_callclosure(state, fei_value_asclosure(initializer), argcount);
                     }
@@ -260,10 +260,10 @@ void dumpstack(FeiState* state, const char* fmt, ...)
         #if defined(ALSO_PRINTTOP) && (ALSO_PRINTTOP == 1)
         fprintf(stderr, "{");
         #endif
-        fei_value_printvalue(state, state->iowriter_stderr, state->vmstate.stackvalues[i], true);
+        fei_tostring_value(state, state->iowriter_stderr, state->vmstate.stackvalues[i], true);
         #if defined(ALSO_PRINTTOP) && (ALSO_PRINTTOP == 1)
             fprintf(stderr, ", ");
-            fei_value_printvalue(state, state->iowriter_stderr, state->vmstate.stacktop[i], true);
+            fei_tostring_value(state, state->iowriter_stderr, state->vmstate.stacktop[i], true);
             fprintf(stderr, "}");
         #endif
         fprintf(stderr, "\n");
@@ -279,7 +279,7 @@ void fei_vm_dumpval(FeiState* state, FeiValue val, const char* fmt, ...)
     vfprintf(stderr, fmt, va);
     va_end(va);
     fprintf(stderr, " = ");
-    fei_value_printvalue(state, state->iowriter_stderr, val, true);
+    fei_tostring_value(state, state->iowriter_stderr, val, true);
     fprintf(stderr, "\n");
 }
 
@@ -369,7 +369,7 @@ void fei_vm_closeupvalues(FeiState* state, FeiValue* last)// takes pointer to st
 bool fei_instance_getproperty(FeiState* state, FeiInstance* instance, FeiString* name, FeiValue* dest)
 {
     FeiValue val;
-    if(fei_table_get(state, instance->fields, name, &val))
+    if(fei_valtable_get(state, instance->fields, name, &val))
     {
         *dest = val;
         return true;
@@ -485,7 +485,7 @@ static inline bool fei_vmdo_inherit(FeiState* state)
     // child class at the top of the stack
     child = fei_value_asclass(fei_vm_stackpeek_inline(state, 0));
     // add all methods from parent to child table
-    fei_table_mergefrom(state, fei_value_asclass(parent)->methods, child->methods);
+    fei_valtable_mergefrom(state, fei_value_asclass(parent)->methods, child->methods);
     //fei_class_inherit(state, fei_value_asclass(parent), child);
     // pop the child class
     fei_vm_stackpop_inline(state);
@@ -558,7 +558,7 @@ static inline bool fei_vmdo_setproperty(FeiState* state)
     //peek(0) is the new value
     peekval = fei_vm_stackpeek_inline(state, 0);
     name = fei_vmguts_readstring(state, state->vmstate.topframe);
-    fei_table_set(state, instance->fields, name, peekval);
+    fei_valtable_set(state, instance->fields, name, peekval);
     // pop the already set value
     fei_vm_stackpop_inline(state);
     // pop the property instance itself
@@ -615,7 +615,7 @@ bool fei_vm_otherproperty(FeiState* state, FeiString* name, int typ, bool asfiel
     if(inst != NULL)
     {
         tab = inst->classobject->methods;
-        b = fei_table_get(state, tab, name, &v);
+        b = fei_valtable_get(state, tab, name, &v);
         //fprintf(stderr, "get table value (from field=%d): %d\n", asfield, b);
         if(b)
         {
@@ -656,7 +656,7 @@ bool fei_vm_classinvoke(FeiState* state, FeiValue receiver, FeiString* name, int
     }
     instance = fei_value_asinstance(receiver);
     // for fields()
-    if(fei_table_get(state, instance->fields, name, &value))
+    if(fei_valtable_get(state, instance->fields, name, &value))
     {
         state->vmstate.stacktop[-argcount - 1] = value;
         return fei_vmguts_callvalue(state, fei_value_makenull(state), value, argcount);
@@ -699,7 +699,7 @@ static inline bool fei_vmdo_getproperty(FeiState* state)
             //fprintf(stderr, "getproperty: inst=%p\n", inst);
             if(inst != NULL)
             {
-                b = fei_table_get(state, inst->classobject->methods, name, &value);
+                b = fei_valtable_get(state, inst->classobject->methods, name, &value);
                 //fprintf(stderr, "get method: %d\n", b);
                 if(b)
                 {
@@ -794,6 +794,10 @@ static inline bool fei_vmdo_unary(FeiState* state, uint8_t instruc)
     int64_t ires;
     FeiValue poked;
     FeiValue popped;
+    dnum = 0;
+    dres = 0;
+    inum = 0;
+    ires = 0;
     poked = fei_vm_stackpeek_inline(state, 0);
     if(!fei_value_isnumber(poked))
     {
@@ -917,6 +921,8 @@ static inline bool fei_vmdo_binary(FeiState* state, uint8_t instruc)
     double fvright;
     int64_t nvleft;
     int64_t nvright;
+    valright = fei_value_makenull(state);
+    valleft = fei_value_makenull(state);
     pokeright = fei_vm_stackpeek_inline(state, 0);
     pokeleft = fei_vm_stackpeek_inline(state, 1);
     if((instruc == OP_ADD) && (fei_value_isstring(pokeright) && fei_value_isstring(pokeleft)))
@@ -1138,7 +1144,7 @@ static inline bool fei_vmdo_defineglobal(FeiState* state)
     // get name from constant table
     name = fei_vmguts_readstring(state, state->vmstate.topframe);
     // take value from the top of the stack
-    fei_table_set(state, state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0));
+    fei_valtable_set(state, state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0));
     fei_vm_stackpop_inline(state);
     return true;
 }
@@ -1148,9 +1154,10 @@ static inline bool fei_vmdo_setglobal(FeiState* state)
     FeiString* name;
     name = fei_vmguts_readstring(state, state->vmstate.topframe);
     // if key not in hash table
-    if(fei_table_set(state, state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0)))
+    //fprintf(stderr, "setglobal: %.*s\n", name->length, name->chars);
+    if(fei_valtable_set(state, state->vmstate.globals, name, fei_vm_stackpeek_inline(state, 0)))
     {
-        //fei_table_delete(state, &state->vmstate.globals, name);// delete the false name
+        //fei_valtable_delete(state, &state->vmstate.globals, name);// delete the false name
         //fei_vm_raiseruntimeerror(state, "undefined variable '%s'", name->chars);
         //return STATUS_RTERROR;
     }
@@ -1161,12 +1168,27 @@ static inline bool fei_vmdo_getglobal(FeiState* state)
 {
     FeiValue value;
     FeiString* name;
+    FeiString* key;
+    FeiValTable* globs;
+    globs = state->vmstate.globals;
     // get the name
     name = fei_vmguts_readstring(state, state->vmstate.topframe);
     // if key not in hash table
-    if(!fei_table_get(state, state->vmstate.globals, name, &value))
+    if(!fei_valtable_get(state, globs, name, &value))
     {
         fei_vm_raiseruntimeerror(state, "undefined variable '%.*s'", name->length, name->chars);
+        {
+            int i;
+            fprintf(stderr, "current globals:\n");
+            for(i=0; i<globs->count; i++)
+            {
+                key = globs->entries[i].key;
+                if(key != NULL)
+                {
+                    fprintf(stderr, "  globals[%d]: name=%.*s\n", i, key->length, key->chars);
+                }
+            }
+        }
         return false;
     }
     fei_vm_stackpush(state, value);
@@ -1302,6 +1324,7 @@ static inline bool fei_vmdo_loopiftrue(FeiState* state)
 static inline bool fei_vmdo_getindex(FeiState* state, bool setindex)
 {
     bool isarray;
+    bool istable;
     FeiValue index;
     FeiValue peeked;
     FeiValue setval;
@@ -1312,8 +1335,15 @@ static inline bool fei_vmdo_getindex(FeiState* state, bool setindex)
     FeiString* rs;
     FeiArray* oba;
     FeiString* obs;
+    FeiTable* obt;
     FeiString* setstr;
+    rs = NULL;
+    oba = NULL;
+    obs = NULL;
+    setstr = NULL;
     setchar = -1;
+    maxlen = 0;
+    nidx = -1;
     setval = fei_value_makenull(state);
     #if 0
         dumpstack(state, "fei_vmdo_getindex");
@@ -1340,23 +1370,58 @@ static inline bool fei_vmdo_getindex(FeiState* state, bool setindex)
         fei_vm_dumpval(state, setval, "setval");
     #endif
     isarray = fei_value_isarray(peeked);
-    if(fei_value_isstring(peeked) || isarray)
+    istable = fei_value_istable(peeked);
+    if(fei_value_isstring(peeked) || isarray || istable)
     {
         if(!fei_value_isnumber(index))
         {
-            fei_vm_raiseruntimeerror(state, "cannot use a '%s' to index a '%s'", fei_value_typename(index), fei_value_typename(peeked));
-            return false;
+            if(!istable)
+            {
+                fei_vm_raiseruntimeerror(state, "cannot use a '%s' to index a '%s'", fei_value_typename(index), fei_value_typename(peeked));
+                return false;
+            }
         }
-        nidx = fei_value_asnumber(index);
+        else
+        {
+            nidx = fei_value_asnumber(index);
+        }
         if(isarray)
         {
             oba = fei_value_asarray(peeked);
             maxlen = fei_array_count(oba);
         }
+        else if(istable)
+        {
+            obt = fei_value_astable(peeked);
+        }
         else
         {
             obs = fei_value_asstring(peeked);
             maxlen = obs->length;
+        }
+        if(istable)
+        {
+            obs = fei_value_asstring(index);
+            fei_vm_dumpval(state, index, "table->index: setindex=%d", setindex);
+            if(setindex)
+            {
+                if(!fei_table_set(obt, obs, setval))
+                {
+                    fei_vm_raiseruntimeerror(state, "failed to set key '%.*s'", obs->length, obs->chars);
+                    return false;
+                }
+                fei_vm_stackpush_inline(state, setval);
+            }
+            else
+            {
+                if(!fei_table_get(obt, obs, &setval))
+                {
+                    fei_vm_raiseruntimeerror(state, "failed to get key '%.*s'", obs->length, obs->chars);
+                    return false;
+                }
+                fei_vm_stackpush_inline(state, setval);
+            }
+            return true;
         }
         if(nidx < maxlen)
         {
@@ -1436,7 +1501,7 @@ static inline bool fei_vmdo_makearray(FeiState* state)
         val = fei_vm_stackpeek_inline(state, i);
         #if 0
             fprintf(stderr, "value: ");
-            fei_value_printvalue(state, state->iowriter_stderr, val, true);
+            fei_tostring_value(state, state->iowriter_stderr, val, true);
             fprintf(stderr, "\n");
         #endif
         fei_array_push(arr, val);
@@ -1490,7 +1555,7 @@ FeiResultCode fei_vm_exec(FeiState* state)
             for(slot = state->vmstate.stackvalues; slot < state->vmstate.stacktop; slot++)
             {
                 fprintf(stderr, "  %d slot[%p]: ", cnt, slot);
-                fei_value_printvalue(state, state->iowriter_stderr, *slot, true);
+                fei_tostring_value(state, state->iowriter_stderr, *slot, true);
                 fprintf(stderr, "\n");
                 cnt++;
             }
@@ -1567,7 +1632,7 @@ FeiResultCode fei_vm_exec(FeiState* state)
                 break;
             case OP_PRINT:
                 {
-                    fei_value_printvalue(state, state->iowriter_stdout, fei_vm_stackpop_inline(state), false);
+                    fei_tostring_value(state, state->iowriter_stdout, fei_vm_stackpop_inline(state), false);
                     printf("\n");
                 }
                 break;

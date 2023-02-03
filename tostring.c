@@ -1,7 +1,7 @@
 
 #include "fei.h"
 
-void fei_value_printfunc(FeiState* state, FeiWriter* wr, FeiObjFunction* function)
+void fei_tostring_func(FeiState* state, FeiWriter* wr, FeiObjFunction* function)
 {
     (void)state;
     if(function->name == NULL)
@@ -16,7 +16,7 @@ void fei_value_printfunc(FeiState* state, FeiWriter* wr, FeiObjFunction* functio
     }
 }
 
-void fei_value_printstring(FeiState* state, FeiWriter* wr, FeiString* ostr, bool withquot)
+void fei_tostring_string(FeiState* state, FeiWriter* wr, FeiString* ostr, bool withquot)
 {
     size_t len;
     char* str;
@@ -33,7 +33,7 @@ void fei_value_printstring(FeiState* state, FeiWriter* wr, FeiString* ostr, bool
     }
 }
 
-void fei_value_printarray(FeiState* state, FeiWriter* wr, FeiArray* arr, bool withquot)
+void fei_tostring_array(FeiState* state, FeiWriter* wr, FeiArray* arr, bool withquot)
 {
     size_t i;
     size_t len;
@@ -49,7 +49,7 @@ void fei_value_printarray(FeiState* state, FeiWriter* wr, FeiArray* arr, bool wi
         }
         else
         {
-            fei_value_printvalue(state, wr, val, withquot);
+            fei_tostring_value(state, wr, val, withquot);
         }
         if((i+1) < len)
         {
@@ -60,8 +60,46 @@ void fei_value_printarray(FeiState* state, FeiWriter* wr, FeiArray* arr, bool wi
 }
 
 
+void fei_tostring_table(FeiState* state, FeiWriter* wr, FeiTable* tbl, bool withquot)
+{
+    size_t i;
+    size_t len;
+    FeiValTabEntry* ent;
+    len = fei_table_count(tbl);
+    fei_writer_appendchar(wr, '{');
+    for(i=0; i<len; i++)
+    {
+        ent = &tbl->table->entries[i];
+        if(ent->key == NULL)
+        {
+            fei_writer_appendfmt(wr, "<NULL>");
+        }
+        else
+        {
+            fei_writer_appendfmt(wr, "\"");
+            fei_writer_appendquotedstring(wr, ent->key->chars, ent->key->length, true);
+            fei_writer_appendfmt(wr, "\"");
+        }
+        fei_writer_appendfmt(wr, ": ");
+        if(fei_value_isarray(ent->value) && (fei_value_astable(ent->value) == tbl))
+        {
+            fei_writer_appendfmt(wr, "(recursion)");
+        }
+        else
+        {
+            fei_tostring_value(state, wr, ent->value, withquot);
+        }
+        if((i+1) < len)
+        {
+            fei_writer_appendchar(wr, ',');
+        }
+    }
+    fei_writer_appendchar(wr, '}');
+}
+
+
 // actual printing on the virtual machine is done here
-void fei_value_printvalue(FeiState* state, FeiWriter* wr, FeiValue value, bool withquot)
+void fei_tostring_value(FeiState* state, FeiWriter* wr, FeiValue value, bool withquot)
 {
     switch(value.type)
     {
@@ -94,13 +132,13 @@ void fei_value_printvalue(FeiState* state, FeiWriter* wr, FeiValue value, bool w
             break;
         case VAL_OBJ:
             {
-                fei_value_printobject(state, wr, value, withquot);
+                fei_tostring_object(state, wr, value, withquot);
             }
             break;
     }
 }
 
-void fei_value_printobject(FeiState* state, FeiWriter* wr, FeiValue value, bool withquot)
+void fei_tostring_object(FeiState* state, FeiWriter* wr, FeiValue value, bool withquot)
 {
     FeiClass* klass;
     FeiInstance* instance;
@@ -110,7 +148,7 @@ void fei_value_printobject(FeiState* state, FeiWriter* wr, FeiValue value, bool 
     {
         case OBJ_BOUND_METHOD:
             {
-                fei_value_printfunc(state, wr, fei_value_asbound_method(value)->method->function);
+                fei_tostring_func(state, wr, fei_value_asbound_method(value)->method->function);
             }
             break;
         case OBJ_CLASS:
@@ -128,12 +166,12 @@ void fei_value_printobject(FeiState* state, FeiWriter* wr, FeiValue value, bool 
             break;
         case OBJ_CLOSURE:
             {
-                fei_value_printfunc(state, wr, fei_value_asclosure(value)->function);
+                fei_tostring_func(state, wr, fei_value_asclosure(value)->function);
             }
             break;
         case OBJ_FUNCTION:
             {
-                fei_value_printfunc(state, wr, fei_value_asfunction(value));
+                fei_tostring_func(state, wr, fei_value_asfunction(value));
             }
             break;
         case OBJ_NATIVE:
@@ -143,7 +181,7 @@ void fei_value_printobject(FeiState* state, FeiWriter* wr, FeiValue value, bool 
             break;
         case OBJ_STRING:
             {
-                fei_value_printstring(state, wr, fei_value_asstring(value), withquot);
+                fei_tostring_string(state, wr, fei_value_asstring(value), withquot);
             }
             break;
         case OBJ_UPVALUE:
@@ -153,7 +191,12 @@ void fei_value_printobject(FeiState* state, FeiWriter* wr, FeiValue value, bool 
             break;
         case OBJ_ARRAY:
             {
-                fei_value_printarray(state, wr, fei_value_asarray(value), withquot);
+                fei_tostring_array(state, wr, fei_value_asarray(value), withquot);
+            }
+            break;
+        case OBJ_TABLE:
+            {
+                fei_tostring_table(state, wr, fei_value_astable(value), withquot);
             }
             break;
         default:
